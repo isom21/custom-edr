@@ -1,6 +1,6 @@
 # ADR 0004 — Sigma evaluation: scheduled OpenSearch correlation, not Flink streaming
 
-- **Status:** Accepted (supersedes the streaming-Sigma decision in [ADR 0001](0001-stack-selection.md))
+- **Status:** Superseded by [ADR 0005](0005-sigma-realtime-percolator.md). The reasoning here for not using Flink remains valid; the *choice* of scheduled-correlation as the evaluation engine was replaced by an OpenSearch percolator the same week.
 - **Date:** 2026-05-08
 
 ## Context

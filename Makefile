@@ -50,7 +50,11 @@ backend-detector: ## Run the IOC detector (telemetry.normalized -> alerts).
 	cd backend && python -m app.workers.detector
 
 .PHONY: backend-sigma
-backend-sigma: ## Run the Sigma scheduler (periodic OpenSearch correlation).
+backend-sigma: ## Run the Sigma realtime worker (OpenSearch percolator). Recommended.
+	cd backend && python -m app.workers.sigma_realtime
+
+.PHONY: backend-sigma-scheduled
+backend-sigma-scheduled: ## Run the legacy Sigma scheduler (30s tick). Use for aggregation rules.
 	cd backend && python -m app.workers.sigma_scheduler
 
 .PHONY: backend-migrate

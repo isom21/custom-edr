@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -13,7 +14,10 @@ from app.models import IocEntry, IocKind, Rule, RuleKind
 from app.schemas.common import Page
 from app.schemas.rule import IocEntryIn, RuleCreate, RuleOut, RuleUpdate
 from app.services import audit
+from app.services import opensearch as os_svc
 from app.services.sigma import SigmaCompileError, compile_yaml
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -89,6 +93,60 @@ def _validate_sigma_or_400(body: str | None) -> str | None:
     return compiled.query
 
 
+async def _sync_sigma_rule_to_percolator(rule: Rule) -> None:
+    """Reflect the rule's current state into the OpenSearch percolator index.
+
+    Best-effort: failures here log but don't fail the API call. The
+    sigma_realtime worker re-syncs from PG on startup, so eventual
+    consistency is fine.
+
+    A rule is *registered* iff: kind=sigma AND enabled AND has a compiled
+    query. In every other case (deleted, disabled, kind changed away,
+    compile failed) we *unregister*.
+    """
+    client = os_svc._client()
+    try:
+        await os_svc.ensure_sigma_index(client)
+        if (
+            rule.kind is RuleKind.SIGMA
+            and rule.enabled
+            and rule.sigma_compiled
+        ):
+            await os_svc.register_sigma_rule(
+                client,
+                rule_id=rule.id,
+                rule_name=rule.name,
+                severity=rule.severity.value,
+                lucene_query=rule.sigma_compiled,
+            )
+        else:
+            await os_svc.unregister_sigma_rule(client, rule.id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "sigma.percolator_sync_failed",
+            rule_id=str(rule.id),
+            error=str(exc),
+        )
+    finally:
+        await client.close()
+
+
+async def _unregister_sigma_rule(rule_id: UUID) -> None:
+    """Remove a rule from the percolator index. Best-effort."""
+    client = os_svc._client()
+    try:
+        await os_svc.ensure_sigma_index(client)
+        await os_svc.unregister_sigma_rule(client, rule_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "sigma.percolator_unregister_failed",
+            rule_id=str(rule_id),
+            error=str(exc),
+        )
+    finally:
+        await client.close()
+
+
 @router.post("", response_model=RuleOut, status_code=status.HTTP_201_CREATED)
 async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -> RuleOut:
     sigma_compiled = (
@@ -117,6 +175,8 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         resource_id=str(rule.id),
         payload={"kind": rule.kind.value, "name": rule.name},
     )
+    if rule.kind is RuleKind.SIGMA:
+        await _sync_sigma_rule_to_percolator(rule)
     return RuleOut.model_validate(rule)
 
 
@@ -162,6 +222,8 @@ async def update_rule(
     )
     await db.flush()
     await db.refresh(rule, attribute_names=["iocs"])
+    if rule.kind is RuleKind.SIGMA:
+        await _sync_sigma_rule_to_percolator(rule)
     return RuleOut.model_validate(rule)
 
 
@@ -170,7 +232,10 @@ async def delete_rule(rule_id: UUID, db: DbSession, actor: RequireAdmin) -> None
     rule = await db.get(Rule, rule_id)
     if rule is None:
         raise not_found("rule", str(rule_id))
+    was_sigma = rule.kind is RuleKind.SIGMA
     await db.delete(rule)
     await audit.record(
         db, actor=actor, action="rule.delete", resource_type="rule", resource_id=str(rule_id)
     )
+    if was_sigma:
+        await _unregister_sigma_rule(rule_id)

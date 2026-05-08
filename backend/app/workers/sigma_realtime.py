@@ -1,0 +1,295 @@
+"""Sigma realtime worker.
+
+Replaces sigma_scheduler for per-event Sigma rules. Architecture:
+
+  telemetry.normalized (Kafka)
+        |
+        v
+  sigma_realtime (this worker, group=sigma_realtime)
+        |
+        v
+  POST /sigma-rules/_search  { percolate: { document: ECS event } }
+        |
+        v
+  for each matched rule -> Alert row in PG + alerts-YYYYMMDD doc
+
+Detection latency = Kafka commit + percolate round-trip + alert write,
+typically 10-50ms vs ~60s for the scheduled correlator.
+
+Aggregation / count-of / time-window Sigma rules don't fit the percolator
+model (it matches one document at a time); those remain on
+sigma_scheduler when we add count support back.
+
+Run with:
+    python -m app.workers.sigma_realtime
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import signal
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+import structlog
+from aiokafka import AIOKafkaConsumer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.db import SessionLocal
+from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleAction, RuleKind
+from app.services import opensearch as os_svc
+
+log = structlog.get_logger()
+
+
+class SigmaRealtime:
+    def __init__(self) -> None:
+        self.consumer: AIOKafkaConsumer | None = None
+        self.os_client = os_svc._client()
+        self._stop = asyncio.Event()
+        # Cache rule metadata by rule_id so we don't hit PG on every match.
+        self._rule_cache: dict[UUID, Rule] = {}
+
+    async def start(self) -> None:
+        await os_svc.ensure_template(self.os_client)
+        await os_svc.ensure_sigma_index(self.os_client)
+        await self._sync_rules_to_percolator()
+        self.consumer = AIOKafkaConsumer(
+            settings.topic_telemetry_normalized,
+            bootstrap_servers=settings.kafka_brokers,
+            group_id="sigma_realtime",
+            enable_auto_commit=False,
+            auto_offset_reset="latest",
+            session_timeout_ms=15_000,
+            max_poll_interval_ms=300_000,
+        )
+        await self.consumer.start()
+        log.info(
+            "sigma.realtime.start",
+            topic=settings.topic_telemetry_normalized,
+            cached_rules=len(self._rule_cache),
+        )
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self.consumer is not None:
+            await self.consumer.stop()
+        await self.os_client.close()
+        log.info("sigma.realtime.stop")
+
+    async def _sync_rules_to_percolator(self) -> None:
+        """At startup, reconcile the percolator index with PG.
+
+        - Every enabled Sigma rule with a compiled query gets registered.
+        - Any percolator doc whose rule_id is no longer enabled in PG (or
+          doesn't exist) gets removed.
+
+        Also populates self._rule_cache for fast lookup on hits.
+        """
+        async with SessionLocal() as db:
+            stmt = (
+                select(Rule)
+                .where(Rule.kind == RuleKind.SIGMA, Rule.enabled.is_(True))
+            )
+            enabled = list((await db.execute(stmt)).scalars().all())
+
+        # Read what's currently in the percolator index.
+        try:
+            existing = await self.os_client.search(
+                index=os_svc.SIGMA_RULES_INDEX,
+                body={"size": 10_000, "_source": ["rule_id"]},
+                request_timeout=10,
+            )
+            existing_ids = {
+                h["_source"]["rule_id"]
+                for h in existing.get("hits", {}).get("hits", [])
+                if h.get("_source", {}).get("rule_id")
+            }
+        except Exception:
+            existing_ids = set()
+
+        wanted_ids: set[str] = set()
+        for rule in enabled:
+            if not rule.sigma_compiled:
+                continue
+            self._rule_cache[rule.id] = rule
+            wanted_ids.add(str(rule.id))
+            await os_svc.register_sigma_rule(
+                self.os_client,
+                rule_id=rule.id,
+                rule_name=rule.name,
+                severity=rule.severity.value,
+                lucene_query=rule.sigma_compiled,
+            )
+
+        # Remove stale entries (rule disabled or deleted in PG).
+        for stale in existing_ids - wanted_ids:
+            try:
+                await os_svc.unregister_sigma_rule(self.os_client, UUID(stale))
+            except Exception:
+                log.exception("sigma.realtime.stale_remove_failed", rule_id=stale)
+
+        log.info(
+            "sigma.realtime.sync_done",
+            registered=len(wanted_ids),
+            removed=len(existing_ids - wanted_ids),
+        )
+
+    async def _refresh_rule_cache(self, rule_id: UUID) -> Rule | None:
+        async with SessionLocal() as db:
+            rule = await db.get(Rule, rule_id)
+        if rule is not None:
+            self._rule_cache[rule_id] = rule
+        return rule
+
+    async def run(self) -> None:
+        assert self.consumer is not None
+        while not self._stop.is_set():
+            try:
+                msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+
+            try:
+                ecs = json.loads(msg.value)
+            except Exception:
+                log.exception("sigma.realtime.decode_failed", offset=msg.offset)
+                await self.consumer.commit()
+                continue
+
+            try:
+                hits = await os_svc.percolate(self.os_client, ecs)
+            except Exception:
+                log.exception("sigma.realtime.percolate_failed")
+                # Don't commit — replay this offset on the next attempt.
+                continue
+
+            if hits:
+                await self._emit_alerts(ecs, hits)
+
+            await self.consumer.commit()
+
+    async def _emit_alerts(self, ecs: dict, hits: list[dict]) -> None:
+        host_id_str = ecs.get("host", {}).get("id")
+        event_id = ecs.get("event", {}).get("id")
+        if not host_id_str:
+            return
+        try:
+            host_id = UUID(host_id_str)
+        except ValueError:
+            return
+
+        ts = datetime.now(timezone.utc)
+        async with SessionLocal() as db:
+            new_alerts: list[tuple[Alert, dict]] = []
+            for hit in hits:
+                rule_id_str = hit.get("rule_id")
+                if not rule_id_str:
+                    continue
+                try:
+                    rule_id = UUID(rule_id_str)
+                except ValueError:
+                    continue
+
+                rule = self._rule_cache.get(rule_id) or await self._refresh_rule_cache(rule_id)
+                if rule is None or not rule.enabled or rule.kind is not RuleKind.SIGMA:
+                    # Rule was deleted/disabled mid-flight; drop the hit.
+                    continue
+
+                alert = Alert(
+                    host_id=host_id,
+                    rule_id=rule.id,
+                    severity=rule.severity,
+                    action_taken=RuleAction.DETECT,
+                    state=AlertState.NEW,
+                    summary=f"Sigma match: {rule.name}",
+                    details={
+                        "engine": "sigma",
+                        "mode": "realtime",
+                        "event_id": event_id,
+                        "lucene": rule.sigma_compiled,
+                    },
+                )
+                alert.history.append(
+                    AlertStateHistory(
+                        from_state=None,
+                        to_state=AlertState.NEW,
+                        comment="auto-generated by sigma realtime",
+                    )
+                )
+                db.add(alert)
+                await db.flush()
+                new_alerts.append((alert, rule.__dict__.copy() if False else hit))
+            await db.commit()
+
+            # Index alert docs to OpenSearch outside the DB session.
+            for alert, hit in new_alerts:
+                rule = self._rule_cache.get(alert.rule_id)
+                alert_doc = {
+                    "@timestamp": ts.isoformat(),
+                    "alert": {
+                        "id": str(alert.id),
+                        "summary": alert.summary,
+                        "severity": alert.severity.value,
+                        "action_taken": "detect",
+                        "engine": "sigma",
+                        "mode": "realtime",
+                    },
+                    "rule": {
+                        "id": str(alert.rule_id),
+                        "name": rule.name if rule else hit.get("rule_name"),
+                    },
+                    "host": ecs.get("host", {}),
+                    "event": {"id": event_id},
+                    "sigma": {"lucene": rule.sigma_compiled if rule else None},
+                }
+                try:
+                    await self.os_client.index(
+                        index=os_svc.alerts_index_for(ts),
+                        id=str(uuid4()),
+                        body=alert_doc,
+                    )
+                except Exception:
+                    log.exception(
+                        "sigma.realtime.alert_index_failed", alert_id=str(alert.id)
+                    )
+
+            if new_alerts:
+                log.info(
+                    "sigma.realtime.alerts_emitted",
+                    n=len(new_alerts),
+                    host_id=host_id_str,
+                    event_id=event_id,
+                    rules=[h.get("rule_name") for h in hits],
+                )
+
+
+async def amain() -> None:
+    worker = SigmaRealtime()
+    await worker.start()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(worker.stop()))
+    try:
+        await worker.run()
+    finally:
+        await worker.stop()
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+    asyncio.run(amain())
+
+
+if __name__ == "__main__":
+    main()

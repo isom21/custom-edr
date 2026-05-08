@@ -92,7 +92,7 @@ cargo build -p agent-linux --release
 | M0 | Foundations: monorepo, proto schema, dev infra, ADRs | **Done** |
 | M1 | Backend core + UI shell + enrollment CA | **Done** |
 | M2 | Agent thin slice — Linux agent (proc-poll) verified in WSL; Windows ETW skeleton needs a Windows VM | **Done** |
-| M3 | Sigma pipeline (scheduled OpenSearch correlation, see [ADR 0004](docs/adr/0004-sigma-scheduled-correlation.md)) | **Done** |
+| M3 | Sigma pipeline (realtime OpenSearch percolator; ~1s end-to-end latency on Linux). See [ADR 0005](docs/adr/0005-sigma-realtime-percolator.md). | **Done** |
 | M4 | Windows kernel driver (KMDF + minifilter) | Planned |
 | M5 | Response actions (kill / block) | Planned |
 | M6 | Linux agent (eBPF / aya) | Planned |
@@ -134,7 +134,8 @@ make backend-grpc         # gRPC ingest for agents (:50051)
 make backend-normalizer   # telemetry.raw -> telemetry.normalized
 make backend-indexer      # telemetry.normalized -> OpenSearch (telemetry-*)
 make backend-detector     # IOC matching: emit alerts on filename/path/hash hits
-make backend-sigma        # 30s scheduler running each enabled Sigma rule
+make backend-sigma        # realtime Sigma percolator (per-event match, ~1s latency)
+# make backend-sigma-scheduled  # legacy 30s scheduler — only useful for aggregation rules
 make frontend-dev         # React UI (:5173)
 ```
 
