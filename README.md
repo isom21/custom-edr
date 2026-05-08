@@ -89,14 +89,38 @@ cargo build -p agent-linux --release
 
 | # | Scope | Status |
 |---|---|---|
-| M0 | Foundations: monorepo, proto schema, dev infra, ADRs | **In progress** |
-| M1 | Backend core + UI shell + enrollment CA | Planned |
+| M0 | Foundations: monorepo, proto schema, dev infra, ADRs | **Done** |
+| M1 | Backend core + UI shell + enrollment CA | **Done** |
 | M2 | Windows agent thin slice (user-mode, ETW) | Planned |
 | M3 | Sigma streaming pipeline (Flink) | Planned |
 | M4 | Windows kernel driver (KMDF + minifilter) | Planned |
 | M5 | Response actions (kill / block) | Planned |
 | M6 | Linux agent (eBPF / aya) | Planned |
 | M7 | Polish, self-protection, installers, RBAC | Planned |
+
+## First-run quickstart
+
+```bash
+# 1. Bring up infra
+make infra-up
+make infra-bootstrap
+
+# 2. Backend
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+cp .env.example .env       # edit secrets
+alembic upgrade head
+python -m scripts.create_admin --email admin@local --password 'change-me-please'
+uvicorn app.main:app --reload --port 8000
+
+# 3. Frontend (in a new terminal, from repo root)
+cd frontend
+npm install
+npm run dev   # http://localhost:5173
+```
+
+Sign in with the admin you just created. The UI proxies `/api/*` to the backend on `:8000`.
 
 ## License
 
