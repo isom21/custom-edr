@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
+import { SigmaPanel } from "@/components/SigmaPanel";
 import type { IocKind, RuleAction, RuleCreate, RuleKind, Severity } from "@/types/api";
 
 const SEVERITIES: Severity[] = ["info", "low", "medium", "high", "critical"];
@@ -162,23 +163,28 @@ export function RuleEdit() {
         </Card>
 
         {kind !== "ioc" ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>{kind === "yara" ? "YARA source" : "Sigma YAML"}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={20}
-                placeholder={
-                  kind === "yara"
-                    ? "rule example_rule { strings: $a = \"bad\" condition: $a }"
-                    : "title: Suspicious thing\nlogsource: ..."
-                }
-              />
-            </CardContent>
-          </Card>
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>{kind === "yara" ? "YARA source" : "Sigma YAML"}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Textarea
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  rows={20}
+                  placeholder={
+                    kind === "yara"
+                      ? "rule example_rule { strings: $a = \"bad\" condition: $a }"
+                      : "title: Suspicious thing\nlogsource:\n    category: process_creation\n    product: linux\ndetection:\n  selection:\n    process.name|contains: 'bad'\n  condition: selection"
+                  }
+                />
+              </CardContent>
+            </Card>
+            {kind === "sigma" && (
+              <SigmaPanel body={body} ruleId={id} isNew={isNew} />
+            )}
+          </>
         ) : (
           <Card>
             <CardHeader>

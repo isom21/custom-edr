@@ -13,6 +13,7 @@ from app.models import IocEntry, IocKind, Rule, RuleKind
 from app.schemas.common import Page
 from app.schemas.rule import IocEntryIn, RuleCreate, RuleOut, RuleUpdate
 from app.services import audit
+from app.services.sigma import SigmaCompileError, compile_yaml
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -77,8 +78,22 @@ async def get_rule(rule_id: UUID, db: DbSession, actor: RequireAnalyst) -> RuleO
     return RuleOut.model_validate(rule)
 
 
+def _validate_sigma_or_400(body: str | None) -> str | None:
+    """Compile a Sigma rule body and return its Lucene query, or 400."""
+    if not body:
+        return None
+    try:
+        compiled = compile_yaml(body)
+    except SigmaCompileError as exc:
+        raise bad_request(f"sigma compile failed: {exc}") from exc
+    return compiled.query
+
+
 @router.post("", response_model=RuleOut, status_code=status.HTTP_201_CREATED)
 async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -> RuleOut:
+    sigma_compiled = (
+        _validate_sigma_or_400(payload.body) if payload.kind is RuleKind.SIGMA else None
+    )
     rule = Rule(
         kind=payload.kind,
         name=payload.name,
@@ -87,6 +102,7 @@ async def create_rule(payload: RuleCreate, db: DbSession, actor: RequireAdmin) -
         action=payload.action,
         enabled=payload.enabled,
         body=payload.body,
+        sigma_compiled=sigma_compiled,
     )
     if payload.iocs:
         _set_iocs(rule, payload.iocs)
@@ -131,7 +147,10 @@ async def update_rule(
 
     if body_changed:
         rule.revision += 1
-        rule.sigma_compiled = None  # invalidate cached compile output
+        if rule.kind is RuleKind.SIGMA:
+            rule.sigma_compiled = _validate_sigma_or_400(rule.body)
+        else:
+            rule.sigma_compiled = None
 
     await audit.record(
         db,

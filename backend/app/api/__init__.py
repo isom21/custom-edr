@@ -10,11 +10,12 @@ from app.api import (
     me,
     policies,
     rules,
+    sigma,
     users,
 )
 
 api_router = APIRouter()
-for module in (auth, me, users, hosts, rules, policies, alerts, enrollment, api_tokens):
+for module in (auth, me, users, hosts, rules, policies, alerts, enrollment, api_tokens, sigma):
     api_router.include_router(module.router)
 
 __all__ = ["api_router"]
