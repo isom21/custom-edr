@@ -4,10 +4,10 @@ from __future__ import annotations
 import enum
 from uuid import UUID
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 
 
 class RuleKind(str, enum.Enum):
@@ -41,14 +41,14 @@ class IocKind(str, enum.Enum):
 class Rule(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "rules"
 
-    kind: Mapped[RuleKind] = mapped_column(Enum(RuleKind, name="rule_kind"), nullable=False)
+    kind: Mapped[RuleKind] = mapped_column(pg_enum(RuleKind, name="rule_kind"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     severity: Mapped[Severity] = mapped_column(
-        Enum(Severity, name="rule_severity"), default=Severity.MEDIUM, nullable=False
+        pg_enum(Severity, name="rule_severity"), default=Severity.MEDIUM, nullable=False
     )
     action: Mapped[RuleAction] = mapped_column(
-        Enum(RuleAction, name="rule_action"), default=RuleAction.DETECT, nullable=False
+        pg_enum(RuleAction, name="rule_action"), default=RuleAction.DETECT, nullable=False
     )
     enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
 
@@ -70,7 +70,7 @@ class IocEntry(UuidPkMixin, Base):
     rule_id: Mapped[UUID] = mapped_column(
         ForeignKey("rules.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    kind: Mapped[IocKind] = mapped_column(Enum(IocKind, name="ioc_kind"), nullable=False)
+    kind: Mapped[IocKind] = mapped_column(pg_enum(IocKind, name="ioc_kind"), nullable=False)
     value: Mapped[str] = mapped_column(String(1024), nullable=False)
     # Lower-cased / normalized form for matching (filenames lowered, paths backslash-normalized).
     value_normalized: Mapped[str] = mapped_column(String(1024), nullable=False, index=True)

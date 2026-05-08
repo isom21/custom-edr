@@ -5,10 +5,10 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import RuleAction, Severity
 
 
@@ -38,15 +38,15 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
         ForeignKey("rules.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     severity: Mapped[Severity] = mapped_column(
-        Enum(Severity, name="rule_severity", create_type=False), nullable=False
+        pg_enum(Severity, name="rule_severity"), nullable=False
     )
     action_taken: Mapped[RuleAction] = mapped_column(
-        Enum(RuleAction, name="rule_action", create_type=False),
+        pg_enum(RuleAction, name="rule_action"),
         default=RuleAction.DETECT,
         nullable=False,
     )
     state: Mapped[AlertState] = mapped_column(
-        Enum(AlertState, name="alert_state"), default=AlertState.NEW, nullable=False, index=True
+        pg_enum(AlertState, name="alert_state"), default=AlertState.NEW, nullable=False, index=True
     )
     summary: Mapped[str] = mapped_column(String(512), nullable=False)
     details: Mapped[dict | None] = mapped_column(JSON)
@@ -73,10 +73,10 @@ class AlertStateHistory(UuidPkMixin, Base):
         ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True
     )
     from_state: Mapped[AlertState | None] = mapped_column(
-        Enum(AlertState, name="alert_state", create_type=False)
+        pg_enum(AlertState, name="alert_state")
     )
     to_state: Mapped[AlertState] = mapped_column(
-        Enum(AlertState, name="alert_state", create_type=False), nullable=False
+        pg_enum(AlertState, name="alert_state"), nullable=False
     )
     by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     comment: Mapped[str | None] = mapped_column(Text)

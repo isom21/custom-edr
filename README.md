@@ -107,11 +107,14 @@ make infra-bootstrap
 
 # 2. Backend
 cd backend
-python -m venv .venv && source .venv/bin/activate
+# IMPORTANT (WSL2): put the venv on the Linux fs, not /mnt/d — file I/O on the
+# Windows mount is ~50x slower for venv creation and pip installs.
+python -m venv ~/edr-venvs/backend
+source ~/edr-venvs/backend/bin/activate
 pip install -e '.[dev]'
 cp .env.example .env       # edit secrets
 alembic upgrade head
-python -m scripts.create_admin --email admin@local --password 'change-me-please'
+python -m scripts.create_admin --email admin@example.local --password 'change-me-please-12chars'
 uvicorn app.main:app --reload --port 8000
 
 # 3. Frontend (in a new terminal, from repo root)

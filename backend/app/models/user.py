@@ -5,10 +5,10 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 
 
 class UserRole(str, enum.Enum):
@@ -23,7 +23,7 @@ class User(UuidPkMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role"), nullable=False, default=UserRole.ANALYST
+        pg_enum(UserRole, name="user_role"), nullable=False, default=UserRole.ANALYST
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     disabled: Mapped[bool] = mapped_column(default=False, nullable=False)

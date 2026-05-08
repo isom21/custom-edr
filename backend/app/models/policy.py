@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 from app.models.rule import Rule, RuleAction
 
 
@@ -37,7 +37,7 @@ class PolicyRule(Base):
     )
     # null => use the rule's own action / enabled flag.
     action_override: Mapped[RuleAction | None] = mapped_column(
-        Enum(RuleAction, name="rule_action", create_type=False)
+        pg_enum(RuleAction, name="rule_action")
     )
     enabled_override: Mapped[bool | None] = mapped_column(Boolean)
 

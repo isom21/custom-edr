@@ -5,10 +5,10 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 
 
 class HostStatus(str, enum.Enum):
@@ -29,7 +29,7 @@ class Host(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "hosts"
 
     hostname: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    os_family: Mapped[OsFamily] = mapped_column(Enum(OsFamily, name="os_family"), nullable=False)
+    os_family: Mapped[OsFamily] = mapped_column(pg_enum(OsFamily, name="os_family"), nullable=False)
     os_version: Mapped[str | None] = mapped_column(String(64))
     os_platform: Mapped[str | None] = mapped_column(String(128))
     os_arch: Mapped[str | None] = mapped_column(String(32))
@@ -38,6 +38,6 @@ class Host(UuidPkMixin, TimestampMixin, Base):
     enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[HostStatus] = mapped_column(
-        Enum(HostStatus, name="host_status"), nullable=False, default=HostStatus.PENDING
+        pg_enum(HostStatus, name="host_status"), nullable=False, default=HostStatus.PENDING
     )
     policy_id: Mapped[UUID | None] = mapped_column(ForeignKey("policies.id", ondelete="SET NULL"))

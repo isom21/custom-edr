@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from app.models import UserRole
 from app.schemas.common import ORMModel
@@ -12,7 +12,7 @@ from app.schemas.common import ORMModel
 
 class UserOut(ORMModel):
     id: UUID
-    email: EmailStr
+    email: str
     role: UserRole
     disabled: bool
     last_login_at: datetime | None
@@ -20,7 +20,8 @@ class UserOut(ORMModel):
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    # Email format is a soft constraint — must contain '@' but otherwise free-form.
+    email: str = Field(min_length=3, max_length=255, pattern=r".+@.+")
     password: str = Field(min_length=12, max_length=256)
     role: UserRole = UserRole.ANALYST
 
