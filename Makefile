@@ -3,7 +3,7 @@
 PROTO_DIR := proto
 PROTO_FILES := $(PROTO_DIR)/edr/v1/common.proto $(PROTO_DIR)/edr/v1/events.proto $(PROTO_DIR)/edr/v1/control.proto
 BACKEND_GEN := backend/app/proto_gen
-RUST_GEN_NOTE := agent-core regenerates Rust bindings via tonic-build at compile time; run `cargo build -p agent-core`.
+RUST_GEN_NOTE := agent-core regenerates Rust bindings via tonic-build at compile time; run 'cargo build -p agent-core'.
 
 .PHONY: help
 help:

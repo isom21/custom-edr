@@ -1,16 +1,21 @@
-"""Internal Certificate Authority for agent enrollment.
+"""Internal Certificate Authority for agent enrollment + manager TLS.
 
 The manager runs a single self-signed CA, generated lazily on first use.
 The CA private key is encrypted at rest with a Fernet key derived from
-`settings.ca_master_key`. Issued client certs are P-256 by default and
-short-lived (90d) for rotation.
+`settings.ca_master_key`. Two kinds of leaf cert are issued:
+
+  1. Agent client certs (P-256 CSR from agent → SAN=hostname, EKU=clientAuth).
+  2. Manager server cert (RSA, generated locally, EKU=serverAuth) — used to
+     terminate TLS for the gRPC ingest endpoint that agents connect to.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from cryptography import x509
 from cryptography.fernet import Fernet
@@ -26,10 +31,10 @@ from app.models import CertificateAuthority
 
 CA_VALIDITY_DAYS = 365 * 10
 CLIENT_CERT_VALIDITY_DAYS = 90
+SERVER_CERT_VALIDITY_DAYS = 365
 
 
 def _fernet() -> Fernet:
-    # Derive 32 raw bytes from the master key, then base64-url-encode for Fernet.
     raw = hashlib.sha256(settings.ca_master_key.encode("utf-8")).digest()
     return Fernet(base64.urlsafe_b64encode(raw))
 
@@ -40,6 +45,13 @@ class IssuedCert:
     ca_chain_pem: str
     fingerprint_sha256: str
     not_after: datetime
+
+
+@dataclass
+class ServerCertMaterial:
+    cert_pem: bytes
+    key_pem: bytes
+    ca_chain_pem: bytes
 
 
 class CaService:
@@ -189,4 +201,72 @@ class CaService:
             ca_chain_pem=ca.cert_pem,
             fingerprint_sha256=cert.fingerprint(hashes.SHA256()).hex(),
             not_after=not_after,
+        )
+
+    async def get_or_issue_server_cert(self, *, dns_names: list[str]) -> ServerCertMaterial:
+        """Return a manager server cert, persisted to disk on first use.
+
+        Cached on disk under settings.grpc_tls_cert / grpc_tls_key.  We don't
+        store this in PG because the server process needs it on disk for grpcio.
+        """
+        cert_path = Path(settings.grpc_tls_cert)
+        key_path = Path(settings.grpc_tls_key)
+        ca = await self.get_or_bootstrap()
+
+        if cert_path.exists() and key_path.exists():
+            return ServerCertMaterial(
+                cert_pem=cert_path.read_bytes(),
+                key_pem=key_path.read_bytes(),
+                ca_chain_pem=ca.cert_pem.encode(),
+            )
+
+        ca_cert = x509.load_pem_x509_certificate(ca.cert_pem.encode())
+        ca_key = await self._load_signing_key(ca)
+
+        srv_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = datetime.now(timezone.utc)
+        not_after = now + timedelta(days=SERVER_CERT_VALIDITY_DAYS)
+
+        subject = x509.Name(
+            [
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "EDR"),
+                x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "manager"),
+                x509.NameAttribute(NameOID.COMMON_NAME, dns_names[0]),
+            ]
+        )
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(ca_cert.subject)
+            .public_key(srv_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(not_after)
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(n) for n in dns_names]),
+                critical=False,
+            )
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(
+                x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+        key_pem = srv_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        cert_path.parent.mkdir(parents=True, exist_ok=True)
+        cert_path.write_bytes(cert_pem)
+        os.chmod(cert_path, 0o644)
+        key_path.write_bytes(key_pem)
+        os.chmod(key_path, 0o600)
+
+        return ServerCertMaterial(
+            cert_pem=cert_pem, key_pem=key_pem, ca_chain_pem=ca.cert_pem.encode()
         )

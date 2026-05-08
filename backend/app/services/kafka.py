@@ -27,7 +27,7 @@ class KafkaProducer:
                 bootstrap_servers=settings.kafka_brokers,
                 acks="all",
                 enable_idempotence=True,
-                compression_type="lz4",
+                compression_type="gzip",
                 linger_ms=20,
                 max_batch_size=1024 * 1024,
             )
