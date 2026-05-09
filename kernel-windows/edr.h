@@ -39,6 +39,37 @@ typedef struct _EDR_KILL_PROCESS_REQ {
     UINT64 ProcessId;
 } EDR_KILL_PROCESS_REQ, *PEDR_KILL_PROCESS_REQ;
 
+// Block-list management. Two independent lists:
+//   EDR_BLOCK_KIND_PROCESS — patterns matched against PsCreateNotifyInfo
+//                            ImageFileName at process-create time. Match
+//                            denies the create with STATUS_ACCESS_DENIED.
+//   EDR_BLOCK_KIND_FILE    — patterns matched against the file name at
+//                            IRP_MJ_CREATE pre-op. Match completes the IRP
+//                            with STATUS_ACCESS_DENIED.
+// Both are case-insensitive substring matches against the full path.
+//
+// Lists are persisted to HKLM\SYSTEM\CurrentControlSet\Services\edr
+// \BlockList\{Process,File}Patterns (REG_MULTI_SZ) and reloaded on
+// DriverEntry, so blocks survive driver reload.
+#define EDR_BLOCK_KIND_PROCESS  1
+#define EDR_BLOCK_KIND_FILE     2
+
+#define EDR_IOCTL_BLOCK_ADD    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define EDR_IOCTL_BLOCK_REMOVE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define EDR_IOCTL_BLOCK_CLEAR  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#pragma pack(push, 4)
+typedef struct _EDR_BLOCK_REQ {
+    UINT32 Kind;            // EDR_BLOCK_KIND_*
+    UINT32 PatternBytes;    // length of pattern in bytes (UTF-16; max 512)
+    // followed by PatternBytes of UTF-16 (no null terminator required)
+} EDR_BLOCK_REQ, *PEDR_BLOCK_REQ;
+
+typedef struct _EDR_BLOCK_CLEAR_REQ {
+    UINT32 Kind;            // EDR_BLOCK_KIND_*; 0 means clear both lists
+} EDR_BLOCK_CLEAR_REQ, *PEDR_BLOCK_CLEAR_REQ;
+#pragma pack(pop)
+
 // Output buffer for IOCTL_EDR_GET_STATS. Counters monotonically increase
 // from driver load and are reset on driver unload/reload.
 typedef struct _EDR_STATS {
@@ -59,6 +90,10 @@ typedef struct _EDR_STATS {
     UINT64 NetConnectCount;             // FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6 hits
     UINT64 KillRequests;                // IOCTL_EDR_KILL_PROCESS calls received
     UINT64 KillSuccesses;                // ZwTerminateProcess returned NT_SUCCESS
+    UINT64 ProcessBlockHits;            // process-create denied by block list
+    UINT64 FileBlockHits;               // file-open denied by block list
+    UINT32 ProcessBlockEntries;         // current size of process block list
+    UINT32 FileBlockEntries;            // current size of file block list
 } EDR_STATS, *PEDR_STATS;
 
 // EDR_EVENT_KIND_* values for EDR_EVENT_HEADER.Kind. Numeric, stable across

@@ -65,6 +65,14 @@ static NTSTATUS EdrRegistryCallback(
     _In_opt_ PVOID Argument1,
     _In_opt_ PVOID Argument2);
 
+// Block-list helpers — defined further down (after the WFP block) but called
+// from EdrCreateProcessNotify and EdrPreCreate which appear earlier.
+static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name);
+static NTSTATUS EdrBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
+static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
+static NTSTATUS EdrBlockClear(_In_ UINT32 kind);
+static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind);
+
 static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject);
 static VOID EdrWfpCleanup(VOID);
 static VOID EdrWfpClassifyV4(
@@ -115,6 +123,30 @@ static volatile LONG64 g_EventsDrained              = 0;
 static volatile LONG64 g_NetConnectCount            = 0;
 static volatile LONG64 g_KillRequests               = 0;
 static volatile LONG64 g_KillSuccesses              = 0;
+static volatile LONG64 g_ProcessBlockHits           = 0;
+static volatile LONG64 g_FileBlockHits              = 0;
+
+// Block-list state. Two singly-linked lists protected by a single spinlock.
+// Match cost is O(N * M) per check (N = list size, M = path length); list
+// sizes are expected to be tens, not thousands. Pattern matching is
+// case-insensitive substring match.
+typedef struct _EDR_BLOCK_ENTRY {
+    LIST_ENTRY List;
+    USHORT Length;          // bytes (UTF-16)
+    WCHAR Buffer[1];        // pattern; allocated as [Length / 2] WCHARs
+} EDR_BLOCK_ENTRY, *PEDR_BLOCK_ENTRY;
+
+static LIST_ENTRY g_ProcessBlockList;
+static LIST_ENTRY g_FileBlockList;
+static volatile LONG g_ProcessBlockCount = 0;
+static volatile LONG g_FileBlockCount    = 0;
+static KSPIN_LOCK g_BlockListLock;
+
+// RegistryPath copy from DriverEntry, used to locate our service key for
+// block-list persistence (e.g. "...\Services\edr"; we open
+// "...\Services\edr\BlockList" under it).
+static UNICODE_STRING g_RegistryPath = { 0 };
+static PWCHAR g_RegistryPathBuf = NULL;
 
 // Event ring buffer. Producers are kernel callbacks (IRQL <= APC_LEVEL),
 // consumer is the IOCTL_EDR_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
@@ -185,14 +217,33 @@ static const FLT_REGISTRATION g_FilterRegistration = {
 
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
-    UNREFERENCED_PARAMETER(RegistryPath);
-
     KeInitializeSpinLock(&g_RingLock);
     g_RingBuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, EDR_RING_SIZE, EDR_TAG);
     if (g_RingBuf == NULL) {
         DbgPrint("[EDR] ring allocation failed\n");
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+
+    InitializeListHead(&g_ProcessBlockList);
+    InitializeListHead(&g_FileBlockList);
+    KeInitializeSpinLock(&g_BlockListLock);
+
+    // Capture our service registry path so we can persist block lists to a
+    // BlockList subkey under it (created on first add). RegistryPath
+    // contents are owned by the kernel; we copy.
+    if (RegistryPath != NULL && RegistryPath->Buffer != NULL && RegistryPath->Length > 0) {
+        g_RegistryPathBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegistryPath->Length, EDR_TAG);
+        if (g_RegistryPathBuf) {
+            RtlCopyMemory(g_RegistryPathBuf, RegistryPath->Buffer, RegistryPath->Length);
+            g_RegistryPath.Buffer = g_RegistryPathBuf;
+            g_RegistryPath.Length = RegistryPath->Length;
+            g_RegistryPath.MaximumLength = RegistryPath->Length;
+        }
+    }
+    // Best-effort load of persisted block lists. Failures here are
+    // non-fatal: an empty list is a valid initial state.
+    (void)EdrBlockLoadFromReg(EDR_BLOCK_KIND_PROCESS);
+    (void)EdrBlockLoadFromReg(EDR_BLOCK_KIND_FILE);
 
     NTSTATUS status = FltRegisterFilter(DriverObject, &g_FilterRegistration, &g_FilterHandle);
     if (!NT_SUCCESS(status)) {
@@ -349,6 +400,34 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
         FltUnregisterFilter(g_FilterHandle);
         g_FilterHandle = NULL;
     }
+
+    // Free block-list memory. Persisted entries stay in the registry and
+    // will be reloaded on the next DriverEntry.
+    KIRQL irql;
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    LIST_ENTRY *lists[2] = { &g_ProcessBlockList, &g_FileBlockList };
+    LIST_ENTRY freed;
+    InitializeListHead(&freed);
+    for (UINT32 i = 0; i < 2; ++i) {
+        while (!IsListEmpty(lists[i])) {
+            LIST_ENTRY *e = RemoveHeadList(lists[i]);
+            InsertTailList(&freed, e);
+        }
+    }
+    InterlockedExchange(&g_ProcessBlockCount, 0);
+    InterlockedExchange(&g_FileBlockCount, 0);
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+    while (!IsListEmpty(&freed)) {
+        LIST_ENTRY *e = RemoveHeadList(&freed);
+        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        ExFreePoolWithTag(entry, EDR_TAG);
+    }
+    if (g_RegistryPathBuf) {
+        ExFreePoolWithTag(g_RegistryPathBuf, EDR_TAG);
+        g_RegistryPathBuf = NULL;
+        RtlZeroMemory(&g_RegistryPath, sizeof(g_RegistryPath));
+    }
+
     if (g_RingBuf) {
         ExFreePoolWithTag(g_RingBuf, EDR_TAG);
         g_RingBuf = NULL;
@@ -474,22 +553,43 @@ static VOID EdrInstanceTeardownComplete(
     UNREFERENCED_PARAMETER(Flags);
 }
 
-// Pre-op for IRP_MJ_CREATE. Bumps the file-create counter and asks the Filter
-// Manager to call us back via EdrPostCreate so we can record the open
-// outcome. We don't filter or modify the IRP in M4.3 — that's M5.
+// Pre-op for IRP_MJ_CREATE. Bumps the file-create counter and consults the
+// file block list (M5.2): if the file name matches a blocked pattern,
+// completes the IRP with STATUS_ACCESS_DENIED so the open never reaches
+// the filesystem.
 //
 // Volume of these callbacks is high (10s-100s of opens per second on an
-// idle machine), so we deliberately avoid DbgPrint here. M4.5 will replace
-// the counter bump with an enqueue-event-for-user-mode call.
+// idle machine). FltGetFileNameInformation is moderately expensive; we
+// only call it when the block list is non-empty.
 static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
-    UNREFERENCED_PARAMETER(Data);
     UNREFERENCED_PARAMETER(FltObjects);
 
     InterlockedIncrement64(&g_FileCreateCount);
+
+    if (ReadAcquire(&g_FileBlockCount) > 0) {
+        PFLT_FILE_NAME_INFORMATION nameInfo = NULL;
+        if (NT_SUCCESS(FltGetFileNameInformation(
+                Data,
+                FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT,
+                &nameInfo)))
+        {
+            (void)FltParseFileNameInformation(nameInfo);
+            if (EdrBlockMatch(&g_FileBlockList, &nameInfo->Name)) {
+                Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+                Data->IoStatus.Information = 0;
+                FltReleaseFileNameInformation(nameInfo);
+                InterlockedIncrement64(&g_FileBlockHits);
+                *CompletionContext = NULL;
+                return FLT_PREOP_COMPLETE;
+            }
+            FltReleaseFileNameInformation(nameInfo);
+        }
+    }
+
     *CompletionContext = NULL;
     return FLT_PREOP_SUCCESS_WITH_CALLBACK;
 }
@@ -526,6 +626,20 @@ static VOID EdrCreateProcessNotify(
 
     if (CreateInfo != NULL) {
         InterlockedIncrement64(&g_ProcessCreateCount);
+
+        // Block check: if the image path matches an entry in the process
+        // block list, deny the create with STATUS_ACCESS_DENIED. Setting
+        // CreateInfo->CreationStatus to a non-success value causes the
+        // create to fail in user-mode (CreateProcess returns the error).
+        if (CreateInfo->ImageFileName != NULL &&
+            EdrBlockMatch(&g_ProcessBlockList, CreateInfo->ImageFileName))
+        {
+            CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
+            InterlockedIncrement64(&g_ProcessBlockHits);
+            // Don't enqueue a process_start event since the process won't
+            // actually run. We're done.
+            return;
+        }
 
         // Build a process_start event. Stack scratch keeps the kernel stack
         // bounded (max event ~1.4 KB; default kernel stack is 12-24 KB so
@@ -591,6 +705,371 @@ static VOID EdrLoadImageNotify(
                  ImageInfo->SystemModeImage,
                  FullImageName);
     }
+}
+
+// ---- Block list -----------------------------------------------------------
+
+#define EDR_BLOCK_PATTERN_MAX_BYTES 512
+
+static LIST_ENTRY *EdrBlockListForKind(UINT32 kind)
+{
+    if (kind == EDR_BLOCK_KIND_PROCESS) return &g_ProcessBlockList;
+    if (kind == EDR_BLOCK_KIND_FILE)    return &g_FileBlockList;
+    return NULL;
+}
+
+static volatile LONG *EdrBlockCountForKind(UINT32 kind)
+{
+    if (kind == EDR_BLOCK_KIND_PROCESS) return &g_ProcessBlockCount;
+    if (kind == EDR_BLOCK_KIND_FILE)    return &g_FileBlockCount;
+    return NULL;
+}
+
+// Case-insensitive substring match: does `pattern` appear anywhere in
+// `name`? Caller does NOT hold the spinlock — we acquire it here.
+static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name)
+{
+    if (name == NULL || name->Buffer == NULL || name->Length == 0) {
+        return FALSE;
+    }
+    BOOLEAN matched = FALSE;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
+        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        if (entry->Length == 0 || entry->Length > name->Length) {
+            continue;
+        }
+        UNICODE_STRING pattern;
+        pattern.Buffer = entry->Buffer;
+        pattern.Length = entry->Length;
+        pattern.MaximumLength = entry->Length;
+
+        UINT32 startMax = (name->Length - entry->Length) / sizeof(WCHAR);
+        for (UINT32 i = 0; i <= startMax && !matched; ++i) {
+            UNICODE_STRING window;
+            window.Buffer = name->Buffer + i;
+            window.Length = entry->Length;
+            window.MaximumLength = entry->Length;
+            if (RtlEqualUnicodeString(&window, &pattern, TRUE)) {
+                matched = TRUE;
+            }
+        }
+        if (matched) break;
+    }
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+    return matched;
+}
+
+// Persist a block list to the driver's service registry key. Caller does
+// NOT hold the spinlock — we copy the list under the lock, then write to
+// the registry at PASSIVE_LEVEL.
+//
+// RegistryPath received in DriverEntry is e.g.
+// "\REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\edr".
+
+static NTSTATUS EdrBlockPersist(_In_ UINT32 kind);
+
+static NTSTATUS EdrBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
+{
+    LIST_ENTRY *list = EdrBlockListForKind(kind);
+    volatile LONG *count = EdrBlockCountForKind(kind);
+    if (!list || patternBytes == 0 || patternBytes > EDR_BLOCK_PATTERN_MAX_BYTES) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    SIZE_T entryBytes = FIELD_OFFSET(EDR_BLOCK_ENTRY, Buffer) + patternBytes;
+    PEDR_BLOCK_ENTRY entry = (PEDR_BLOCK_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, entryBytes, EDR_TAG);
+    if (!entry) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    entry->Length = patternBytes;
+    RtlCopyMemory(entry->Buffer, pattern, patternBytes);
+
+    KIRQL irql;
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    InsertTailList(list, &entry->List);
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+    InterlockedIncrement(count);
+    return EdrBlockPersist(kind);
+}
+
+static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
+{
+    LIST_ENTRY *list = EdrBlockListForKind(kind);
+    volatile LONG *count = EdrBlockCountForKind(kind);
+    if (!list || patternBytes == 0) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    UNICODE_STRING needle;
+    needle.Buffer = (PWCH)pattern;
+    needle.Length = patternBytes;
+    needle.MaximumLength = patternBytes;
+
+    PEDR_BLOCK_ENTRY toFree = NULL;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
+        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        UNICODE_STRING ent;
+        ent.Buffer = entry->Buffer;
+        ent.Length = entry->Length;
+        ent.MaximumLength = entry->Length;
+        if (RtlEqualUnicodeString(&ent, &needle, TRUE)) {
+            RemoveEntryList(&entry->List);
+            toFree = entry;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+
+    if (toFree == NULL) return STATUS_NOT_FOUND;
+    ExFreePoolWithTag(toFree, EDR_TAG);
+    InterlockedDecrement(count);
+    return EdrBlockPersist(kind);
+}
+
+static NTSTATUS EdrBlockClear(_In_ UINT32 kind)
+{
+    UINT32 kinds[2] = { 0, 0 };
+    UINT32 nKinds = 0;
+    if (kind == 0) {
+        kinds[nKinds++] = EDR_BLOCK_KIND_PROCESS;
+        kinds[nKinds++] = EDR_BLOCK_KIND_FILE;
+    } else {
+        kinds[nKinds++] = kind;
+    }
+    for (UINT32 k = 0; k < nKinds; ++k) {
+        LIST_ENTRY *list = EdrBlockListForKind(kinds[k]);
+        volatile LONG *count = EdrBlockCountForKind(kinds[k]);
+        if (!list) continue;
+
+        LIST_ENTRY freed;
+        InitializeListHead(&freed);
+        KIRQL irql;
+        KeAcquireSpinLock(&g_BlockListLock, &irql);
+        while (!IsListEmpty(list)) {
+            LIST_ENTRY *e = RemoveHeadList(list);
+            InsertTailList(&freed, e);
+        }
+        InterlockedExchange(count, 0);
+        KeReleaseSpinLock(&g_BlockListLock, irql);
+
+        while (!IsListEmpty(&freed)) {
+            LIST_ENTRY *e = RemoveHeadList(&freed);
+            PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+            ExFreePoolWithTag(entry, EDR_TAG);
+        }
+        EdrBlockPersist(kinds[k]);
+    }
+    return STATUS_SUCCESS;
+}
+
+// Snapshot one list under the spinlock as a series of (Length, Buffer) pairs
+// the caller can serialize at PASSIVE_LEVEL without holding the lock.
+typedef struct _EDR_BLOCK_SNAPSHOT_ENTRY {
+    USHORT Length;
+    PWCHAR Buffer;          // points into a pool-allocated arena
+} EDR_BLOCK_SNAPSHOT_ENTRY;
+
+static NTSTATUS EdrBlockSnapshot(
+    _In_ UINT32 kind,
+    _Outptr_ EDR_BLOCK_SNAPSHOT_ENTRY **outEntries,
+    _Out_ UINT32 *outCount,
+    _Outptr_ PVOID *outArena)
+{
+    LIST_ENTRY *list = EdrBlockListForKind(kind);
+    if (!list) return STATUS_INVALID_PARAMETER;
+
+    *outEntries = NULL;
+    *outCount = 0;
+    *outArena = NULL;
+
+    // Pass 1: count + total bytes (under lock)
+    KIRQL irql;
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    UINT32 count = 0;
+    SIZE_T totalBytes = 0;
+    for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
+        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        count++;
+        totalBytes += entry->Length;
+    }
+
+    if (count == 0) {
+        KeReleaseSpinLock(&g_BlockListLock, irql);
+        return STATUS_SUCCESS;
+    }
+
+    SIZE_T arrayBytes = count * sizeof(EDR_BLOCK_SNAPSHOT_ENTRY);
+    EDR_BLOCK_SNAPSHOT_ENTRY *arr = NULL;
+    PVOID arena = NULL;
+
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+    arr = (EDR_BLOCK_SNAPSHOT_ENTRY *)ExAllocatePool2(POOL_FLAG_NON_PAGED, arrayBytes, EDR_TAG);
+    arena = ExAllocatePool2(POOL_FLAG_NON_PAGED, totalBytes, EDR_TAG);
+    if (!arr || !arena) {
+        if (arr) ExFreePoolWithTag(arr, EDR_TAG);
+        if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    // Pass 2: copy under the lock again (size could have changed; we'd
+    // rather take it twice than allocate while holding the lock).
+    KeAcquireSpinLock(&g_BlockListLock, &irql);
+    UINT32 i = 0;
+    SIZE_T off = 0;
+    for (LIST_ENTRY *e = list->Flink; e != list && i < count && off < totalBytes; e = e->Flink) {
+        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        if (off + entry->Length > totalBytes || i >= count) break;
+        RtlCopyMemory((UCHAR *)arena + off, entry->Buffer, entry->Length);
+        arr[i].Length = entry->Length;
+        arr[i].Buffer = (PWCHAR)((UCHAR *)arena + off);
+        off += entry->Length;
+        i++;
+    }
+    KeReleaseSpinLock(&g_BlockListLock, irql);
+
+    *outEntries = arr;
+    *outCount = i;
+    *outArena = arena;
+    return STATUS_SUCCESS;
+}
+
+static const WCHAR *EdrBlockRegValueName(UINT32 kind)
+{
+    return kind == EDR_BLOCK_KIND_PROCESS ? L"ProcessPatterns" :
+           kind == EDR_BLOCK_KIND_FILE    ? L"FilePatterns"    : NULL;
+}
+
+// Open the driver's service key plus a "BlockList" subkey for persistence.
+// Returns a HANDLE the caller must ZwClose. Creates the subkey if missing.
+static NTSTATUS EdrOpenBlockListKey(_Out_ PHANDLE OutKey)
+{
+    *OutKey = NULL;
+    if (g_RegistryPath.Buffer == NULL) {
+        return STATUS_NOT_FOUND;
+    }
+    // BlockListPath = <RegistryPath>\BlockList
+    UNICODE_STRING suffix = RTL_CONSTANT_STRING(L"\\BlockList");
+    USHORT bytes = g_RegistryPath.Length + suffix.Length;
+    PWCHAR buf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bytes, EDR_TAG);
+    if (!buf) return STATUS_INSUFFICIENT_RESOURCES;
+    RtlCopyMemory(buf, g_RegistryPath.Buffer, g_RegistryPath.Length);
+    RtlCopyMemory((UCHAR *)buf + g_RegistryPath.Length, suffix.Buffer, suffix.Length);
+    UNICODE_STRING fullPath;
+    fullPath.Buffer = buf;
+    fullPath.Length = bytes;
+    fullPath.MaximumLength = bytes;
+    OBJECT_ATTRIBUTES oa;
+    InitializeObjectAttributes(&oa, &fullPath, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    HANDLE key;
+    ULONG disposition;
+    NTSTATUS status = ZwCreateKey(&key, KEY_ALL_ACCESS, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, &disposition);
+    ExFreePoolWithTag(buf, EDR_TAG);
+    if (NT_SUCCESS(status)) {
+        *OutKey = key;
+    }
+    return status;
+}
+
+// Serialize current in-memory list of `kind` as REG_MULTI_SZ. Each pattern
+// is null-terminated; the buffer ends with an extra null. Even if the list
+// is empty we write a single null-terminator (a valid empty REG_MULTI_SZ).
+static NTSTATUS EdrBlockPersist(_In_ UINT32 kind)
+{
+    EDR_BLOCK_SNAPSHOT_ENTRY *entries = NULL;
+    UINT32 count = 0;
+    PVOID arena = NULL;
+    NTSTATUS status = EdrBlockSnapshot(kind, &entries, &count, &arena);
+    if (!NT_SUCCESS(status)) return status;
+
+    // Compute serialized size in bytes: sum(length + sizeof(WCHAR) for null) + final WCHAR null.
+    SIZE_T outBytes = sizeof(WCHAR);   // trailing null
+    for (UINT32 i = 0; i < count; ++i) {
+        outBytes += entries[i].Length + sizeof(WCHAR);
+    }
+    PWCHAR multi = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outBytes, EDR_TAG);
+    if (!multi) {
+        if (entries) ExFreePoolWithTag(entries, EDR_TAG);
+        if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    UCHAR *p = (UCHAR *)multi;
+    for (UINT32 i = 0; i < count; ++i) {
+        RtlCopyMemory(p, entries[i].Buffer, entries[i].Length);
+        p += entries[i].Length;
+        *(WCHAR *)p = L'\0';
+        p += sizeof(WCHAR);
+    }
+    *(WCHAR *)p = L'\0';
+
+    HANDLE key = NULL;
+    status = EdrOpenBlockListKey(&key);
+    if (NT_SUCCESS(status)) {
+        const WCHAR *valueName = EdrBlockRegValueName(kind);
+        UNICODE_STRING vn;
+        RtlInitUnicodeString(&vn, valueName);
+        status = ZwSetValueKey(key, &vn, 0, REG_MULTI_SZ, multi, (ULONG)outBytes);
+        ZwClose(key);
+    }
+    ExFreePoolWithTag(multi, EDR_TAG);
+    if (entries) ExFreePoolWithTag(entries, EDR_TAG);
+    if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+    return status;
+}
+
+// Read REG_MULTI_SZ for one kind back into the in-memory list. Called at
+// DriverEntry, before the callbacks are armed.
+static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind)
+{
+    HANDLE key = NULL;
+    NTSTATUS status = EdrOpenBlockListKey(&key);
+    if (!NT_SUCCESS(status)) return status;
+
+    const WCHAR *valueName = EdrBlockRegValueName(kind);
+    UNICODE_STRING vn;
+    RtlInitUnicodeString(&vn, valueName);
+
+    // Probe size first.
+    ULONG sizeNeeded = 0;
+    status = ZwQueryValueKey(key, &vn, KeyValuePartialInformation, NULL, 0, &sizeNeeded);
+    if (status == STATUS_OBJECT_NAME_NOT_FOUND) {
+        ZwClose(key);
+        return STATUS_SUCCESS;  // empty list, nothing to load
+    }
+    if (status != STATUS_BUFFER_TOO_SMALL && !NT_SUCCESS(status)) {
+        ZwClose(key);
+        return status;
+    }
+
+    PKEY_VALUE_PARTIAL_INFORMATION info = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeNeeded, EDR_TAG);
+    if (!info) {
+        ZwClose(key);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    status = ZwQueryValueKey(key, &vn, KeyValuePartialInformation, info, sizeNeeded, &sizeNeeded);
+    ZwClose(key);
+    if (!NT_SUCCESS(status) || info->Type != REG_MULTI_SZ) {
+        ExFreePoolWithTag(info, EDR_TAG);
+        return NT_SUCCESS(status) ? STATUS_OBJECT_TYPE_MISMATCH : status;
+    }
+
+    // Walk REG_MULTI_SZ: a series of null-terminated WCHAR strings ending
+    // with an empty string (double null overall).
+    PWCHAR cur = (PWCHAR)info->Data;
+    PWCHAR end = (PWCHAR)((UCHAR *)info->Data + info->DataLength);
+    while (cur < end && *cur != L'\0') {
+        // Find string length (in WCHARs)
+        PWCHAR p = cur;
+        while (p < end && *p != L'\0') p++;
+        USHORT bytes = (USHORT)((p - cur) * sizeof(WCHAR));
+        if (bytes > 0 && bytes <= EDR_BLOCK_PATTERN_MAX_BYTES) {
+            (void)EdrBlockAdd(kind, cur, bytes);
+        }
+        cur = p + 1;  // skip null
+    }
+    ExFreePoolWithTag(info, EDR_TAG);
+    return STATUS_SUCCESS;
 }
 
 // Build and ring-push a NETWORK_CONNECT event. Shared by both the V4 and V6
@@ -1014,6 +1493,10 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->NetConnectCount            = (UINT64)ReadAcquire64(&g_NetConnectCount);
         out->KillRequests               = (UINT64)ReadAcquire64(&g_KillRequests);
         out->KillSuccesses              = (UINT64)ReadAcquire64(&g_KillSuccesses);
+        out->ProcessBlockHits           = (UINT64)ReadAcquire64(&g_ProcessBlockHits);
+        out->FileBlockHits              = (UINT64)ReadAcquire64(&g_FileBlockHits);
+        out->ProcessBlockEntries        = (UINT32)ReadAcquire(&g_ProcessBlockCount);
+        out->FileBlockEntries           = (UINT32)ReadAcquire(&g_FileBlockCount);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;
@@ -1044,6 +1527,42 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         }
         PEDR_KILL_PROCESS_REQ req = (PEDR_KILL_PROCESS_REQ)Irp->AssociatedIrp.SystemBuffer;
         status = EdrKillProcess((HANDLE)(ULONG_PTR)req->ProcessId);
+        information = 0;
+        break;
+    }
+    case EDR_IOCTL_BLOCK_ADD:
+    case EDR_IOCTL_BLOCK_REMOVE: {
+        ULONG inLen = sp->Parameters.DeviceIoControl.InputBufferLength;
+        if (inLen < sizeof(EDR_BLOCK_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_BLOCK_REQ);
+            break;
+        }
+        PEDR_BLOCK_REQ req = (PEDR_BLOCK_REQ)Irp->AssociatedIrp.SystemBuffer;
+        if (req->PatternBytes == 0 ||
+            req->PatternBytes > EDR_BLOCK_PATTERN_MAX_BYTES ||
+            sizeof(EDR_BLOCK_REQ) + req->PatternBytes > inLen)
+        {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        const WCHAR *pattern = (const WCHAR *)((UCHAR *)req + sizeof(EDR_BLOCK_REQ));
+        if (sp->Parameters.DeviceIoControl.IoControlCode == EDR_IOCTL_BLOCK_ADD) {
+            status = EdrBlockAdd(req->Kind, pattern, (USHORT)req->PatternBytes);
+        } else {
+            status = EdrBlockRemove(req->Kind, pattern, (USHORT)req->PatternBytes);
+        }
+        information = 0;
+        break;
+    }
+    case EDR_IOCTL_BLOCK_CLEAR: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_BLOCK_CLEAR_REQ)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_BLOCK_CLEAR_REQ);
+            break;
+        }
+        PEDR_BLOCK_CLEAR_REQ req = (PEDR_BLOCK_CLEAR_REQ)Irp->AssociatedIrp.SystemBuffer;
+        status = EdrBlockClear(req->Kind);
         information = 0;
         break;
     }
