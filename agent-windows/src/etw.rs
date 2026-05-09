@@ -17,7 +17,7 @@ use anyhow::Result;
 use ferrisetw::parser::Parser;
 use ferrisetw::provider::kernel_providers::PROCESS_PROVIDER;
 use ferrisetw::provider::Provider;
-use ferrisetw::trace::{KernelTrace, TraceTrait};
+use ferrisetw::trace::KernelTrace;
 use ferrisetw::EventRecord;
 use ferrisetw::SchemaLocator;
 use std::sync::Arc;
@@ -46,15 +46,21 @@ pub fn start(ctx: WatcherCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> 
         .build();
 
     // Kernel sessions use a fixed name. Two agents fighting for it lose.
+    // ferrisetw's TraceError doesn't impl std::error::Error, so wrap it
+    // through anyhow's display.
     let trace = KernelTrace::new()
         .named(String::from("EDRKernelSession"))
         .enable(provider)
-        .start_and_process()?;
+        .start_and_process()
+        .map_err(|e| anyhow::anyhow!("ferrisetw start_and_process: {e:?}"))?;
+    tracing::info!(session = "EDRKernelSession", "etw.kernel_trace.started");
 
     // ferrisetw owns the worker thread for the trace's lifetime; we just keep
-    // the handle alive for the process lifetime.
+    // the handle alive for the process lifetime. Named binding (`_trace`,
+    // not `_`) — the bare-underscore pattern would *drop* the value
+    // immediately, which silently kills the ETW session.
     std::thread::spawn(move || {
-        let _ = trace; // hold reference; dropping stops the trace
+        let _trace = trace;
         std::thread::park();
     });
     Ok(())
@@ -66,8 +72,10 @@ fn on_event(
     ctx: Arc<WatcherCtx>,
     tx: mpsc::Sender<p::ClientMessage>,
 ) {
+    let opcode = record.opcode();
+    tracing::trace!(opcode, "etw.event");
     // Process opcode 1 = Start, 2 = End. We only forward Start for M2.
-    if record.opcode() != 1 {
+    if opcode != 1 {
         return;
     }
     let schema = match locator.event_schema(record) {
@@ -85,7 +93,8 @@ fn on_event(
     let cmdline: String = parser.try_parse("CommandLine").unwrap_or_default();
     let user_sid: String = parser.try_parse("UserSID").unwrap_or_default();
 
-    let start_time_ns = record.timestamp() as u64;
+    // ferrisetw 1.2 renamed timestamp() -> raw_timestamp().
+    let start_time_ns = record.raw_timestamp() as u64;
 
     let ev = event::process_started(
         &ctx.host_id,
@@ -113,6 +122,8 @@ fn on_event(
     let msg = p::ClientMessage {
         payload: Some(p::client_message::Payload::Events(batch)),
     };
-    // Best-effort send — drop on backpressure.
-    let _ = tx.try_send(msg);
+    match tx.try_send(msg) {
+        Ok(()) => tracing::debug!(pid, image = %image, "etw.process_started.sent"),
+        Err(e) => tracing::warn!(pid, error = ?e, "etw.process_started.dropped"),
+    }
 }

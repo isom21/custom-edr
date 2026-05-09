@@ -66,6 +66,7 @@ dependencies = [
  "ferrisetw",
  "hostname",
  "prost",
+ "rustls",
  "tokio",
  "tracing",
  "tracing-subscriber",
