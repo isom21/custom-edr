@@ -24,7 +24,11 @@ rustls.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = "0.17"
 libc = "0.2"
-nix = { version = "0.29", features = ["user", "hostname"] }
-# eBPF lands in M6.
-# aya = "0.13"
-# aya-log = "0.2"
+nix = { version = "0.29", features = ["user", "hostname", "signal"] }
+# eBPF (M6). aya loads pre-compiled C eBPF objects (`agent-linux/ebpf/edr.bpf.o`).
+aya = "0.13"
+aya-log = "0.2"
+
+[build-dependencies]
+# Re-runs ebpf/build.sh when the eBPF source changes.
+anyhow = "1"

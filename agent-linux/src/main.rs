@@ -8,6 +8,7 @@
 //! 4. Start /proc poller, send ProcessEvents to the manager.
 //! 5. Heartbeat every 30s.
 
+mod ebpf;
 mod proc_watcher;
 
 use agent_core::client::ManagerClient;
@@ -116,18 +117,55 @@ async fn main() -> Result<()> {
         }
     });
 
-    // /proc watcher.
-    let watcher_ctx = proc_watcher::WatcherCtx {
-        host_id: identity.host_id.clone(),
-        agent_id: identity.host_id.clone(),
-        agent_version: AGENT_VERSION.into(),
-    };
-    let watcher_tx = send_tx.clone();
-    tokio::spawn(async move {
-        if let Err(e) = proc_watcher::run(watcher_ctx, watcher_tx).await {
-            tracing::error!(error = %e, "proc_watcher.exit");
+    // eBPF collector first (M6). On any failure (no CAP_BPF, kernel feature
+    // missing, kernel version too old, etc.), fall back to the M2 /proc
+    // poller so the agent still produces telemetry.
+    let ebpf_loader = match ebpf::Loader::load_and_attach() {
+        Ok(l) => {
+            tracing::info!("collector.mode = ebpf (kernel)");
+            Some(l)
         }
-    });
+        Err(e) => {
+            tracing::warn!(error = %e, "ebpf load failed; falling back to /proc poller");
+            None
+        }
+    };
+    if ebpf_loader.is_none() {
+        let watcher_ctx = proc_watcher::WatcherCtx {
+            host_id: identity.host_id.clone(),
+            agent_id: identity.host_id.clone(),
+            agent_version: AGENT_VERSION.into(),
+        };
+        let watcher_tx = send_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = proc_watcher::run(watcher_ctx, watcher_tx).await {
+                tracing::error!(error = %e, "proc_watcher.exit");
+            }
+        });
+        tracing::info!("collector.mode = proc-poll (fallback)");
+    }
+
+    // For M6.1 there's no event delivery from eBPF yet; we periodically log
+    // the stats counters so an operator can confirm the kernel-side program
+    // is firing. M6.2 replaces this with real event drainage. We keep the
+    // loader alive for the agent's lifetime by parking it in a task that
+    // owns it; on Drop the eBPF programs unload.
+    if let Some(mut loader) = ebpf_loader {
+        tokio::spawn(async move {
+            // First read happens immediately — confirms the map is reachable.
+            if let Ok(s) = loader.read_stats() {
+                tracing::info!(stats = %ebpf::format_stats(&s), "ebpf.stats.initial");
+            }
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                match loader.read_stats() {
+                    Ok(s) => tracing::info!(stats = %ebpf::format_stats(&s), "ebpf.stats"),
+                    Err(e) => tracing::warn!(error = %e, "ebpf.stats.read_failed"),
+                }
+            }
+        });
+    }
 
     // gRPC client run-loop (reconnects forever).
     client.run().await
