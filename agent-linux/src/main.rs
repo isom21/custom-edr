@@ -119,15 +119,22 @@ async fn main() -> Result<()> {
 
     // eBPF collector first (M6). On any failure (no CAP_BPF, kernel feature
     // missing, kernel version too old, etc.), fall back to the M2 /proc
-    // poller so the agent still produces telemetry.
-    let mut ebpf_loader = match ebpf::Loader::load_and_attach() {
-        Ok(l) => {
-            tracing::info!("collector.mode = ebpf (kernel)");
-            Some(l)
-        }
-        Err(e) => {
-            tracing::warn!(error = ?e, "ebpf load failed; falling back to /proc poller");
-            None
+    // poller so the agent still produces telemetry. EDR_DISABLE_EBPF=1
+    // forces the fallback for testing the legacy path on a kernel that
+    // would otherwise load the BPF object.
+    let mut ebpf_loader = if env::var_os("EDR_DISABLE_EBPF").is_some() {
+        tracing::info!("ebpf disabled by EDR_DISABLE_EBPF; using /proc poller");
+        None
+    } else {
+        match ebpf::Loader::load_and_attach() {
+            Ok(l) => {
+                tracing::info!("collector.mode = ebpf (kernel)");
+                Some(l)
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "ebpf load failed; falling back to /proc poller");
+                None
+            }
         }
     };
     if let Some(loader) = ebpf_loader.as_mut() {
