@@ -13,9 +13,10 @@
 use agent_core::event;
 use agent_core::proto as p;
 use anyhow::{anyhow, Context, Result};
-use aya::maps::{Array, MapData, RingBuf};
+use aya::maps::{Array, HashMap as AyaHashMap, MapData, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf};
+use std::sync::{Arc, Mutex};
 use std::os::fd::AsRawFd;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
@@ -62,6 +63,76 @@ pub struct LoaderCtx {
     pub agent_version: String,
 }
 
+/// Block-list keys are zero-padded 256-byte paths; matches `struct
+/// edr_block_key` in `edr.bpf.c`.
+pub const BLOCK_KEY_LEN: usize = 256;
+
+/// Pad/truncate a path to a [`BLOCK_KEY_LEN`]-byte key. Paths longer than
+/// the key are truncated (matches what kernel-side bpf_d_path produces
+/// for over-long paths).
+pub fn block_key(path: &str) -> [u8; BLOCK_KEY_LEN] {
+    let mut k = [0u8; BLOCK_KEY_LEN];
+    let bytes = path.as_bytes();
+    let n = bytes.len().min(BLOCK_KEY_LEN);
+    k[..n].copy_from_slice(&bytes[..n]);
+    k
+}
+
+/// Lightweight handle the command worker uses to manipulate the kernel
+/// block-list maps from a separate task without holding the full
+/// [`Loader`].
+#[derive(Clone)]
+pub struct BlockListHandle {
+    inner: Arc<Mutex<BlockListInner>>,
+}
+
+struct BlockListInner {
+    process: AyaHashMap<MapData, [u8; BLOCK_KEY_LEN], u8>,
+    file: AyaHashMap<MapData, [u8; BLOCK_KEY_LEN], u8>,
+}
+
+impl BlockListHandle {
+    pub fn block_process(&self, path: &str) -> Result<()> {
+        let key = block_key(path);
+        self.inner
+            .lock()
+            .unwrap()
+            .process
+            .insert(key, 1u8, 0)
+            .with_context(|| format!("process_block insert {path}"))
+    }
+
+    pub fn unblock_process(&self, path: &str) -> Result<()> {
+        let key = block_key(path);
+        self.inner
+            .lock()
+            .unwrap()
+            .process
+            .remove(&key)
+            .with_context(|| format!("process_block remove {path}"))
+    }
+
+    pub fn block_file(&self, path: &str) -> Result<()> {
+        let key = block_key(path);
+        self.inner
+            .lock()
+            .unwrap()
+            .file
+            .insert(key, 1u8, 0)
+            .with_context(|| format!("file_block insert {path}"))
+    }
+
+    pub fn unblock_file(&self, path: &str) -> Result<()> {
+        let key = block_key(path);
+        self.inner
+            .lock()
+            .unwrap()
+            .file
+            .remove(&key)
+            .with_context(|| format!("file_block remove {path}"))
+    }
+}
+
 /// Owns the loaded eBPF object. Drop unloads everything attached.
 pub struct Loader {
     ebpf: Ebpf,
@@ -103,9 +174,32 @@ impl Loader {
             Ok(()) => attached.push_str(",lsm:socket_connect"),
             Err(e) => tracing::warn!(error = %e, "ebpf.lsm_socket_connect.skipped"),
         }
+        match attach_lsm(&mut ebpf, "handle_bprm_check", "bprm_check_security") {
+            Ok(()) => attached.push_str(",lsm:bprm_check_security"),
+            Err(e) => tracing::warn!(error = %e, "ebpf.lsm_bprm_check.skipped"),
+        }
 
         tracing::info!(programs = %attached, "ebpf.loaded");
         Ok(Self { ebpf })
+    }
+
+    /// Take ownership of the two block-list maps and wrap them in a
+    /// thread-safe handle the command worker can use.
+    pub fn take_block_lists(&mut self) -> Result<BlockListHandle> {
+        let p_map = self
+            .ebpf
+            .take_map("process_block")
+            .ok_or_else(|| anyhow!("process_block map missing"))?;
+        let f_map = self
+            .ebpf
+            .take_map("file_block")
+            .ok_or_else(|| anyhow!("file_block map missing"))?;
+        Ok(BlockListHandle {
+            inner: Arc::new(Mutex::new(BlockListInner {
+                process: AyaHashMap::try_from(p_map)?,
+                file: AyaHashMap::try_from(f_map)?,
+            })),
+        })
     }
 
     /// Take ownership of the ring-buffer map and spawn an async drainer

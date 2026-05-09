@@ -8,6 +8,7 @@
 //! 4. Start /proc poller, send ProcessEvents to the manager.
 //! 5. Heartbeat every 30s.
 
+mod command_worker;
 mod ebpf;
 mod proc_watcher;
 
@@ -66,8 +67,9 @@ async fn main() -> Result<()> {
 
     tracing::info!(host_id = %identity.host_id, endpoint = %cfg.manager_endpoint, "agent.starting");
 
-    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
     let send_tx = client.send_tx.clone();
+    let mut commands_rx = client.take_commands_rx();
 
     // Initial Hello.
     let hello = p::ClientMessage {
@@ -145,6 +147,22 @@ async fn main() -> Result<()> {
         };
         if let Err(e) = loader.spawn_drainer(drain_ctx, send_tx.clone()) {
             tracing::error!(error = %e, "ebpf.drainer.spawn_failed");
+        }
+
+        // Wire the command worker into the kernel block lists.
+        let state_dir = cfg.resolved_state_dir();
+        match loader.take_block_lists() {
+            Ok(blocks) => {
+                let restored = command_worker::restore(&state_dir, &blocks)
+                    .unwrap_or_default();
+                if let Some(rx) = commands_rx.take() {
+                    let send_tx2 = send_tx.clone();
+                    tokio::spawn(async move {
+                        command_worker::run(state_dir, blocks, restored, rx, send_tx2).await;
+                    });
+                }
+            }
+            Err(e) => tracing::error!(error = %e, "ebpf.block_lists.unavailable"),
         }
     }
     if ebpf_loader.is_none() {

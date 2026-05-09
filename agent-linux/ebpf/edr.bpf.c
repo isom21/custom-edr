@@ -13,6 +13,9 @@
 // M6.4: outbound network connect via lsm/socket_connect (IPv4 + IPv6,
 //       captures dest sockaddr and best-effort source).
 // M6.x: kernel module load via tracepoint:module:module_load.
+// M6.6: deny-on-match via lsm/bprm_check_security (exec) and a path
+//       check inside lsm/file_open. Block lists are HASH maps keyed by
+//       a 256-byte zero-padded path; userspace drives them.
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
@@ -125,6 +128,45 @@ struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 20);
 } events SEC(".maps");
+
+// Block-list maps. Keys are zero-padded 256-byte paths (EDR_BLOCK_KEY_LEN);
+// values are 1 byte (presence == "block"). BPF_F_NO_PREALLOC keeps the
+// kernel from preallocating max_entries × 256 bytes up front.
+#define EDR_BLOCK_KEY_LEN 256
+#define EDR_BLOCK_MAX     256
+
+struct edr_block_key {
+    char path[EDR_BLOCK_KEY_LEN];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct edr_block_key);
+    __type(value, __u8);
+    __uint(max_entries, EDR_BLOCK_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} process_block SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct edr_block_key);
+    __type(value, __u8);
+    __uint(max_entries, EDR_BLOCK_MAX);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} file_block SEC(".maps");
+
+// Per-CPU scratch for paths produced by bpf_d_path before we copy them
+// (NUL-stop) into a zero-padded lookup key. bpf_d_path writes its
+// output to the *front* of the buffer but doesn't zero the tail, so
+// using its raw output as a hash key would mismatch userspace's
+// zero-padded keys. Reading via bpf_probe_read_kernel_str strips at
+// the NUL and leaves the (zero-init) destination tail clean.
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, __u32);
+    __type(value, struct edr_block_key);
+    __uint(max_entries, 1);
+} block_scratch SEC(".maps");
 
 static __always_inline void fill_header_common(struct edr_event_header *h, __u32 kind, __u32 size)
 {
@@ -317,8 +359,71 @@ int BPF_PROG(handle_file_open, struct file *file)
         }
     }
 
+    // M6.6 file block: build a zero-padded 256-byte lookup key from
+    // the resolved path and check the file_block hash.
+    // bpf_probe_read_kernel_str copies up to N bytes including the NUL
+    // and leaves the rest of the (zero-initialized) key untouched — so
+    // it perfectly mirrors what the userspace `block_key()` produces.
+    int ret = 0;
+    if (e->path_len > 0 && e->path_len <= EDR_BLOCK_KEY_LEN) {
+        struct edr_block_key key = {};
+        long m = bpf_probe_read_kernel_str(key.path, sizeof(key.path), e->path);
+        if (m > 0) {
+            __u8 *hit = bpf_map_lookup_elem(&file_block, &key);
+            if (hit) {
+                stat_inc(EDR_STAT_FILE_BLOCK_HITS);
+                ret = -1; // -EPERM
+            }
+        }
+    }
+
     stat_inc(EDR_STAT_FILE_OPEN);
     bpf_ringbuf_submit(e, 0);
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// Process-create deny via lsm/bprm_check_security (M6.6)
+//
+// Fires on every execve before the new image runs. We resolve the
+// would-be exec path with bpf_d_path on bprm->file and look it up in
+// the process_block hash map; if present, return -EPERM and log a
+// block_hit. The corresponding tracepoint:sched_process_exec fires
+// only on successful exec, so a blocked process never produces a
+// process_started event — that mirrors the Windows minifilter.
+// ---------------------------------------------------------------------------
+
+SEC("lsm/bprm_check_security")
+int BPF_PROG(handle_bprm_check, struct linux_binprm *bprm)
+{
+    if (!bprm)
+        return 0;
+
+    // Stack-only path: zero-init key and write resolved path into it.
+    // bpf_d_path's leftover tail bytes are scrubbed by re-running the
+    // copy through bpf_probe_read_kernel_str into a second zero-init
+    // buffer — but that doubles stack pressure. Instead we use a
+    // per-CPU scratch buffer for the d_path output (declared as a map
+    // so it doesn't hit the 512-byte BPF stack limit).
+    __u32 zero = 0;
+    struct edr_block_key *scratch = bpf_map_lookup_elem(&block_scratch, &zero);
+    if (!scratch)
+        return 0;
+
+    long n = bpf_d_path(&bprm->file->f_path, scratch->path, sizeof(scratch->path));
+    if (n <= 0 || n > EDR_BLOCK_KEY_LEN)
+        return 0;
+
+    struct edr_block_key key = {};
+    long m = bpf_probe_read_kernel_str(key.path, sizeof(key.path), scratch->path);
+    if (m <= 0)
+        return 0;
+
+    __u8 *hit = bpf_map_lookup_elem(&process_block, &key);
+    if (hit) {
+        stat_inc(EDR_STAT_PROCESS_BLOCK_HITS);
+        return -1; // -EPERM
+    }
     return 0;
 }
 
