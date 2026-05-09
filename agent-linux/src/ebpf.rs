@@ -32,6 +32,7 @@ const EBPF_OBJECT: &[u8] = &EBPF_OBJECT_ALIGNED.0;
 const EDR_EVENT_KIND_PROCESS_START: u32 = 1;
 const EDR_EVENT_KIND_PROCESS_EXIT: u32 = 2;
 const EDR_EVENT_KIND_FILE_OPEN: u32 = 3;
+const EDR_EVENT_KIND_NETWORK_CONNECT: u32 = 4;
 
 const COMM_LEN: usize = 16;
 const PATH_MAX: usize = 384;
@@ -91,9 +92,13 @@ impl Loader {
         }
 
         let mut attached = String::from("sched_process_exec,sched_process_exit");
-        match attach_file_open_lsm(&mut ebpf) {
+        match attach_lsm(&mut ebpf, "handle_file_open", "file_open") {
             Ok(()) => attached.push_str(",lsm:file_open"),
             Err(e) => tracing::warn!(error = %e, "ebpf.lsm_file_open.skipped"),
+        }
+        match attach_lsm(&mut ebpf, "handle_socket_connect", "socket_connect") {
+            Ok(()) => attached.push_str(",lsm:socket_connect"),
+            Err(e) => tracing::warn!(error = %e, "ebpf.lsm_socket_connect.skipped"),
         }
 
         tracing::info!(programs = %attached, "ebpf.loaded");
@@ -134,14 +139,18 @@ impl Loader {
 
 /// LSM programs need a kernel BTF reference at load time and a separate
 /// `attach()` call (no category/event tuple like tracepoints).
-fn attach_file_open_lsm(ebpf: &mut Ebpf) -> Result<()> {
+/// `prog_name` is the C function name (the SEC label is e.g. "lsm/file_open");
+/// `hook_name` is the kernel hook (e.g. "file_open").
+fn attach_lsm(ebpf: &mut Ebpf, prog_name: &str, hook_name: &str) -> Result<()> {
     let btf = Btf::from_sys_fs().context("Btf::from_sys_fs")?;
     let prog: &mut Lsm = ebpf
-        .program_mut("handle_file_open")
-        .ok_or_else(|| anyhow!("handle_file_open program missing"))?
+        .program_mut(prog_name)
+        .ok_or_else(|| anyhow!("{prog_name} program missing"))?
         .try_into()?;
-    prog.load("file_open", &btf).context("load lsm/file_open")?;
-    prog.attach().context("attach lsm/file_open")?;
+    prog.load(hook_name, &btf)
+        .with_context(|| format!("load lsm/{hook_name}"))?;
+    prog.attach()
+        .with_context(|| format!("attach lsm/{hook_name}"))?;
     Ok(())
 }
 
@@ -273,6 +282,66 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
             // process_start. M6.x can add an exit event if Sigma rules
             // start needing it.
             None
+        }
+        EDR_EVENT_KIND_NETWORK_CONNECT => {
+            // header(32) + comm[16] + family(1) + protocol(1) + src_port(2) +
+            // dst_port(2) + _pad(2) + src_addr[16] + dst_addr[16]
+            const HDR: usize = 32;
+            const REQ: usize = HDR + COMM_LEN + 1 + 1 + 2 + 2 + 2 + 16 + 16;
+            if buf.len() < REQ {
+                return None;
+            }
+            let mut o = HDR;
+            let _comm = read_cstr(&buf[o..o + COMM_LEN]);
+            o += COMM_LEN;
+            let family = buf[o];
+            o += 1;
+            let protocol = buf[o];
+            o += 1;
+            let src_port = u16::from_ne_bytes(buf[o..o + 2].try_into().ok()?);
+            o += 2;
+            let dst_port = u16::from_ne_bytes(buf[o..o + 2].try_into().ok()?);
+            o += 2 + 2; // skip _pad
+            let src_addr = &buf[o..o + 16];
+            o += 16;
+            let dst_addr = &buf[o..o + 16];
+            const AF_INET: u8 = 2;
+            const AF_INET6: u8 = 10;
+            let (src_str, dst_str) = if family == AF_INET {
+                let s = std::net::Ipv4Addr::new(src_addr[0], src_addr[1], src_addr[2], src_addr[3]);
+                let d = std::net::Ipv4Addr::new(dst_addr[0], dst_addr[1], dst_addr[2], dst_addr[3]);
+                (s.to_string(), d.to_string())
+            } else if family == AF_INET6 {
+                let mut s = [0u8; 16];
+                s.copy_from_slice(src_addr);
+                let mut d = [0u8; 16];
+                d.copy_from_slice(dst_addr);
+                (
+                    std::net::Ipv6Addr::from(s).to_string(),
+                    std::net::Ipv6Addr::from(d).to_string(),
+                )
+            } else {
+                return None;
+            };
+            let transport = match protocol {
+                6 => "tcp",
+                17 => "udp",
+                1 => "icmp",
+                _ => "other",
+            };
+            let _ = ppid;
+            let _ = timestamp_ns;
+            Some(event::network_connect(
+                &ctx.host_id,
+                &ctx.agent_id,
+                &ctx.agent_version,
+                pid,
+                transport,
+                &src_str,
+                src_port as u32,
+                &dst_str,
+                dst_port as u32,
+            ))
         }
         EDR_EVENT_KIND_FILE_OPEN => {
             // header(32) + comm[16] + open_flags(4) + path_len(4) + path[384]

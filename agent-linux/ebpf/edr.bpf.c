@@ -10,11 +10,14 @@
 //       the ring buffer.
 // M6.3: file open via lsm/file_open (kernel-side path resolution +
 //       open-flag-aware filtering to keep the ring volume sane).
+// M6.4: outbound network connect via lsm/socket_connect (IPv4 + IPv6,
+//       captures dest sockaddr and best-effort source).
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+#include <bpf/bpf_endian.h>
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -58,7 +61,8 @@ static __always_inline void stat_inc(enum edr_stat which)
 #define EDR_EVENT_KIND_PROCESS_START   1
 #define EDR_EVENT_KIND_PROCESS_EXIT    2
 #define EDR_EVENT_KIND_FILE_OPEN       3
-// 4..8 reserved to mirror Windows numbering (M6.4+).
+#define EDR_EVENT_KIND_NETWORK_CONNECT 4
+// 5..8 reserved to mirror Windows numbering (M6.x+).
 
 #define EDR_COMM_LEN 16
 #define EDR_PATH_MAX 384   // executable path; truncated if longer
@@ -92,6 +96,18 @@ struct edr_event_file_open {
     __u32 open_flags;          // f_flags from struct file
     __u32 path_len;
     char path[EDR_PATH_MAX];
+};
+
+struct edr_event_network_connect {
+    struct edr_event_header header;
+    char comm[EDR_COMM_LEN];
+    __u8  family;              // AF_INET or AF_INET6
+    __u8  protocol;             // IPPROTO_TCP / IPPROTO_UDP / etc.
+    __u16 src_port;             // host byte order, may be 0 pre-connect
+    __u16 dst_port;             // host byte order
+    __u16 _pad;
+    __u8  src_addr[16];         // ipv4 in [0..4], rest 0; ipv6 fills 16
+    __u8  dst_addr[16];
 };
 
 struct {
@@ -291,6 +307,85 @@ int BPF_PROG(handle_file_open, struct file *file)
     }
 
     stat_inc(EDR_STAT_FILE_OPEN);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Network connect via lsm/socket_connect
+//
+// Fires on connect(2) for INET / INET6 sockets. We grab:
+//   - destination address+port from the sockaddr argument
+//   - source port from sock->sk->skc_num (host order)
+//   - source IP from skc_rcv_saddr / skc_v6_rcv_saddr — may still be
+//     all-zero at this point because the kernel routes after the LSM
+//     check. That's fine; userspace tolerates it.
+//   - protocol from sk->sk_protocol
+//
+// We deliberately skip non-INET families (AF_UNIX, AF_NETLINK) as
+// "connect" on those is not network traffic.
+// ---------------------------------------------------------------------------
+
+#define AF_INET   2
+#define AF_INET6 10
+
+SEC("lsm/socket_connect")
+int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *address, int addrlen)
+{
+    if (!sock || !address)
+        return 0;
+
+    __u16 fam = BPF_CORE_READ(address, sa_family);
+    if (fam != AF_INET && fam != AF_INET6)
+        return 0;
+
+    struct edr_event_network_connect *e =
+        bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e) {
+        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        return 0;
+    }
+
+    fill_header_common(&e->header, EDR_EVENT_KIND_NETWORK_CONNECT, sizeof(*e));
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task) {
+        struct task_struct *parent = BPF_CORE_READ(task, real_parent);
+        if (parent)
+            e->header.ppid = BPF_CORE_READ(parent, tgid);
+    }
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+
+    e->family = (__u8)fam;
+    e->_pad = 0;
+    __builtin_memset(e->src_addr, 0, sizeof(e->src_addr));
+    __builtin_memset(e->dst_addr, 0, sizeof(e->dst_addr));
+
+    struct sock *sk = BPF_CORE_READ(sock, sk);
+    e->protocol = sk ? BPF_CORE_READ(sk, sk_protocol) : 0;
+    e->src_port = sk ? BPF_CORE_READ(sk, __sk_common.skc_num) : 0;
+
+    if (fam == AF_INET) {
+        struct sockaddr_in sin;
+        bpf_probe_read_kernel(&sin, sizeof(sin), address);
+        // sin_port is network order; convert to host order.
+        e->dst_port = bpf_ntohs(sin.sin_port);
+        __builtin_memcpy(e->dst_addr, &sin.sin_addr, 4);
+        if (sk) {
+            __be32 saddr = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+            __builtin_memcpy(e->src_addr, &saddr, 4);
+        }
+    } else {  // AF_INET6
+        struct sockaddr_in6 sin6;
+        bpf_probe_read_kernel(&sin6, sizeof(sin6), address);
+        e->dst_port = bpf_ntohs(sin6.sin6_port);
+        __builtin_memcpy(e->dst_addr, &sin6.sin6_addr, 16);
+        if (sk) {
+            struct in6_addr s6 = BPF_CORE_READ(sk, __sk_common.skc_v6_rcv_saddr);
+            __builtin_memcpy(e->src_addr, &s6, 16);
+        }
+    }
+
+    stat_inc(EDR_STAT_NETWORK_CONNECT);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
