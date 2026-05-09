@@ -18,10 +18,15 @@
 
 DRIVER_INITIALIZE DriverEntry;
 
-static FLT_PREOP_CALLBACK_STATUS EdrPreOperationStub(
+static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext);
+static FLT_POSTOP_CALLBACK_STATUS EdrPostCreate(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _In_opt_ PVOID CompletionContext,
+    _In_ FLT_POST_OPERATION_FLAGS Flags);
 
 static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
 static NTSTATUS EdrInstanceSetup(
@@ -58,10 +63,12 @@ static UNICODE_STRING  g_SymLinkName   = RTL_CONSTANT_STRING(EDR_SYMLINK_NAME);
 
 // Counters — written from any IRQL <= DISPATCH_LEVEL. We use Interlocked ops
 // to keep them coherent across CPUs without taking a lock.
-static volatile LONG64 g_ProcessCreateCount      = 0;
-static volatile LONG64 g_ProcessExitCount        = 0;
-static volatile LONG64 g_ImageLoadCount          = 0;
-static volatile LONG64 g_ImageLoadKernelCount    = 0;
+static volatile LONG64 g_ProcessCreateCount         = 0;
+static volatile LONG64 g_ProcessExitCount           = 0;
+static volatile LONG64 g_ImageLoadCount             = 0;
+static volatile LONG64 g_ImageLoadKernelCount       = 0;
+static volatile LONG64 g_FileCreateCount            = 0;
+static volatile LONG64 g_FileCreateSucceededCount   = 0;
 
 // Track which subsystems registered successfully so unload only undoes work
 // it actually did. Without this a partial DriverEntry failure leads to
@@ -71,7 +78,7 @@ static BOOLEAN g_PsNotifyImageRegistered  = FALSE;
 static BOOLEAN g_SymLinkCreated           = FALSE;
 
 static const FLT_OPERATION_REGISTRATION g_Callbacks[] = {
-    { IRP_MJ_CREATE,           0, EdrPreOperationStub, NULL },
+    { IRP_MJ_CREATE,           0, EdrPreCreate, EdrPostCreate },
     { IRP_MJ_OPERATION_END }
 };
 
@@ -247,15 +254,45 @@ static VOID EdrInstanceTeardownComplete(
     UNREFERENCED_PARAMETER(Flags);
 }
 
-static FLT_PREOP_CALLBACK_STATUS EdrPreOperationStub(
+// Pre-op for IRP_MJ_CREATE. Bumps the file-create counter and asks the Filter
+// Manager to call us back via EdrPostCreate so we can record the open
+// outcome. We don't filter or modify the IRP in M4.3 — that's M5.
+//
+// Volume of these callbacks is high (10s-100s of opens per second on an
+// idle machine), so we deliberately avoid DbgPrint here. M4.5 will replace
+// the counter bump with an enqueue-event-for-user-mode call.
+static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
     UNREFERENCED_PARAMETER(Data);
     UNREFERENCED_PARAMETER(FltObjects);
+
+    InterlockedIncrement64(&g_FileCreateCount);
+    *CompletionContext = NULL;
+    return FLT_PREOP_SUCCESS_WITH_CALLBACK;
+}
+
+// Post-op fires after the file system has handled the IRP. Data->IoStatus
+// has the final status. We only count succeeded opens for now; useful as a
+// signal that the FS actually executed the IRP (vs. denied / failed).
+static FLT_POSTOP_CALLBACK_STATUS EdrPostCreate(
+    _Inout_ PFLT_CALLBACK_DATA Data,
+    _In_ PCFLT_RELATED_OBJECTS FltObjects,
+    _In_opt_ PVOID CompletionContext,
+    _In_ FLT_POST_OPERATION_FLAGS Flags)
+{
+    UNREFERENCED_PARAMETER(FltObjects);
     UNREFERENCED_PARAMETER(CompletionContext);
-    return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    UNREFERENCED_PARAMETER(Flags);
+
+    if (NT_SUCCESS(Data->IoStatus.Status) &&
+        Data->IoStatus.Status != STATUS_REPARSE)
+    {
+        InterlockedIncrement64(&g_FileCreateSucceededCount);
+    }
+    return FLT_POSTOP_FINISHED_PROCESSING;
 }
 
 // Process create / exit. CreateInfo != NULL for create, == NULL for exit.
@@ -326,10 +363,12 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
             break;
         }
         PEDR_STATS out = (PEDR_STATS)Irp->AssociatedIrp.SystemBuffer;
-        out->ProcessCreateCount     = (UINT64)ReadAcquire64(&g_ProcessCreateCount);
-        out->ProcessExitCount       = (UINT64)ReadAcquire64(&g_ProcessExitCount);
-        out->ImageLoadCount         = (UINT64)ReadAcquire64(&g_ImageLoadCount);
-        out->ImageLoadKernelCount   = (UINT64)ReadAcquire64(&g_ImageLoadKernelCount);
+        out->ProcessCreateCount         = (UINT64)ReadAcquire64(&g_ProcessCreateCount);
+        out->ProcessExitCount           = (UINT64)ReadAcquire64(&g_ProcessExitCount);
+        out->ImageLoadCount             = (UINT64)ReadAcquire64(&g_ImageLoadCount);
+        out->ImageLoadKernelCount       = (UINT64)ReadAcquire64(&g_ImageLoadKernelCount);
+        out->FileCreateCount            = (UINT64)ReadAcquire64(&g_FileCreateCount);
+        out->FileCreateSucceededCount   = (UINT64)ReadAcquire64(&g_FileCreateSucceededCount);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;

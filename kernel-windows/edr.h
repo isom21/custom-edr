@@ -28,4 +28,6 @@ typedef struct _EDR_STATS {
     UINT64 ProcessExitCount;
     UINT64 ImageLoadCount;
     UINT64 ImageLoadKernelCount;
+    UINT64 FileCreateCount;             // any IRP_MJ_CREATE the minifilter sees
+    UINT64 FileCreateSucceededCount;    // pre-op + post-op observed STATUS_SUCCESS
 } EDR_STATS, *PEDR_STATS;

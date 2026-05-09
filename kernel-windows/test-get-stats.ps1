@@ -26,6 +26,8 @@ public struct EDR_STATS {
     public ulong ProcessExitCount;
     public ulong ImageLoadCount;
     public ulong ImageLoadKernelCount;
+    public ulong FileCreateCount;
+    public ulong FileCreateSucceededCount;
 }
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
@@ -75,7 +77,11 @@ function Get-EdrStats {
 }
 
 function Format-Stats($s) {
-    "{0,-22} create={1,-6} exit={2,-6} image_load={3,-7} kernel_load={4}" -f (Get-Date).ToString('HH:mm:ss.fff'), $s.ProcessCreateCount, $s.ProcessExitCount, $s.ImageLoadCount, $s.ImageLoadKernelCount
+    "{0,-13} proc.create={1,-7} proc.exit={2,-7} img.load={3,-8} img.kernel={4,-5} file.create={5,-9} file.create.ok={6}" -f `
+        (Get-Date).ToString('HH:mm:ss.fff'),
+        $s.ProcessCreateCount, $s.ProcessExitCount,
+        $s.ImageLoadCount, $s.ImageLoadKernelCount,
+        $s.FileCreateCount, $s.FileCreateSucceededCount
 }
 
 if ($Spawn -gt 0) {
@@ -91,11 +97,13 @@ if ($Spawn -gt 0) {
     Write-Host "after:"
     $after = Get-EdrStats
     Write-Host (Format-Stats $after)
-    Write-Host ('delta: create=+{0} exit=+{1} image_load=+{2} kernel_load=+{3}' -f `
+    Write-Host ('delta: proc.create=+{0} proc.exit=+{1} img.load=+{2} img.kernel=+{3} file.create=+{4} file.create.ok=+{5}' -f `
         ($after.ProcessCreateCount - $before.ProcessCreateCount),
         ($after.ProcessExitCount   - $before.ProcessExitCount),
         ($after.ImageLoadCount     - $before.ImageLoadCount),
-        ($after.ImageLoadKernelCount - $before.ImageLoadKernelCount))
+        ($after.ImageLoadKernelCount - $before.ImageLoadKernelCount),
+        ($after.FileCreateCount    - $before.FileCreateCount),
+        ($after.FileCreateSucceededCount - $before.FileCreateSucceededCount))
     return
 }
 
