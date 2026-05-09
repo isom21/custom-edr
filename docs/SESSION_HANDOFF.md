@@ -10,10 +10,12 @@ the local environment back up.
 ## 1. State at handoff
 
 **Milestone progress:** M0–M3.5 done on Linux; M2.3c (user-mode ETW)
-verified on `lab-windows` 2026-05-09; M4.1–M4.6 (kernel driver +
-agent-windows draining from it) all verified end-to-end on `lab-windows`
-2026-05-09. M4.7 (network DPI via WFP) is the remaining stretch;
-plaintext-before-TLS visibility is deferred.
+verified on `lab-windows` 2026-05-09; **all of M4 (M4.1–M4.7)** verified
+end-to-end on `lab-windows` 2026-05-09 — kernel KMDF + minifilter +
+WFP, IPC ring, agent collector, ECS normalization. **M5 (response
+actions: kill / block) is the next milestone.** Plaintext-before-TLS
+network visibility (the user-mode SChannel-hook flavor of DPI) is
+documented as a separate future project.
 
 ```
 M0   Foundations / scaffolding ............................  done
@@ -36,9 +38,10 @@ M4   Windows kernel driver (KMDF + minifilter)
      M4.5 event ring + IOCTL_EDR_DRAIN_EVENTS .............  done (2026-05-09)
      M4.6 agent-windows drains driver events
           (replaces ETW; ETW kept as fallback) ............  done (2026-05-09)
-     M4.7 (stretch) network DPI via WFP — encrypted +
-          5-tuple in v1; plaintext-before-TLS is a separate
-          project (DLL injection + SChannel hooks) ........  next
+     M4.7 network DPI via WFP — ALE_AUTH_CONNECT
+          IPv4+IPv6, 5-tuple + process attribution +
+          ECS normalizer; plaintext-before-TLS deferred
+          (separate user-mode SChannel-hook project) ......  done (2026-05-09)
 M5   Response actions (kill / block) ......................
 M6   Linux agent (eBPF / aya) .............................
 M7   Polish, self-protection, installers, RBAC ............
@@ -61,6 +64,17 @@ M7   Polish, self-protection, installers, RBAC ............
   OpenSearch (notepad / cmd / Conhost / timeout / sshd) with full
   paths and parent-child links intact. ETW collector remains as
   fallback when `\\.\edr` can't be opened.
+- M4.7 (2026-05-09): WFP callouts at FWPM_LAYER_ALE_AUTH_CONNECT_V4
+  and _V6 capture every outbound TCP/UDP connection's 5-tuple +
+  process attribution, push through the same ring + IOCTL,
+  agent translates to protobuf NetworkEvent, normalizer maps to ECS
+  source.*/destination.*/network.*. 40 network events for one agent
+  run reached OpenSearch including the agent's own gRPC connection.
+  Note: plaintext-before-TLS visibility is **not** captured by pure
+  kernel WFP — TLS encrypts in user-mode SChannel above this point.
+  That class of visibility needs DLL injection + SChannel hooks (or
+  a system-wide TLS-MITM proxy with a trusted root CA), tracked
+  separately as a future project.
 
 **Git history:** `git log --oneline` shows commits `M0` through `M3.5:
 Sigma realtime via OpenSearch percolator`, then the migration handoff
