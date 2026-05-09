@@ -26,6 +26,7 @@ $EVENT_KIND = @{
     6 = 'reg.set.value'
     7 = 'reg.delete.key'
     8 = 'reg.delete.value'
+    9 = 'network.connect'
 }
 
 if (-not ('Edr.NativeDrain' -as [type])) {
@@ -96,6 +97,31 @@ function Decode-Events($bytes) {
             $evt | Add-Member image $imgName -PassThru | Out-Null
             $evt | Add-Member cmd $cmdLine -PassThru | Out-Null
         }
+        elseif ($kind -eq 9) {
+            # network.connect — header(24) + IpVersion(1) + Protocol(1) +
+            # LocalPort(2) + RemotePort(2) + _Reserved(2) + LocalAddr(16) + RemoteAddr(16)
+            $ipVer = $bytes[$i + 24]
+            $proto = $bytes[$i + 25]
+            $lport = [System.Net.IPAddress]::NetworkToHostOrder([int16]([BitConverter]::ToInt16($bytes, $i + 26))) -band 0xFFFF
+            $rport = [System.Net.IPAddress]::NetworkToHostOrder([int16]([BitConverter]::ToInt16($bytes, $i + 28))) -band 0xFFFF
+            $localAddrBytes  = $bytes[($i + 32)..($i + 47)]
+            $remoteAddrBytes = $bytes[($i + 48)..($i + 63)]
+            $localIp = if ($ipVer -eq 4) {
+                "{0}.{1}.{2}.{3}" -f $localAddrBytes[0], $localAddrBytes[1], $localAddrBytes[2], $localAddrBytes[3]
+            } else {
+                ([System.Net.IPAddress]::new($localAddrBytes)).ToString()
+            }
+            $remoteIp = if ($ipVer -eq 4) {
+                "{0}.{1}.{2}.{3}" -f $remoteAddrBytes[0], $remoteAddrBytes[1], $remoteAddrBytes[2], $remoteAddrBytes[3]
+            } else {
+                ([System.Net.IPAddress]::new($remoteAddrBytes)).ToString()
+            }
+            $protoName = switch ($proto) { 6 { 'tcp' } 17 { 'udp' } default { "ip$proto" } }
+            $evt | Add-Member ipv $ipVer -PassThru | Out-Null
+            $evt | Add-Member proto $protoName -PassThru | Out-Null
+            $evt | Add-Member local "${localIp}:${lport}" -PassThru | Out-Null
+            $evt | Add-Member remote "${remoteIp}:${rport}" -PassThru | Out-Null
+        }
         $result.Add($evt) | Out-Null
         $i += $size
     }
@@ -103,10 +129,16 @@ function Decode-Events($bytes) {
 }
 
 function Print-Event($e) {
-    if ($e.kind -eq 'process.start') {
-        "{0,-12} {1,-12} pid={2} parent={3} image={4} cmd={5}" -f $e.ts, $e.kind, $e.pid, $e.parent, $e.image, $e.cmd
-    } else {
-        "{0,-12} {1,-12} pid={2}" -f $e.ts, $e.kind, $e.pid
+    switch ($e.kind) {
+        'process.start' {
+            "{0,-12} {1,-15} pid={2} parent={3} image={4} cmd={5}" -f $e.ts, $e.kind, $e.pid, $e.parent, $e.image, $e.cmd
+        }
+        'network.connect' {
+            "{0,-12} {1,-15} pid={2} {3}/v{4} {5} -> {6}" -f $e.ts, $e.kind, $e.pid, $e.proto, $e.ipv, $e.local, $e.remote
+        }
+        default {
+            "{0,-12} {1,-15} pid={2}" -f $e.ts, $e.kind, $e.pid
+        }
     }
 }
 

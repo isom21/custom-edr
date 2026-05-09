@@ -100,6 +100,39 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
         h = _hash_dict(il.hash)
         if h:
             doc["file"]["hash"] = h
+    elif payload == "network":
+        n = ev.network
+        # ECS network shape: source.* + destination.* at top level,
+        # network.transport / direction / type. Process attribution under
+        # `process` so a downstream join with process events is by pid.
+        direction_map = {
+            events_pb2.NETWORK_DIRECTION_INBOUND: "inbound",
+            events_pb2.NETWORK_DIRECTION_OUTBOUND: "outbound",
+        }
+        action_map = {
+            events_pb2.NETWORK_ACTION_CONNECT: "connection_started",
+            events_pb2.NETWORK_ACTION_ACCEPT: "connection_accepted",
+            events_pb2.NETWORK_ACTION_DISCONNECT: "connection_closed",
+            events_pb2.NETWORK_ACTION_BLOCKED: "connection_blocked",
+        }
+        doc["network"] = {
+            "transport": n.transport or None,
+            "direction": direction_map.get(n.direction),
+            "type": "ipv6" if n.source_ip and ":" in n.source_ip else "ipv4",
+        }
+        doc["source"] = {
+            "ip": n.source_ip or None,
+            "port": n.source_port or None,
+        }
+        doc["destination"] = {
+            "ip": n.destination_ip or None,
+            "port": n.destination_port or None,
+        }
+        if n.process.pid:
+            doc["process"] = {"pid": n.process.pid}
+        # Refine event.action with the network-specific verb.
+        if n.action in action_map:
+            doc["event"]["type"] = [action_map[n.action]]
     elif payload == "scan":
         s = ev.scan
         doc["rule"] = {"id": s.rule_id, "name": s.rule_name}

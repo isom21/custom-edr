@@ -19,6 +19,50 @@ pub fn from_unix_ns(ns: u64) -> Timestamp {
     }
 }
 
+/// Build an outbound network_connect EndpointEvent. `source_ip` /
+/// `destination_ip` are pre-formatted (dotted-quad for IPv4, RFC 5952 for
+/// IPv6) and ports are host byte order.
+#[allow(clippy::too_many_arguments)]
+pub fn network_connect(
+    host_id: &str,
+    agent_id: &str,
+    agent_version: &str,
+    pid: u32,
+    transport: &str,
+    source_ip: &str,
+    source_port: u32,
+    destination_ip: &str,
+    destination_port: u32,
+) -> p::EndpointEvent {
+    let now = now_pb();
+    p::EndpointEvent {
+        event_id: ulid::Ulid::new().to_string(),
+        event_created: Some(now.clone()),
+        event_observed: Some(now),
+        kind: p::EventKind::Event as i32,
+        category: vec![p::EventCategory::Network as i32],
+        action: "network_connect".into(),
+        outcome: "success".into(),
+        host_id: host_id.into(),
+        agent_id: agent_id.into(),
+        agent_version: agent_version.into(),
+        labels: Default::default(),
+        payload: Some(p::endpoint_event::Payload::Network(p::NetworkEvent {
+            process: Some(p::ProcessKey {
+                pid,
+                start_time_ns: 0,
+            }),
+            transport: transport.into(),
+            source_ip: source_ip.into(),
+            source_port,
+            destination_ip: destination_ip.into(),
+            destination_port,
+            direction: p::NetworkDirection::Outbound as i32,
+            action: p::NetworkAction::Connect as i32,
+        })),
+    }
+}
+
 /// Build a process_create EndpointEvent.
 #[allow(clippy::too_many_arguments)]
 pub fn process_started(

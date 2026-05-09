@@ -101,7 +101,12 @@ $linkArgs = @(
     '/INTEGRITYCHECK'
     '/MERGE:_TEXT=.text','/MERGE:_PAGE=PAGE'
     '/SECTION:INIT,d','/OPT:REF','/OPT:ICF'
-    'edr.obj','FltMgr.lib','ntoskrnl.lib','BufferOverflowFastFailK.lib','wdmsec.lib'
+    'edr.obj',
+    # Kernel + filter manager
+    'FltMgr.lib','ntoskrnl.lib','BufferOverflowFastFailK.lib','wdmsec.lib',
+    # WFP: fwpkclnt.lib for FwpmEngine* / FwpmFilterAdd0,
+    #      netio.lib    for FwpsCalloutRegister1 / FwpsCalloutUnregisterById0.
+    'fwpkclnt.lib','netio.lib'
 )
 & $linkExe @linkArgs
 if ($LASTEXITCODE -ne 0) { throw "link failed (exit $LASTEXITCODE)" }

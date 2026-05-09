@@ -45,6 +45,7 @@ typedef struct _EDR_STATS {
     UINT64 EventsEnqueued;              // events placed into the ring buffer
     UINT64 EventsDropped;               // ring full at enqueue time
     UINT64 EventsDrained;               // events delivered via IOCTL_DRAIN
+    UINT64 NetConnectCount;             // FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6 hits
 } EDR_STATS, *PEDR_STATS;
 
 // EDR_EVENT_KIND_* values for EDR_EVENT_HEADER.Kind. Numeric, stable across
@@ -52,14 +53,15 @@ typedef struct _EDR_STATS {
 // "invalid" so a zeroed buffer can't be misinterpreted as a real event.
 // Prefix is _KIND_ to avoid colliding with the EDR_EVENT_PROCESS_START
 // typedef below (the preprocessor would expand the macro mid-typedef).
-#define EDR_EVENT_KIND_PROCESS_START   1
-#define EDR_EVENT_KIND_PROCESS_EXIT    2
-#define EDR_EVENT_KIND_IMAGE_LOAD      3
-#define EDR_EVENT_KIND_FILE_CREATE     4
-#define EDR_EVENT_KIND_REG_CREATE_KEY  5
-#define EDR_EVENT_KIND_REG_SET_VALUE   6
-#define EDR_EVENT_KIND_REG_DELETE_KEY  7
-#define EDR_EVENT_KIND_REG_DELETE_VAL  8
+#define EDR_EVENT_KIND_PROCESS_START      1
+#define EDR_EVENT_KIND_PROCESS_EXIT       2
+#define EDR_EVENT_KIND_IMAGE_LOAD         3
+#define EDR_EVENT_KIND_FILE_CREATE        4
+#define EDR_EVENT_KIND_REG_CREATE_KEY     5
+#define EDR_EVENT_KIND_REG_SET_VALUE      6
+#define EDR_EVENT_KIND_REG_DELETE_KEY     7
+#define EDR_EVENT_KIND_REG_DELETE_VAL     8
+#define EDR_EVENT_KIND_NETWORK_CONNECT    9   // outbound TCP/UDP, ALE_AUTH_CONNECT
 
 // Common header. Every event in the IOCTL_DRAIN_EVENTS stream starts with
 // this struct. Walk the stream by reading Size and advancing.
@@ -80,4 +82,25 @@ typedef struct _EDR_EVENT_PROCESS_START {
     UINT16 CommandLineLen;      // bytes; 0 if absent
     // followed by ImageName (UTF-16) + CommandLine (UTF-16)
 } EDR_EVENT_PROCESS_START, *PEDR_EVENT_PROCESS_START;
+
+// Outbound network connect. Captured at FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6
+// before TLS encryption is layered on (TLS happens in user-mode SChannel
+// above this), so 5-tuple metadata is reliable. The bytes themselves
+// passing through here are still pre-TCP-stack — for plaintext-after-TLS
+// you need the STREAM layer; for plaintext-before-TLS you need user-mode
+// SChannel hooks (out of scope for the kernel driver).
+//
+// LocalAddr/RemoteAddr are 16 bytes for IPv6; the IPv4 case stores the 4
+// address bytes in the first 4 of the 16 with the rest zeroed. Ports and
+// addresses are network byte order (big-endian) as WFP delivers them.
+typedef struct _EDR_EVENT_NETWORK_CONNECT {
+    EDR_EVENT_HEADER Header;
+    UINT8  IpVersion;           // 4 or 6
+    UINT8  Protocol;            // IPPROTO_TCP=6, IPPROTO_UDP=17
+    UINT16 LocalPort;           // network byte order
+    UINT16 RemotePort;          // network byte order
+    UINT16 _Reserved;
+    UINT8  LocalAddr[16];
+    UINT8  RemoteAddr[16];
+} EDR_EVENT_NETWORK_CONNECT, *PEDR_EVENT_NETWORK_CONNECT;
 #pragma pack(pop)

@@ -14,6 +14,14 @@
 #include <ntddk.h>
 #include <wdmsec.h>   // IoCreateDeviceSecure, SDDL_DEVOBJ_*
 
+// WFP. fwpsk.h needs NDIS_SUPPORT_NDIS6=1 set before it sees the NDIS
+// types (otherwise NET_BUFFER_LIST and friends are missing the IF_INDEX
+// fields that fwpsk.h's structs reference, and you get a cascade of C2146
+// "missing ;" errors deep in fwpsk.h). fwpsk.h before fwpmk.h.
+#define NDIS_SUPPORT_NDIS6 1
+#include <fwpsk.h>
+#include <fwpmk.h>
+
 #include "edr.h"
 
 DRIVER_INITIALIZE DriverEntry;
@@ -57,6 +65,29 @@ static NTSTATUS EdrRegistryCallback(
     _In_opt_ PVOID Argument1,
     _In_opt_ PVOID Argument2);
 
+static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject);
+static VOID EdrWfpCleanup(VOID);
+static VOID EdrWfpClassifyV4(
+    _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
+    _Inout_opt_ void *layerData,
+    _In_opt_ const void *classifyContext,
+    _In_ const FWPS_FILTER1 *filter,
+    _In_ UINT64 flowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut);
+static VOID EdrWfpClassifyV6(
+    _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
+    _Inout_opt_ void *layerData,
+    _In_opt_ const void *classifyContext,
+    _In_ const FWPS_FILTER1 *filter,
+    _In_ UINT64 flowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut);
+static NTSTATUS EdrWfpNotify(
+    _In_ FWPS_CALLOUT_NOTIFY_TYPE notifyType,
+    _In_ const GUID *filterKey,
+    _Inout_ FWPS_FILTER1 *filter);
+
 static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 
@@ -81,6 +112,7 @@ static volatile LONG64 g_RegOtherCount              = 0;
 static volatile LONG64 g_EventsEnqueued             = 0;
 static volatile LONG64 g_EventsDropped              = 0;
 static volatile LONG64 g_EventsDrained              = 0;
+static volatile LONG64 g_NetConnectCount            = 0;
 
 // Event ring buffer. Producers are kernel callbacks (IRQL <= APC_LEVEL),
 // consumer is the IOCTL_EDR_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
@@ -103,6 +135,32 @@ static BOOLEAN g_PsNotifyImageRegistered  = FALSE;
 static BOOLEAN g_SymLinkCreated           = FALSE;
 static BOOLEAN g_RegCallbackRegistered    = FALSE;
 static LARGE_INTEGER g_RegCookie          = { 0 };
+
+// WFP state. Each field is set as the corresponding init step succeeds; the
+// cleanup helper undoes only the steps that actually completed.
+static HANDLE  g_WfpEngine        = NULL;
+static UINT32  g_WfpCalloutIdV4   = 0;
+static UINT32  g_WfpCalloutIdV6   = 0;
+static UINT64  g_WfpFilterIdV4    = 0;
+static UINT64  g_WfpFilterIdV6    = 0;
+static BOOLEAN g_WfpSubLayerAdded = FALSE;
+static BOOLEAN g_WfpFwpmCalloutV4Added = FALSE;
+static BOOLEAN g_WfpFwpmCalloutV6Added = FALSE;
+static BOOLEAN g_WfpInTransaction = FALSE;
+
+// Generated GUIDs — must be unique per driver. Regenerate if forking.
+//   sublayer:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f001}
+//   callout4:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f002}
+//   callout6:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f003}
+DEFINE_GUID(EDR_WFP_SUBLAYER_GUID,
+    0x3a0b6d1f, 0x4e2c, 0x4f6a,
+    0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x01);
+DEFINE_GUID(EDR_WFP_CALLOUT_V4_GUID,
+    0x3a0b6d1f, 0x4e2c, 0x4f6a,
+    0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x02);
+DEFINE_GUID(EDR_WFP_CALLOUT_V6_GUID,
+    0x3a0b6d1f, 0x4e2c, 0x4f6a,
+    0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x03);
 
 static const FLT_OPERATION_REGISTRATION g_Callbacks[] = {
     { IRP_MJ_CREATE,           0, EdrPreCreate, EdrPostCreate },
@@ -206,6 +264,15 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
         g_RegCallbackRegistered = TRUE;
     }
 
+    status = EdrWfpInit(DriverObject);
+    if (!NT_SUCCESS(status)) {
+        // EdrWfpInit cleans up its own partial state on failure, but it does
+        // not unregister our other subsystems — that's still fail_unwind's
+        // job. Just bail.
+        EdrWfpCleanup();
+        goto fail_unwind;
+    }
+
     status = FltStartFiltering(g_FilterHandle);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FltStartFiltering failed: 0x%08x\n", status);
@@ -216,6 +283,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     return STATUS_SUCCESS;
 
 fail_unwind:
+    EdrWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
         g_RegCallbackRegistered = FALSE;
@@ -251,7 +319,10 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 
     // Unregister callbacks before deleting the device; once unregistered no
     // new callbacks can fire and any in-flight callback finishes before the
-    // unregister call returns.
+    // unregister call returns. WFP first because deleting filters quiesces
+    // future classify calls, then unregistering kernel callouts drains
+    // in-flight ones.
+    EdrWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
         g_RegCallbackRegistered = FALSE;
@@ -520,6 +591,316 @@ static VOID EdrLoadImageNotify(
     }
 }
 
+// Build and ring-push a NETWORK_CONNECT event. Shared by both the V4 and V6
+// classifiers; the caller has already converted addresses + ports to network
+// byte order and selected the right family.
+static VOID EdrEnqueueNetworkConnect(
+    _In_ UINT8 ipVersion,
+    _In_ UINT8 protocol,
+    _In_ UINT16 localPortBe,
+    _In_ UINT16 remotePortBe,
+    _In_reads_bytes_(addrBytes) const VOID *localAddr,
+    _In_reads_bytes_(addrBytes) const VOID *remoteAddr,
+    _In_ UINT32 addrBytes,
+    _In_ UINT64 processId)
+{
+    EDR_EVENT_NETWORK_CONNECT ev;
+    RtlZeroMemory(&ev, sizeof(ev));
+    LARGE_INTEGER ts;
+    KeQuerySystemTimePrecise(&ts);
+
+    ev.Header.Size = sizeof(EDR_EVENT_NETWORK_CONNECT);
+    ev.Header.Kind = EDR_EVENT_KIND_NETWORK_CONNECT;
+    ev.Header.TimestampNs = (UINT64)ts.QuadPart;
+    ev.Header.ProcessId = processId;
+    ev.IpVersion = ipVersion;
+    ev.Protocol = protocol;
+    ev.LocalPort = localPortBe;
+    ev.RemotePort = remotePortBe;
+    ev._Reserved = 0;
+
+    UINT32 copyBytes = (addrBytes <= sizeof(ev.LocalAddr)) ? addrBytes : (UINT32)sizeof(ev.LocalAddr);
+    RtlCopyMemory(ev.LocalAddr, localAddr, copyBytes);
+    RtlCopyMemory(ev.RemoteAddr, remoteAddr, copyBytes);
+
+    if (EdrRingPush(&ev, sizeof(ev))) {
+        InterlockedIncrement64(&g_EventsEnqueued);
+        InterlockedIncrement64(&g_NetConnectCount);
+    } else {
+        InterlockedIncrement64(&g_EventsDropped);
+    }
+}
+
+// IPv4 ALE classify. WFP delivers V4 addresses + ports in HOST byte order
+// at this layer. We byte-swap to network order on the way out so the wire
+// format is consistent across V4 and V6 events.
+static VOID EdrWfpClassifyV4(
+    _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
+    _Inout_opt_ void *layerData,
+    _In_opt_ const void *classifyContext,
+    _In_ const FWPS_FILTER1 *filter,
+    _In_ UINT64 flowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut)
+{
+    UNREFERENCED_PARAMETER(layerData);
+    UNREFERENCED_PARAMETER(classifyContext);
+    UNREFERENCED_PARAMETER(filter);
+    UNREFERENCED_PARAMETER(flowContext);
+
+    // Inspection callout — leave the action alone so packets pass through.
+    classifyOut->actionType = FWP_ACTION_CONTINUE;
+
+    UINT32 localAddrHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_LOCAL_ADDRESS].value.uint32;
+    UINT32 remoteAddrHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_REMOTE_ADDRESS].value.uint32;
+    UINT16 localPortHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_LOCAL_PORT].value.uint16;
+    UINT16 remotePortHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_REMOTE_PORT].value.uint16;
+    UINT8 protocol = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V4_IP_PROTOCOL].value.uint8;
+
+    UINT64 processId = 0;
+    if ((inMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID) != 0) {
+        processId = inMetaValues->processId;
+    }
+
+    UINT32 localAddrBe = RtlUlongByteSwap(localAddrHe);
+    UINT32 remoteAddrBe = RtlUlongByteSwap(remoteAddrHe);
+    EdrEnqueueNetworkConnect(
+        4,
+        protocol,
+        RtlUshortByteSwap(localPortHe),
+        RtlUshortByteSwap(remotePortHe),
+        &localAddrBe,
+        &remoteAddrBe,
+        sizeof(UINT32),
+        processId);
+}
+
+// IPv6 ALE classify. V6 addresses are byteArray16* (already in network order
+// per WFP); ports are HOST byte order at this layer.
+static VOID EdrWfpClassifyV6(
+    _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
+    _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
+    _Inout_opt_ void *layerData,
+    _In_opt_ const void *classifyContext,
+    _In_ const FWPS_FILTER1 *filter,
+    _In_ UINT64 flowContext,
+    _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut)
+{
+    UNREFERENCED_PARAMETER(layerData);
+    UNREFERENCED_PARAMETER(classifyContext);
+    UNREFERENCED_PARAMETER(filter);
+    UNREFERENCED_PARAMETER(flowContext);
+
+    classifyOut->actionType = FWP_ACTION_CONTINUE;
+
+    const FWP_BYTE_ARRAY16 *localAddr = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_LOCAL_ADDRESS].value.byteArray16;
+    const FWP_BYTE_ARRAY16 *remoteAddr = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_REMOTE_ADDRESS].value.byteArray16;
+    UINT16 localPortHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_LOCAL_PORT].value.uint16;
+    UINT16 remotePortHe = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_REMOTE_PORT].value.uint16;
+    UINT8 protocol = inFixedValues->incomingValue[FWPS_FIELD_ALE_AUTH_CONNECT_V6_IP_PROTOCOL].value.uint8;
+
+    UINT64 processId = 0;
+    if ((inMetaValues->currentMetadataValues & FWPS_METADATA_FIELD_PROCESS_ID) != 0) {
+        processId = inMetaValues->processId;
+    }
+
+    if (localAddr == NULL || remoteAddr == NULL) {
+        return;
+    }
+    EdrEnqueueNetworkConnect(
+        6,
+        protocol,
+        RtlUshortByteSwap(localPortHe),
+        RtlUshortByteSwap(remotePortHe),
+        localAddr->byteArray16,
+        remoteAddr->byteArray16,
+        16,
+        processId);
+}
+
+// WFP callout notify. Required by FwpsCalloutRegister1 but we don't need to
+// do anything at filter add/remove time — return STATUS_SUCCESS.
+static NTSTATUS EdrWfpNotify(
+    _In_ FWPS_CALLOUT_NOTIFY_TYPE notifyType,
+    _In_ const GUID *filterKey,
+    _Inout_ FWPS_FILTER1 *filter)
+{
+    UNREFERENCED_PARAMETER(notifyType);
+    UNREFERENCED_PARAMETER(filterKey);
+    UNREFERENCED_PARAMETER(filter);
+    return STATUS_SUCCESS;
+}
+
+// WFP setup. Must be called from DriverEntry after the control device exists
+// (FwpsCalloutRegister1 needs a device object). On any failure we tear down
+// every step that succeeded — see EdrWfpCleanup.
+static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
+{
+    UNREFERENCED_PARAMETER(DriverObject);
+    NTSTATUS status;
+
+    status = FwpmEngineOpen0(NULL, RPC_C_AUTHN_WINNT, NULL, NULL, &g_WfpEngine);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmEngineOpen0 failed: 0x%08x\n", status);
+        return status;
+    }
+
+    status = FwpmTransactionBegin0(g_WfpEngine, 0);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmTransactionBegin0 failed: 0x%08x\n", status);
+        return status;
+    }
+    g_WfpInTransaction = TRUE;
+
+    FWPM_SUBLAYER0 sublayer;
+    RtlZeroMemory(&sublayer, sizeof(sublayer));
+    sublayer.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    sublayer.displayData.name = (wchar_t *)L"EDR Observation Sublayer";
+    sublayer.displayData.description = (wchar_t *)L"EDR observation-only filters";
+    sublayer.flags = 0;
+    sublayer.weight = 0x100;
+    status = FwpmSubLayerAdd0(g_WfpEngine, &sublayer, NULL);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmSubLayerAdd0 failed: 0x%08x\n", status);
+        return status;
+    }
+    g_WfpSubLayerAdded = TRUE;
+
+    // Register kernel-side callouts. Must succeed before the management-side
+    // FwpmCalloutAdd0 because the latter looks up the kernel callout by key.
+    FWPS_CALLOUT1 calloutV4;
+    RtlZeroMemory(&calloutV4, sizeof(calloutV4));
+    calloutV4.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
+    calloutV4.classifyFn = EdrWfpClassifyV4;
+    calloutV4.notifyFn = EdrWfpNotify;
+    status = FwpsCalloutRegister1(g_DeviceObject, &calloutV4, &g_WfpCalloutIdV4);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpsCalloutRegister1 V4 failed: 0x%08x\n", status);
+        return status;
+    }
+
+    FWPS_CALLOUT1 calloutV6;
+    RtlZeroMemory(&calloutV6, sizeof(calloutV6));
+    calloutV6.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
+    calloutV6.classifyFn = EdrWfpClassifyV6;
+    calloutV6.notifyFn = EdrWfpNotify;
+    status = FwpsCalloutRegister1(g_DeviceObject, &calloutV6, &g_WfpCalloutIdV6);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpsCalloutRegister1 V6 failed: 0x%08x\n", status);
+        return status;
+    }
+
+    // Management-side callout entries.
+    FWPM_CALLOUT0 fwpmCalloutV4;
+    RtlZeroMemory(&fwpmCalloutV4, sizeof(fwpmCalloutV4));
+    fwpmCalloutV4.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
+    fwpmCalloutV4.displayData.name = (wchar_t *)L"EDR ALE Auth Connect IPv4";
+    fwpmCalloutV4.displayData.description = (wchar_t *)L"";
+    fwpmCalloutV4.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
+    status = FwpmCalloutAdd0(g_WfpEngine, &fwpmCalloutV4, NULL, NULL);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmCalloutAdd0 V4 failed: 0x%08x\n", status);
+        return status;
+    }
+    g_WfpFwpmCalloutV4Added = TRUE;
+
+    FWPM_CALLOUT0 fwpmCalloutV6;
+    RtlZeroMemory(&fwpmCalloutV6, sizeof(fwpmCalloutV6));
+    fwpmCalloutV6.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
+    fwpmCalloutV6.displayData.name = (wchar_t *)L"EDR ALE Auth Connect IPv6";
+    fwpmCalloutV6.displayData.description = (wchar_t *)L"";
+    fwpmCalloutV6.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
+    status = FwpmCalloutAdd0(g_WfpEngine, &fwpmCalloutV6, NULL, NULL);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmCalloutAdd0 V6 failed: 0x%08x\n", status);
+        return status;
+    }
+    g_WfpFwpmCalloutV6Added = TRUE;
+
+    // Filters (no conditions, weight=empty, action=callout-inspection).
+    FWPM_FILTER0 filterV4;
+    RtlZeroMemory(&filterV4, sizeof(filterV4));
+    filterV4.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
+    filterV4.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    filterV4.displayData.name = (wchar_t *)L"EDR ALE Connect V4";
+    filterV4.action.type = FWP_ACTION_CALLOUT_INSPECTION;
+    filterV4.action.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
+    filterV4.weight.type = FWP_EMPTY;
+    status = FwpmFilterAdd0(g_WfpEngine, &filterV4, NULL, &g_WfpFilterIdV4);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmFilterAdd0 V4 failed: 0x%08x\n", status);
+        return status;
+    }
+
+    FWPM_FILTER0 filterV6;
+    RtlZeroMemory(&filterV6, sizeof(filterV6));
+    filterV6.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
+    filterV6.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    filterV6.displayData.name = (wchar_t *)L"EDR ALE Connect V6";
+    filterV6.action.type = FWP_ACTION_CALLOUT_INSPECTION;
+    filterV6.action.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
+    filterV6.weight.type = FWP_EMPTY;
+    status = FwpmFilterAdd0(g_WfpEngine, &filterV6, NULL, &g_WfpFilterIdV6);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmFilterAdd0 V6 failed: 0x%08x\n", status);
+        return status;
+    }
+
+    status = FwpmTransactionCommit0(g_WfpEngine);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FwpmTransactionCommit0 failed: 0x%08x\n", status);
+        return status;
+    }
+    g_WfpInTransaction = FALSE;
+
+    DbgPrint("[EDR] WFP filters live (ALE connect v4+v6)\n");
+    return STATUS_SUCCESS;
+}
+
+// Tear down WFP state. Idempotent: each `if` checks whether that step was
+// completed in EdrWfpInit. Filters reference callouts so delete in this
+// order: filter -> fwpm callout -> sublayer; then close engine; then
+// unregister kernel callouts.
+static VOID EdrWfpCleanup(VOID)
+{
+    if (g_WfpEngine != NULL) {
+        if (g_WfpInTransaction) {
+            FwpmTransactionAbort0(g_WfpEngine);
+            g_WfpInTransaction = FALSE;
+        }
+        if (g_WfpFilterIdV4 != 0) {
+            FwpmFilterDeleteById0(g_WfpEngine, g_WfpFilterIdV4);
+            g_WfpFilterIdV4 = 0;
+        }
+        if (g_WfpFilterIdV6 != 0) {
+            FwpmFilterDeleteById0(g_WfpEngine, g_WfpFilterIdV6);
+            g_WfpFilterIdV6 = 0;
+        }
+        if (g_WfpFwpmCalloutV4Added) {
+            FwpmCalloutDeleteByKey0(g_WfpEngine, &EDR_WFP_CALLOUT_V4_GUID);
+            g_WfpFwpmCalloutV4Added = FALSE;
+        }
+        if (g_WfpFwpmCalloutV6Added) {
+            FwpmCalloutDeleteByKey0(g_WfpEngine, &EDR_WFP_CALLOUT_V6_GUID);
+            g_WfpFwpmCalloutV6Added = FALSE;
+        }
+        if (g_WfpSubLayerAdded) {
+            FwpmSubLayerDeleteByKey0(g_WfpEngine, &EDR_WFP_SUBLAYER_GUID);
+            g_WfpSubLayerAdded = FALSE;
+        }
+        FwpmEngineClose0(g_WfpEngine);
+        g_WfpEngine = NULL;
+    }
+    if (g_WfpCalloutIdV4 != 0) {
+        FwpsCalloutUnregisterById0(g_WfpCalloutIdV4);
+        g_WfpCalloutIdV4 = 0;
+    }
+    if (g_WfpCalloutIdV6 != 0) {
+        FwpsCalloutUnregisterById0(g_WfpCalloutIdV6);
+        g_WfpCalloutIdV6 = 0;
+    }
+}
+
 // Registry callback. Argument1 is REG_NOTIFY_CLASS encoded as PVOID. We bump
 // per-class counters and always allow the operation. Like file IO, registry
 // activity is high-volume so we don't DbgPrint per event.
@@ -594,6 +975,7 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->EventsEnqueued             = (UINT64)ReadAcquire64(&g_EventsEnqueued);
         out->EventsDropped              = (UINT64)ReadAcquire64(&g_EventsDropped);
         out->EventsDrained              = (UINT64)ReadAcquire64(&g_EventsDrained);
+        out->NetConnectCount            = (UINT64)ReadAcquire64(&g_NetConnectCount);
         status = STATUS_SUCCESS;
         information = sizeof(EDR_STATS);
         break;

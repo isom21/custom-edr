@@ -30,6 +30,7 @@ const DRAIN_BUF_BYTES: usize = 256 * 1024;
 const POLL_IDLE_MS: u64 = 100;
 const HEADER_BYTES: usize = 24;
 const KIND_PROCESS_START: u32 = 1;
+const KIND_NETWORK_CONNECT: u32 = 9;
 
 #[derive(Clone)]
 pub struct DriverCtx {
@@ -142,6 +143,7 @@ fn parse_event(buf: &[u8], ctx: &DriverCtx) -> Option<(usize, Option<p::ClientMe
 
     let msg = match kind {
         KIND_PROCESS_START => build_process_start(&buf[..size], pid, timestamp_ns_nt, ctx),
+        KIND_NETWORK_CONNECT => build_network_connect(&buf[..size], pid, ctx),
         _ => None,
     };
     Some((size, msg))
@@ -183,6 +185,76 @@ fn build_process_start(buf: &[u8], pid: u64, ts_nt: u64, ctx: &DriverCtx) -> Opt
         "",
     );
 
+    let batch = p::EventBatch {
+        events: vec![ev],
+        batch_id: ulid::Ulid::new().to_string(),
+        first_seq: 0,
+        last_seq: 0,
+    };
+    Some(p::ClientMessage {
+        payload: Some(p::client_message::Payload::Events(batch)),
+    })
+}
+
+fn build_network_connect(buf: &[u8], pid: u64, ctx: &DriverCtx) -> Option<p::ClientMessage> {
+    // Layout (matches kernel-windows/edr.h EDR_EVENT_NETWORK_CONNECT):
+    //   header(24) + IpVersion(1) + Protocol(1) + LocalPort(2 BE) +
+    //   RemotePort(2 BE) + _Reserved(2) + LocalAddr(16) + RemoteAddr(16)
+    if buf.len() < 64 {
+        return None;
+    }
+    let ip_version = buf[24];
+    let protocol = buf[25];
+    let local_port_be = u16::from_le_bytes(buf[26..28].try_into().ok()?);
+    let remote_port_be = u16::from_le_bytes(buf[28..30].try_into().ok()?);
+    let local_addr_bytes: [u8; 16] = buf[32..48].try_into().ok()?;
+    let remote_addr_bytes: [u8; 16] = buf[48..64].try_into().ok()?;
+
+    // Ports arrive network-byte-order (big-endian) per the kernel format.
+    let local_port = u16::from_be(local_port_be);
+    let remote_port = u16::from_be(remote_port_be);
+
+    let (local_ip, remote_ip) = match ip_version {
+        4 => (
+            std::net::Ipv4Addr::new(
+                local_addr_bytes[0],
+                local_addr_bytes[1],
+                local_addr_bytes[2],
+                local_addr_bytes[3],
+            )
+            .to_string(),
+            std::net::Ipv4Addr::new(
+                remote_addr_bytes[0],
+                remote_addr_bytes[1],
+                remote_addr_bytes[2],
+                remote_addr_bytes[3],
+            )
+            .to_string(),
+        ),
+        6 => (
+            std::net::Ipv6Addr::from(local_addr_bytes).to_string(),
+            std::net::Ipv6Addr::from(remote_addr_bytes).to_string(),
+        ),
+        _ => return None,
+    };
+
+    let transport = match protocol {
+        6 => "tcp",
+        17 => "udp",
+        _ => "ip",
+    };
+
+    let ev = event::network_connect(
+        &ctx.host_id,
+        &ctx.agent_id,
+        &ctx.agent_version,
+        pid as u32,
+        transport,
+        &local_ip,
+        local_port as u32,
+        &remote_ip,
+        remote_port as u32,
+    );
     let batch = p::EventBatch {
         events: vec![ev],
         batch_id: ulid::Ulid::new().to_string(),
