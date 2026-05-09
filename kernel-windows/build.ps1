@@ -94,9 +94,14 @@ Write-Host '--- linking edr.sys ---'
 $linkArgs = @(
     '/nologo','/OUT:edr.sys','/MACHINE:X64','/SUBSYSTEM:NATIVE,10.0'
     '/DRIVER','/ENTRY:DriverEntry','/NODEFAULTLIB'
+    # /INTEGRITYCHECK sets IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY in the
+    # PE header, which is required for any driver that calls
+    # PsSetCreateProcessNotifyRoutineEx (otherwise that API returns
+    # STATUS_ACCESS_DENIED with no other diagnostic).
+    '/INTEGRITYCHECK'
     '/MERGE:_TEXT=.text','/MERGE:_PAGE=PAGE'
     '/SECTION:INIT,d','/OPT:REF','/OPT:ICF'
-    'edr.obj','FltMgr.lib','ntoskrnl.lib','BufferOverflowFastFailK.lib'
+    'edr.obj','FltMgr.lib','ntoskrnl.lib','BufferOverflowFastFailK.lib','wdmsec.lib'
 )
 & $linkExe @linkArgs
 if ($LASTEXITCODE -ne 0) { throw "link failed (exit $LASTEXITCODE)" }

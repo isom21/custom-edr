@@ -1,7 +1,4 @@
 // edr.h — shared types and constants between kernel driver and user-mode agent.
-//
-// IOCTL codes and event structures will grow as M4.x lands. M4.1 only needs
-// the device name + symbolic link so user-mode can later attach.
 
 #pragma once
 
@@ -13,7 +10,22 @@
 // (380000-389999).
 #define EDR_ALTITUDE         L"385100"
 
-// Device names for the IPC channel that lands in M4.5 (inverted IOCTL).
+// Device names for the IPC channel.
 #define EDR_DEVICE_NAME      L"\\Device\\edr"
 #define EDR_SYMLINK_NAME     L"\\??\\edr"
 #define EDR_USERMODE_PATH    L"\\\\.\\edr"
+
+// IOCTL codes. Method-buffered (METHOD_BUFFERED = 0). FILE_ANY_ACCESS so an
+// admin-only DACL on the device controls who can talk to us.
+//
+// Function code range 0x800-0xFFF is reserved for vendor use.
+#define EDR_IOCTL_GET_STATS  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// Output buffer for IOCTL_EDR_GET_STATS. Counters monotonically increase
+// from driver load and are reset on driver unload/reload.
+typedef struct _EDR_STATS {
+    UINT64 ProcessCreateCount;
+    UINT64 ProcessExitCount;
+    UINT64 ImageLoadCount;
+    UINT64 ImageLoadKernelCount;
+} EDR_STATS, *PEDR_STATS;

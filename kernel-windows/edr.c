@@ -1,11 +1,18 @@
-// edr.c — M4.1 minifilter skeleton.
+// edr.c — M4.2: minifilter skeleton + process create + image load callbacks
+// + control device with IOCTL_EDR_GET_STATS so user-mode can verify the
+// callbacks are actually firing.
 //
-// Goal of M4.1: register a Filter Manager minifilter that loads, stays loaded,
-// and shows up in `fltmc instances` on the lab VM. No callbacks, no IPC, no
-// process/image hooks yet — those land in M4.2-M4.5.
+// What's here vs. what's coming:
+//   M4.1 (done): minifilter registers and attaches at altitude 385100.
+//   M4.2 (this): Ps* notify callbacks for process create + image load. Counters
+//                exposed via a single IOCTL on \Device\edr.
+//   M4.3 (next): IRP_MJ_CREATE pre/post-op replaces the current stub.
+//   M4.4: registry callbacks via CmRegisterCallbackEx.
+//   M4.5: inverted IOCTL channel for streaming events to the agent.
 
 #include <fltKernel.h>
 #include <ntddk.h>
+#include <wdmsec.h>   // IoCreateDeviceSecure, SDDL_DEVOBJ_*
 
 #include "edr.h"
 
@@ -32,35 +39,54 @@ static VOID EdrInstanceTeardownComplete(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags);
 
-// Module-global filter handle. Released in EdrFilterUnload.
-static PFLT_FILTER g_FilterHandle = NULL;
+static VOID EdrCreateProcessNotify(
+    _Inout_ PEPROCESS Process,
+    _In_ HANDLE ProcessId,
+    _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo);
+static VOID EdrLoadImageNotify(
+    _In_opt_ PUNICODE_STRING FullImageName,
+    _In_ HANDLE ProcessId,
+    _In_ PIMAGE_INFO ImageInfo);
 
-// M4.1: a single registration entry for IRP_MJ_CREATE. The pre-op callback is
-// a stub that returns "no callback" so we don't perturb file IO yet — it just
-// proves the registration plumbing works. Real pre/post-op handlers land in
-// M4.3.
+static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
+static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
+
+static PFLT_FILTER     g_FilterHandle  = NULL;
+static PDEVICE_OBJECT  g_DeviceObject  = NULL;
+static UNICODE_STRING  g_DeviceName    = RTL_CONSTANT_STRING(EDR_DEVICE_NAME);
+static UNICODE_STRING  g_SymLinkName   = RTL_CONSTANT_STRING(EDR_SYMLINK_NAME);
+
+// Counters — written from any IRQL <= DISPATCH_LEVEL. We use Interlocked ops
+// to keep them coherent across CPUs without taking a lock.
+static volatile LONG64 g_ProcessCreateCount      = 0;
+static volatile LONG64 g_ProcessExitCount        = 0;
+static volatile LONG64 g_ImageLoadCount          = 0;
+static volatile LONG64 g_ImageLoadKernelCount    = 0;
+
+// Track which subsystems registered successfully so unload only undoes work
+// it actually did. Without this a partial DriverEntry failure leads to
+// double-unregister or unload-without-register.
+static BOOLEAN g_PsNotifyCreateRegistered = FALSE;
+static BOOLEAN g_PsNotifyImageRegistered  = FALSE;
+static BOOLEAN g_SymLinkCreated           = FALSE;
+
 static const FLT_OPERATION_REGISTRATION g_Callbacks[] = {
     { IRP_MJ_CREATE,           0, EdrPreOperationStub, NULL },
     { IRP_MJ_OPERATION_END }
 };
 
 static const FLT_REGISTRATION g_FilterRegistration = {
-    sizeof(FLT_REGISTRATION),     // Size
-    FLT_REGISTRATION_VERSION,     // Version
-    0,                            // Flags
-    NULL,                         // ContextRegistration
-    g_Callbacks,                  // OperationRegistration
-    EdrFilterUnload,              // FilterUnloadCallback
-    EdrInstanceSetup,             // InstanceSetupCallback
-    EdrInstanceQueryTeardown,     // InstanceQueryTeardownCallback
-    EdrInstanceTeardownStart,     // InstanceTeardownStartCallback
-    EdrInstanceTeardownComplete,  // InstanceTeardownCompleteCallback
-    NULL,                         // GenerateFileNameCallback
-    NULL,                         // NormalizeNameComponentCallback
-    NULL,                         // NormalizeContextCleanupCallback
-    NULL,                         // TransactionNotificationCallback
-    NULL,                         // NormalizeNameComponentExCallback
-    NULL,                         // SectionNotificationCallback
+    sizeof(FLT_REGISTRATION),
+    FLT_REGISTRATION_VERSION,
+    0,
+    NULL,
+    g_Callbacks,
+    EdrFilterUnload,
+    EdrInstanceSetup,
+    EdrInstanceQueryTeardown,
+    EdrInstanceTeardownStart,
+    EdrInstanceTeardownComplete,
+    NULL, NULL, NULL, NULL, NULL, NULL,
 };
 
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
@@ -73,23 +99,109 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
         return status;
     }
 
-    status = FltStartFiltering(g_FilterHandle);
+    // Control device for IOCTLs. Created exclusive so only one handle at a
+    // time can issue IOCTLs (the agent).
+    status = IoCreateDeviceSecure(
+        DriverObject,
+        0,
+        &g_DeviceName,
+        FILE_DEVICE_UNKNOWN,
+        FILE_DEVICE_SECURE_OPEN,
+        FALSE,
+        &SDDL_DEVOBJ_SYS_ALL_ADM_ALL,
+        NULL,
+        &g_DeviceObject);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[EDR] FltStartFiltering failed: 0x%08x\n", status);
+        DbgPrint("[EDR] IoCreateDeviceSecure failed: 0x%08x\n", status);
         FltUnregisterFilter(g_FilterHandle);
         g_FilterHandle = NULL;
         return status;
     }
 
-    DbgPrint("[EDR] DriverEntry OK (M4.1 skeleton)\n");
+    DriverObject->MajorFunction[IRP_MJ_CREATE]         = EdrDispatchCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = EdrDispatchCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = EdrDispatchDeviceControl;
+
+    status = IoCreateSymbolicLink(&g_SymLinkName, &g_DeviceName);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] IoCreateSymbolicLink failed: 0x%08x\n", status);
+        IoDeleteDevice(g_DeviceObject);
+        g_DeviceObject = NULL;
+        FltUnregisterFilter(g_FilterHandle);
+        g_FilterHandle = NULL;
+        return status;
+    }
+    g_SymLinkCreated = TRUE;
+
+    status = PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, FALSE);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] PsSetCreateProcessNotifyRoutineEx failed: 0x%08x\n", status);
+        goto fail_unwind;
+    }
+    g_PsNotifyCreateRegistered = TRUE;
+
+    status = PsSetLoadImageNotifyRoutine(EdrLoadImageNotify);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] PsSetLoadImageNotifyRoutine failed: 0x%08x\n", status);
+        goto fail_unwind;
+    }
+    g_PsNotifyImageRegistered = TRUE;
+
+    status = FltStartFiltering(g_FilterHandle);
+    if (!NT_SUCCESS(status)) {
+        DbgPrint("[EDR] FltStartFiltering failed: 0x%08x\n", status);
+        goto fail_unwind;
+    }
+
+    DbgPrint("[EDR] DriverEntry OK (M4.2)\n");
     return STATUS_SUCCESS;
+
+fail_unwind:
+    if (g_PsNotifyImageRegistered) {
+        PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
+        g_PsNotifyImageRegistered = FALSE;
+    }
+    if (g_PsNotifyCreateRegistered) {
+        PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, TRUE);
+        g_PsNotifyCreateRegistered = FALSE;
+    }
+    if (g_SymLinkCreated) {
+        IoDeleteSymbolicLink(&g_SymLinkName);
+        g_SymLinkCreated = FALSE;
+    }
+    if (g_DeviceObject) {
+        IoDeleteDevice(g_DeviceObject);
+        g_DeviceObject = NULL;
+    }
+    FltUnregisterFilter(g_FilterHandle);
+    g_FilterHandle = NULL;
+    return status;
 }
 
 static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 {
     UNREFERENCED_PARAMETER(Flags);
 
-    if (g_FilterHandle != NULL) {
+    // Unregister Ps* before deleting the device; once unregistered no new
+    // callbacks can fire and any in-flight callback finishes before the
+    // unregister call returns.
+    if (g_PsNotifyImageRegistered) {
+        PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
+        g_PsNotifyImageRegistered = FALSE;
+    }
+    if (g_PsNotifyCreateRegistered) {
+        PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, TRUE);
+        g_PsNotifyCreateRegistered = FALSE;
+    }
+    if (g_SymLinkCreated) {
+        IoDeleteSymbolicLink(&g_SymLinkName);
+        g_SymLinkCreated = FALSE;
+    }
+    if (g_DeviceObject) {
+        IoDeleteDevice(g_DeviceObject);
+        g_DeviceObject = NULL;
+    }
+    if (g_FilterHandle) {
         FltUnregisterFilter(g_FilterHandle);
         g_FilterHandle = NULL;
     }
@@ -107,7 +219,7 @@ static NTSTATUS EdrInstanceSetup(
     UNREFERENCED_PARAMETER(Flags);
     UNREFERENCED_PARAMETER(VolumeDeviceType);
     UNREFERENCED_PARAMETER(VolumeFilesystemType);
-    return STATUS_SUCCESS;  // attach to every volume
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS EdrInstanceQueryTeardown(
@@ -116,7 +228,7 @@ static NTSTATUS EdrInstanceQueryTeardown(
 {
     UNREFERENCED_PARAMETER(FltObjects);
     UNREFERENCED_PARAMETER(Flags);
-    return STATUS_SUCCESS;  // allow detach
+    return STATUS_SUCCESS;
 }
 
 static VOID EdrInstanceTeardownStart(
@@ -144,4 +256,90 @@ static FLT_PREOP_CALLBACK_STATUS EdrPreOperationStub(
     UNREFERENCED_PARAMETER(FltObjects);
     UNREFERENCED_PARAMETER(CompletionContext);
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
+}
+
+// Process create / exit. CreateInfo != NULL for create, == NULL for exit.
+// Runs at PASSIVE_LEVEL.
+static VOID EdrCreateProcessNotify(
+    _Inout_ PEPROCESS Process,
+    _In_ HANDLE ProcessId,
+    _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo)
+{
+    UNREFERENCED_PARAMETER(Process);
+
+    if (CreateInfo != NULL) {
+        InterlockedIncrement64(&g_ProcessCreateCount);
+        DbgPrint("[EDR] proc.create pid=%llu parent=%llu image=%wZ\n",
+                 (ULONG64)(ULONG_PTR)ProcessId,
+                 (ULONG64)(ULONG_PTR)CreateInfo->ParentProcessId,
+                 CreateInfo->ImageFileName);
+    } else {
+        InterlockedIncrement64(&g_ProcessExitCount);
+        DbgPrint("[EDR] proc.exit pid=%llu\n", (ULONG64)(ULONG_PTR)ProcessId);
+    }
+}
+
+// Image load. Runs at PASSIVE_LEVEL. ImageInfo->SystemModeImage is TRUE for
+// drivers loading into the kernel; FALSE for user-mode image loads.
+static VOID EdrLoadImageNotify(
+    _In_opt_ PUNICODE_STRING FullImageName,
+    _In_ HANDLE ProcessId,
+    _In_ PIMAGE_INFO ImageInfo)
+{
+    InterlockedIncrement64(&g_ImageLoadCount);
+    if (ImageInfo->SystemModeImage) {
+        InterlockedIncrement64(&g_ImageLoadKernelCount);
+    }
+    if (FullImageName != NULL) {
+        DbgPrint("[EDR] image.load pid=%llu kernel=%u image=%wZ\n",
+                 (ULONG64)(ULONG_PTR)ProcessId,
+                 ImageInfo->SystemModeImage,
+                 FullImageName);
+    }
+}
+
+// IRP_MJ_CREATE / IRP_MJ_CLOSE: succeed unconditionally. The control device
+// has no per-handle state in M4.2; that gets added in M4.5 when each handle
+// owns an event-stream cursor.
+static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    PIO_STACK_LOCATION sp = IoGetCurrentIrpStackLocation(Irp);
+    NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
+    ULONG_PTR information = 0;
+
+    switch (sp->Parameters.DeviceIoControl.IoControlCode) {
+    case EDR_IOCTL_GET_STATS: {
+        if (sp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(EDR_STATS)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            information = sizeof(EDR_STATS);
+            break;
+        }
+        PEDR_STATS out = (PEDR_STATS)Irp->AssociatedIrp.SystemBuffer;
+        out->ProcessCreateCount     = (UINT64)ReadAcquire64(&g_ProcessCreateCount);
+        out->ProcessExitCount       = (UINT64)ReadAcquire64(&g_ProcessExitCount);
+        out->ImageLoadCount         = (UINT64)ReadAcquire64(&g_ImageLoadCount);
+        out->ImageLoadKernelCount   = (UINT64)ReadAcquire64(&g_ImageLoadKernelCount);
+        status = STATUS_SUCCESS;
+        information = sizeof(EDR_STATS);
+        break;
+    }
+    default:
+        break;
+    }
+
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = information;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
 }
