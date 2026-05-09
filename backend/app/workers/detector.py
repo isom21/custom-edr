@@ -97,7 +97,7 @@ class Detector:
                                 "id": str(alert_id),
                                 "summary": m.summary,
                                 "severity": m.severity.value,
-                                "action_taken": "detect",
+                                "action_taken": m.action.value,
                                 "matched_field": m.matched_field,
                                 "matched_value": m.matched_value,
                                 "engine": "ioc",

@@ -149,14 +149,19 @@ async def emit_alerts(
     matches: list[Match],
     ecs: dict[str, Any],
 ) -> list[UUID]:
-    """Insert one alerts row per match. Caller must await db.commit()."""
+    """Insert one alerts row per match. If the matched rule's action is
+    kill or block, also queue a Command row so the agent enforces it
+    (M5.5 auto-trigger). Caller must await db.commit().
+    """
+    from app.services.response import queue_command_for_match
+
     out: list[UUID] = []
     for m in matches:
         alert = Alert(
             host_id=host_id,
             rule_id=m.rule_id,
             severity=m.severity,
-            action_taken=RuleAction.DETECT,  # M2 is detect-only
+            action_taken=m.action,
             state=AlertState.NEW,
             summary=m.summary,
             details={
@@ -175,6 +180,14 @@ async def emit_alerts(
         )
         db.add(alert)
         await db.flush()
+        await queue_command_for_match(
+            db,
+            host_id=host_id,
+            rule_id=m.rule_id,
+            rule_action=m.action,
+            alert_id=alert.id,
+            ecs=ecs,
+        )
         out.append(alert.id)
     return out
 

@@ -203,7 +203,7 @@ class SigmaRealtime:
                     host_id=host_id,
                     rule_id=rule.id,
                     severity=rule.severity,
-                    action_taken=RuleAction.DETECT,
+                    action_taken=rule.action,
                     state=AlertState.NEW,
                     summary=f"Sigma match: {rule.name}",
                     details={
@@ -222,7 +222,18 @@ class SigmaRealtime:
                 )
                 db.add(alert)
                 await db.flush()
-                new_alerts.append((alert, rule.__dict__.copy() if False else hit))
+                # Auto-trigger response action if the rule's action is
+                # kill or block (M5.5).
+                from app.services.response import queue_command_for_match
+                await queue_command_for_match(
+                    db,
+                    host_id=host_id,
+                    rule_id=rule.id,
+                    rule_action=rule.action,
+                    alert_id=alert.id,
+                    ecs=ecs,
+                )
+                new_alerts.append((alert, hit))
             await db.commit()
 
             # Index alert docs to OpenSearch outside the DB session.
@@ -234,7 +245,7 @@ class SigmaRealtime:
                         "id": str(alert.id),
                         "summary": alert.summary,
                         "severity": alert.severity.value,
-                        "action_taken": "detect",
+                        "action_taken": alert.action_taken.value,
                         "engine": "sigma",
                         "mode": "realtime",
                     },
