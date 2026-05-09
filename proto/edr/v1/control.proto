@@ -145,6 +145,10 @@ message Command {
     ScanMemoryCmd scan_memory = 12;
     IsolateHostCmd isolate = 13;
     UpdateAgentCmd update = 14;
+    BlockProcessCmd block_process = 15;
+    BlockFileCmd block_file = 16;
+    UnblockProcessCmd unblock_process = 17;
+    UnblockFileCmd unblock_file = 18;
   }
 }
 
@@ -173,6 +177,27 @@ message UpdateAgentCmd {
   string version = 1;
   string download_url = 2;              // signed URL
   Hash expected_hash = 3;
+}
+
+// Block-list management commands (M5.2 driver counterparts).
+message BlockProcessCmd {
+  string pattern = 1;                   // case-insensitive substring of the
+                                        // process image path; matched at
+                                        // PsCreateProcessNotify time.
+}
+
+message BlockFileCmd {
+  string pattern = 1;                   // case-insensitive substring of the
+                                        // file path; matched at IRP_MJ_CREATE
+                                        // pre-op.
+}
+
+message UnblockProcessCmd {
+  string pattern = 1;
+}
+
+message UnblockFileCmd {
+  string pattern = 1;
 }
 
 message Pong {

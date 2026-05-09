@@ -4,6 +4,7 @@ from app.models.api_token import ApiToken
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
+from app.models.command import Command, CommandKind, CommandStatus
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.policy import Policy, PolicyRule
@@ -19,6 +20,9 @@ __all__ = [
     "AuditLog",
     "Base",
     "CertificateAuthority",
+    "Command",
+    "CommandKind",
+    "CommandStatus",
     "EnrollmentToken",
     "Host",
     "HostStatus",

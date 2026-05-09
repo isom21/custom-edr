@@ -23,7 +23,17 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.security import hash_enrollment_token
-from app.models import EnrollmentToken, Host, HostStatus, IocEntry, Rule, RuleKind
+from app.models import (
+    Command,
+    CommandKind,
+    CommandStatus,
+    EnrollmentToken,
+    Host,
+    HostStatus,
+    IocEntry,
+    Rule,
+    RuleKind,
+)
 from app.proto_gen.edr.v1 import (
     common_pb2,
     control_pb2,
@@ -71,6 +81,46 @@ def _pb_ioc_kind(k: str) -> int:
         "filename": control_pb2.IOC_KIND_FILENAME,
         "filepath": control_pb2.IOC_KIND_FILEPATH,
     }.get(k, control_pb2.IOC_KIND_UNSPECIFIED)
+
+
+def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
+    """Translate a PG Command row into the protobuf Command message that the
+    agent expects on the gRPC stream. Returns None for an unsupported kind so
+    the caller can mark the row as FAILED rather than blocking the queue.
+    """
+    pb = control_pb2.Command(command_id=str(cmd.id), issued_at=_now_pb())
+    payload = cmd.payload or {}
+    if cmd.kind == CommandKind.KILL_PROCESS:
+        pid = int(payload.get("pid") or 0)
+        if pid <= 0:
+            return None
+        pb.kill.target.pid = pid
+        return pb
+    if cmd.kind == CommandKind.BLOCK_PROCESS:
+        pat = str(payload.get("pattern") or "")
+        if not pat:
+            return None
+        pb.block_process.pattern = pat
+        return pb
+    if cmd.kind == CommandKind.BLOCK_FILE:
+        pat = str(payload.get("pattern") or "")
+        if not pat:
+            return None
+        pb.block_file.pattern = pat
+        return pb
+    if cmd.kind == CommandKind.UNBLOCK_PROCESS:
+        pat = str(payload.get("pattern") or "")
+        if not pat:
+            return None
+        pb.unblock_process.pattern = pat
+        return pb
+    if cmd.kind == CommandKind.UNBLOCK_FILE:
+        pat = str(payload.get("pattern") or "")
+        if not pat:
+            return None
+        pb.unblock_file.pattern = pat
+        return pb
+    return None
 
 
 def _peer_host_id(context: grpc.aio.ServicerContext) -> str | None:
@@ -216,8 +266,44 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             except asyncio.CancelledError:
                 return
 
+        # Command dispatcher — polls PG for pending commands for this host
+        # at 500ms cadence, pushes them onto out_queue, marks DISPATCHED.
+        async def _command_dispatcher(out: asyncio.Queue):
+            try:
+                while True:
+                    try:
+                        async with SessionLocal() as cdb:
+                            stmt = (
+                                select(Command)
+                                .where(
+                                    Command.host_id == host_id,
+                                    Command.status == CommandStatus.PENDING,
+                                )
+                                .order_by(Command.created_at.asc())
+                                .limit(16)
+                            )
+                            pending = (await cdb.execute(stmt)).scalars().all()
+                            for cmd in pending:
+                                pb = _command_to_pb(cmd)
+                                if pb is None:
+                                    cmd.status = CommandStatus.FAILED
+                                    cmd.error = "unsupported command kind"
+                                    cmd.completed_at = datetime.now(timezone.utc)
+                                    continue
+                                cmd.status = CommandStatus.DISPATCHED
+                                cmd.dispatched_at = datetime.now(timezone.utc)
+                                await out.put(control_pb2.ServerMessage(command=pb))
+                            if pending:
+                                await cdb.commit()
+                    except Exception:
+                        log.exception("grpc.command_dispatcher.error", host_id=host_id_str)
+                    await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                return
+
         out_queue: asyncio.Queue = asyncio.Queue()
         ping_task = asyncio.create_task(_pinger(out_queue))
+        cmd_task = asyncio.create_task(_command_dispatcher(out_queue))
 
         try:
             consume_task = asyncio.create_task(
@@ -236,8 +322,11 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                     await consume_task
         finally:
             ping_task.cancel()
-            with __import__("contextlib").suppress(BaseException):
+            cmd_task.cancel()
+            with contextlib.suppress(BaseException):
                 await ping_task
+            with contextlib.suppress(BaseException):
+                await cmd_task
             async with SessionLocal() as db:
                 h = await db.get(Host, host_id)
                 if h is not None:
@@ -284,6 +373,23 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                     command_id=msg.command_result.command_id,
                     success=msg.command_result.success,
                 )
+                # Mark the corresponding row in the commands table.
+                try:
+                    cmd_uuid = UUID(msg.command_result.command_id)
+                    async with SessionLocal() as db:
+                        cmd = await db.get(Command, cmd_uuid)
+                        if cmd is not None:
+                            cmd.status = (
+                                CommandStatus.SUCCEEDED
+                                if msg.command_result.success
+                                else CommandStatus.FAILED
+                            )
+                            cmd.completed_at = datetime.now(timezone.utc)
+                            if msg.command_result.error:
+                                cmd.error = msg.command_result.error[:512]
+                            await db.commit()
+                except (ValueError, Exception):
+                    log.exception("grpc.command_result.persist_failed", command_id=msg.command_result.command_id)
             else:
                 log.debug("grpc.host_stream.unknown_payload", host_id=str(host_id), kind=kind)
 

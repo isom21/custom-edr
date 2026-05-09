@@ -1,0 +1,67 @@
+"""Command — a response action queued for delivery to an agent.
+
+Commands are written by the REST API (manual operator action) or the
+auto-action path in detector/sigma_realtime (rule action_taken=kill|block).
+The gRPC HostStream polls for pending commands per host and pushes them
+down the bidi stream as ServerMessage(command=...).
+"""
+from __future__ import annotations
+
+import enum
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
+
+
+class CommandKind(str, enum.Enum):
+    KILL_PROCESS = "kill_process"
+    BLOCK_PROCESS = "block_process"
+    BLOCK_FILE = "block_file"
+    UNBLOCK_PROCESS = "unblock_process"
+    UNBLOCK_FILE = "unblock_file"
+
+
+class CommandStatus(str, enum.Enum):
+    PENDING = "pending"
+    DISPATCHED = "dispatched"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class Command(UuidPkMixin, TimestampMixin, Base):
+    __tablename__ = "commands"
+
+    host_id: Mapped[UUID] = mapped_column(
+        ForeignKey("hosts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[CommandKind] = mapped_column(
+        pg_enum(CommandKind, name="command_kind"), nullable=False
+    )
+    status: Mapped[CommandStatus] = mapped_column(
+        pg_enum(CommandStatus, name="command_status"),
+        nullable=False,
+        default=CommandStatus.PENDING,
+        index=True,
+    )
+    # Action-specific fields. For kill: {"pid": 1234}. For block_*: {"pattern": "..."}.
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # Optional: which alert / rule triggered this. Useful for the auto-action
+    # path to leave a breadcrumb. NULL for manual operator triggers.
+    triggered_by_alert_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("alerts.id", ondelete="SET NULL")
+    )
+    triggered_by_rule_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rules.id", ondelete="SET NULL")
+    )
+    issued_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(String(512))

@@ -5,6 +5,7 @@ from app.api import (
     alerts,
     api_tokens,
     auth,
+    commands,
     enrollment,
     hosts,
     me,
@@ -15,7 +16,7 @@ from app.api import (
 )
 
 api_router = APIRouter()
-for module in (auth, me, users, hosts, rules, policies, alerts, enrollment, api_tokens, sigma):
+for module in (auth, me, users, hosts, rules, policies, alerts, enrollment, api_tokens, sigma, commands):
     api_router.include_router(module.router)
 
 __all__ = ["api_router"]
