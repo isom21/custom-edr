@@ -1,22 +1,28 @@
 //! Windows EDR agent entry point.
 //!
-//! M2 thin slice:
-//! 1. Load config.
-//! 2. Enroll if needed (REST).
-//! 3. Connect manager via gRPC mTLS.
-//! 4. Start ETW kernel-session collector (process_started events).
-//! 5. Heartbeat.
+//! Three startup modes:
+//!   * **Service** (default when launched by SCM): registers the
+//!     service-control-handler, runs the agent on a tokio runtime, and
+//!     stops cleanly on SCM Stop / Shutdown.
+//!   * **Console** (`edr-agent --console`): foreground mode for dev /
+//!     debugging. Same agent code path, no SCM glue.
+//!   * **Install / uninstall** (`edr-agent --install-service` /
+//!     `edr-agent --uninstall-service`): register with SCM and exit.
 //!
-//! M4 swaps the user-mode ETW collector for the KMDF driver + minifilter.
+//! M9.1 introduced the SCM service path, replacing the M7.4
+//! scheduled-task wrapper. The agent's actual logic is in
+//! `run_agent_async()` and is identical between modes.
 
 #[cfg(windows)]
 mod driver;
 #[cfg(windows)]
 mod etw;
+#[cfg(windows)]
+mod service;
 
 use agent_core::client::ManagerClient;
 use agent_core::config::AgentConfig;
-use agent_core::enroll::{enroll, EnrollContext};
+use agent_core::enroll::{EnrollContext, enroll};
 use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::proto as p;
 use anyhow::{Context, Result};
@@ -27,17 +33,111 @@ use tracing_subscriber::EnvFilter;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    init_tracing();
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let args: Vec<String> = env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--install-service") => {
+            #[cfg(windows)]
+            {
+                service::install()?;
+                return Ok(());
+            }
+            #[cfg(not(windows))]
+            anyhow::bail!("--install-service is Windows-only")
+        }
+        Some("--uninstall-service") => {
+            #[cfg(windows)]
+            {
+                service::uninstall()?;
+                return Ok(());
+            }
+            #[cfg(not(windows))]
+            anyhow::bail!("--uninstall-service is Windows-only")
+        }
+        Some("--version") => {
+            println!("edr-agent {AGENT_VERSION}");
+            return Ok(());
+        }
+        Some("--help") => {
+            print_help();
+            return Ok(());
+        }
+        Some("--console") | None => {}
+        Some(other) => anyhow::bail!("unknown argument: {other} (try --help)"),
+    }
+
+    // No-flag default + `--console`: try service mode unless --console
+    // was explicit. Service mode auto-detects (returns Ok(false) when
+    // not started by SCM) and falls back to console.
+    let force_console = args.iter().any(|a| a == "--console");
+
+    #[cfg(windows)]
+    {
+        if !force_console {
+            match service::dispatch_if_scm_started() {
+                Ok(true) => return Ok(()), // SCM owned us; service_main handled the lifecycle.
+                Ok(false) => {
+                    tracing::info!("not started by SCM; running in console mode");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "SCM dispatch failed; falling back to console");
+                }
+            }
+        }
+    }
+
+    // Console mode: run the agent on a tokio runtime, no stop signal.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(run_agent_async(None))
+}
+
+fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .json()
         .init();
+}
 
-    let _ = rustls::crypto::ring::default_provider().install_default();
+fn print_help() {
+    println!(
+        r"edr-agent — EDR endpoint agent for Windows
 
+Usage:
+  edr-agent                       run as a Windows service (auto-detected) or console
+  edr-agent --console             force console mode (foreground)
+  edr-agent --install-service     register the SCM service (one-time)
+  edr-agent --uninstall-service   stop + remove the SCM service
+  edr-agent --version             print version
+  edr-agent --help                this message
+
+Environment:
+  EDR_AGENT_CONFIG       path to TOML config file
+  EDR_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)
+  EDR_MANAGER_REST       REST URL of the manager (http://host:8000)
+  EDR_ENROLLMENT_TOKEN   one-time enrollment token (first run only)
+  EDR_STATE_DIR          state directory (default %ProgramData%\EDR)
+  EDR_HOSTNAME           override registered hostname
+
+Logs:
+  Console mode: stdout (JSON).
+  Service mode: stdout is captured by SCM and ends up in
+  C:\Windows\Temp\edr-agent.log if you wire `service` to redirect.
+"
+    );
+}
+
+/// The actual agent body. Async because tokio drives it; takes an
+/// optional shutdown receiver that the SCM service uses to stop us
+/// gracefully (console mode passes None and runs until killed).
+pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>) -> Result<()> {
     let cfg = load_config()?;
     let id_paths = IdentityPaths::new(&cfg.identity_dir());
 
@@ -65,12 +165,14 @@ async fn main() -> Result<()> {
         enroll(&ctx, &id_paths).await?
     };
 
-    tracing::info!(host_id = %identity.host_id, endpoint = %cfg.manager_endpoint, "agent.starting");
+    tracing::info!(
+        host_id = %identity.host_id,
+        endpoint = %cfg.manager_endpoint,
+        "agent.starting"
+    );
 
-    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
     let send_tx = client.send_tx.clone();
-    // Take the command receiver before client.run() consumes self. The
-    // worker dispatches kill / block / unblock commands via driver IOCTLs.
     #[cfg(windows)]
     let commands_rx = client.take_commands_rx();
 
@@ -96,7 +198,7 @@ async fn main() -> Result<()> {
 
     // Heartbeat.
     let hb_tx = send_tx.clone();
-    tokio::spawn(async move {
+    let hb_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
             interval.tick().await;
@@ -113,9 +215,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Spawn the command-dispatch worker (M5.4). Reads commands forwarded by
-    // ManagerClient over the gRPC bidi stream and dispatches them to the
-    // kernel driver via IOCTLs (kill / block / unblock).
+    // Command-dispatch worker (M5.4).
     #[cfg(windows)]
     if let Some(rx) = commands_rx {
         let send_tx_for_worker = send_tx.clone();
@@ -124,10 +224,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    // Try the kernel driver first (M4.5 ring + IOCTL). If the device can't
-    // be opened (driver not installed or not running) we fall back to the
-    // user-mode ETW collector from M2.3c. On non-Windows builds (e.g.
-    // cargo check from WSL), both modules are absent and we just skip.
+    // Try the kernel driver first (M4.5 ring + IOCTL). Fall back to ETW.
     #[cfg(windows)]
     {
         let driver_ctx = driver::DriverCtx {
@@ -155,7 +252,20 @@ async fn main() -> Result<()> {
         }
     }
 
-    client.run().await
+    // Run the gRPC client until either SCM tells us to stop or the
+    // client returns (which it normally doesn't — it reconnects forever).
+    if let Some(stop) = stop_rx {
+        tokio::select! {
+            r = client.run() => r,
+            _ = stop => {
+                tracing::info!("agent.stop_signal_received");
+                hb_handle.abort();
+                Ok(())
+            }
+        }
+    } else {
+        client.run().await
+    }
 }
 
 fn load_config() -> Result<AgentConfig> {

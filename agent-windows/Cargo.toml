@@ -34,3 +34,8 @@ windows = { version = "0.58", features = [
 ] }
 ferrisetw = "1.2"
 hostname = "0.4"
+# M9.1: SCM service-control-handler integration. The agent registers as
+# a real Windows service (replacing the M7.4 scheduled-task wrapper) so
+# SCM auto-restart, dependency ordering, and crash-on-stop work the way
+# operators expect.
+windows-service = "0.7"
