@@ -60,3 +60,4 @@ kernel-linux/build/
 # It's host-specific (~3 MB) and regenerated on every build.
 agent-linux/ebpf/vmlinux.h
 /.vigil/
+*.tsbuildinfo
