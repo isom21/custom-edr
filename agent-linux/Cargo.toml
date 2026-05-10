@@ -32,6 +32,8 @@ aya = "0.13"
 aya-log = "0.2"
 # M10.a file hashing on file_open events.
 sha2 = "0.10"
+# M12.c capability drop after init.
+caps = "0.5"
 
 [build-dependencies]
 # Re-runs ebpf/build.sh when the eBPF source changes.

@@ -8,6 +8,7 @@
 //! 4. Start /proc poller, send ProcessEvents to the manager.
 //! 5. Heartbeat every 30s.
 
+mod capdrop;
 mod command_worker;
 mod ebpf;
 mod hasher;
@@ -431,6 +432,36 @@ async fn main() -> Result<()> {
             }
         } else {
             tracing::warn!("self_protection.disabled by EDR_DISABLE_SELF_PROTECTION");
+        }
+    }
+
+    // M12.c: drop unneeded Linux capabilities once init is complete.
+    // BPF programs are loaded, LSM hooks attached, pin files written,
+    // command worker spawned — the residual runtime needs are
+    // CAP_BPF / CAP_PERFMON / CAP_KILL / a few /proc-traversal caps.
+    // Everything else (CAP_SYS_BOOT, CAP_NET_RAW, CAP_SETUID, etc.) is
+    // dead weight in our threat model — dropping them shrinks what an
+    // exploit on the agent's userspace half (e.g. through the gRPC
+    // wire path) gives the attacker.
+    if env::var_os("EDR_DISABLE_CAPDROP").is_some() {
+        tracing::warn!("capdrop.disabled by EDR_DISABLE_CAPDROP");
+    } else {
+        match capdrop::drop_to_minimum() {
+            Ok(report) => {
+                tracing::info!(
+                    bounding_dropped = report.bounding_dropped.len(),
+                    effective_kept = ?report.effective_kept,
+                    no_new_privs = report.no_new_privs,
+                    "capdrop.complete"
+                );
+            }
+            Err(e) => {
+                // Non-fatal: a misconfigured environment (e.g. running
+                // under capsh --drop=cap_bpf already) shouldn't kill
+                // the agent. The startup gate already ran; this is
+                // defense-in-depth.
+                tracing::warn!(error = %e, "capdrop.failed (continuing)");
+            }
         }
     }
     if ebpf_loader.is_none() {
