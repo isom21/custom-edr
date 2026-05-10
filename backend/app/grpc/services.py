@@ -53,6 +53,47 @@ PB_OS_FAMILY: dict[str, str] = {"windows": "windows", "linux": "linux", "macos":
 # Bump together with any breaking change to the protobuf schema.
 MIN_AGENT_PROTOCOL_VERSION = 1
 
+# M17.f: gRPC ingest rate-limit defaults. Per-host_id token bucket
+# capping events/sec so a misbehaving (or compromised) agent can't
+# saturate Kafka. Configurable via env.
+import os as _os  # noqa: E402
+
+GRPC_RL_MAX_EVENTS_PER_SEC = int(_os.environ.get("EDR_GRPC_RL_EVENTS_PER_SEC", 1000))
+GRPC_RL_BURST = int(_os.environ.get("EDR_GRPC_RL_BURST", 5000))
+
+
+class _HostBucket:
+    """Token bucket: capacity refilled at `rate` tokens/sec, capped
+    at `burst`. Each event consumes one token. When empty, the gRPC
+    handler logs + drops the message (forwarding zero events to
+    Kafka). This isolates the bad-agent failure from the rest of the
+    fleet."""
+
+    __slots__ = ("tokens", "last")
+
+    def __init__(self) -> None:
+        self.tokens = float(GRPC_RL_BURST)
+        self.last = 0.0
+
+    def admit(self, now: float, want: int) -> int:
+        """Try to consume `want` tokens; return how many were granted."""
+        if self.last == 0.0:
+            self.last = now
+        # Refill.
+        elapsed = now - self.last
+        if elapsed > 0:
+            self.tokens = min(
+                float(GRPC_RL_BURST), self.tokens + elapsed * GRPC_RL_MAX_EVENTS_PER_SEC
+            )
+            self.last = now
+        granted = min(int(self.tokens), want)
+        self.tokens -= granted
+        return granted
+
+
+# Per-host_id bucket, keyed by uuid. Cleaned up on stream close.
+_GRPC_BUCKETS: dict[str, _HostBucket] = {}
+
 
 def _now_pb() -> timestamp_pb2.Timestamp:
     ts = timestamp_pb2.Timestamp()
@@ -358,15 +399,34 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 # individual Kafka records (the normalizer expects one
                 # event per record), so the wire schema is unchanged.
                 if msg.events.events:
-                    sends = [
-                        producer.send_bytes(
-                            settings.topic_telemetry_raw,
-                            str(host_id),
-                            ev.SerializeToString(),
+                    # M17.f: per-host_id token bucket. A misbehaving
+                    # agent can't saturate Kafka for the rest of the
+                    # fleet — over-rate events are dropped at the gRPC
+                    # boundary, surfaced via a counter we emit to the
+                    # journal periodically (M14.b will turn this into
+                    # a metric).
+                    import time as _time
+                    bucket = _GRPC_BUCKETS.setdefault(str(host_id), _HostBucket())
+                    want = len(msg.events.events)
+                    granted = bucket.admit(_time.monotonic(), want)
+                    if granted < want:
+                        log.warning(
+                            "grpc.ingest.rate_limited",
+                            host_id=str(host_id),
+                            want=want,
+                            granted=granted,
+                            dropped=want - granted,
                         )
-                        for ev in msg.events.events
-                    ]
-                    await asyncio.gather(*sends)
+                    if granted > 0:
+                        sends = [
+                            producer.send_bytes(
+                                settings.topic_telemetry_raw,
+                                str(host_id),
+                                ev.SerializeToString(),
+                            )
+                            for ev in msg.events.events[:granted]
+                        ]
+                        await asyncio.gather(*sends)
             elif kind == "heartbeat":
                 # Throttle DB writes — once per ~30s.
                 now = datetime.now(UTC)
