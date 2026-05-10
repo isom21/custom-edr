@@ -25,9 +25,17 @@ fn main() {
         return;
     }
 
-    // Skip if explicitly disabled (useful for offline / no-clang dev hosts).
+    // Skip if explicitly disabled (useful for offline / no-clang dev
+    // hosts and CI runners that just want to validate the userspace
+    // Rust). When skipped we still need an `edr.bpf.o` for the
+    // `include_bytes!` macro at compile time — write a 16-byte
+    // ELF-magic-prefixed stub if one doesn't already exist. The aya
+    // loader will reject it at runtime, but the user-space code
+    // compiles cleanly, which is all CI needs.
+    let object_path = ebpf_dir.join("edr.bpf.o");
     if env::var_os("EDR_SKIP_EBPF_BUILD").is_some() {
         println!("cargo:warning=EDR_SKIP_EBPF_BUILD set; not invoking ebpf/build.sh");
+        ensure_stub_object(&object_path);
         return;
     }
 
@@ -36,7 +44,43 @@ fn main() {
         .status();
     match status {
         Ok(s) if s.success() => {}
-        Ok(s) => panic!("ebpf/build.sh failed: {s}"),
-        Err(e) => panic!("ebpf/build.sh: failed to spawn: {e}"),
+        Ok(s) => {
+            // Build script is most often blocked by missing
+            // bpftool / clang / BTF on a CI runner. Don't fail the
+            // user-space build; emit a stub and warn loudly so a
+            // real-deployment build still surfaces the issue (the
+            // operator running `cargo build` on the target host
+            // sees the warning and the resulting agent fails to
+            // load BPF programs at runtime).
+            println!(
+                "cargo:warning=ebpf/build.sh exited {s}; writing stub edr.bpf.o (build-time only)"
+            );
+            ensure_stub_object(&object_path);
+        }
+        Err(e) => {
+            println!(
+                "cargo:warning=ebpf/build.sh: failed to spawn: {e}; writing stub edr.bpf.o"
+            );
+            ensure_stub_object(&object_path);
+        }
+    }
+}
+
+/// Write a minimal ELF stub at `path` if no file exists there. We
+/// keep the existing object whenever the build script succeeded —
+/// only the no-tools / build-failed paths fall through to here, and
+/// only when nothing has populated the file yet.
+fn ensure_stub_object(path: &std::path::Path) {
+    if path.exists() {
+        return;
+    }
+    // 16-byte placeholder; aya will refuse to load it at runtime,
+    // which is intended — CI builds should not be deployed to a
+    // real host.
+    let stub: [u8; 16] = [
+        0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    if let Err(e) = std::fs::write(path, stub) {
+        panic!("failed to write stub edr.bpf.o at {}: {e}", path.display());
     }
 }

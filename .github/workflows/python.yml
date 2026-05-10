@@ -41,6 +41,12 @@ jobs:
           cache: pip
       - run: pip install -e '.[dev]'
       - run: pip install pyright
+      # backend/app/proto_gen/ is not checked in; generate it from
+      # the .proto sources in /proto so pyright's import resolution
+      # succeeds for `from app.proto_gen.edr.v1 import ...`.
+      - name: generate proto bindings
+        working-directory: ${{ github.workspace }}
+        run: make proto-python
       - run: pyright app
 
   audit:
@@ -55,8 +61,10 @@ jobs:
       # Install our project so pip-audit sees our deps via the resolved env;
       # `--strict` would fail on any vuln; for now we report.
       - run: pip install -e '.[dev]'
-      # CVE-2025-69872 is in `diskcache` 5.6.3, pulled transitively by
-      # pySigma (manager-side Sigma rule store). No fix released
-      # upstream as of 2026-05; re-evaluate when pySigma releases
-      # against a fixed diskcache.
-      - run: pip-audit --skip-editable --ignore-vuln CVE-2025-69872
+      # CVE-2025-69872 / GHSA-w8v5-vhqr-4h9v is in `diskcache` 5.6.3,
+      # pulled transitively by pySigma (manager-side Sigma rule store).
+      # No fix released upstream as of 2026-05; re-evaluate when
+      # pySigma releases against a fixed diskcache. Listing both the
+      # CVE and GHSA forms because pip-audit's ID format depends on
+      # the vulnerability service it queries.
+      - run: pip-audit --skip-editable --ignore-vuln CVE-2025-69872 --ignore-vuln GHSA-w8v5-vhqr-4h9v

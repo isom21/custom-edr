@@ -81,6 +81,12 @@ jobs:
           cache: pip
       - name: install deps
         run: pip install -e '.[dev]'
+      # backend/app/proto_gen/ is gitignored. Generate it before
+      # alembic + pytest so the SQLAlchemy models that import
+      # `app.proto_gen.*` (via the gRPC server module) resolve.
+      - name: generate proto bindings
+        working-directory: ${{ github.workspace }}
+        run: make proto-python
       - name: alembic upgrade head
         run: alembic upgrade head
       - name: run pytest
