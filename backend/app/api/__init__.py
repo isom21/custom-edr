@@ -11,6 +11,7 @@ from app.api import (
     host_groups,
     hosts,
     me,
+    metrics,
     policies,
     rules,
     sigma,
@@ -31,6 +32,7 @@ for module in (
     api_tokens,
     sigma,
     commands,
+    metrics,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

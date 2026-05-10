@@ -52,6 +52,7 @@ LIMITS: Final[dict[str, int]] = {
 EXEMPT_PATHS: Final[set[str]] = {
     "/api/health",
     "/api/openapi.json",
+    "/metrics",  # M14.a — Prometheus scrape every 15s; not subject to per-IP cap
 }
 
 
