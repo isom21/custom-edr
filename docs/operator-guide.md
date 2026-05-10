@@ -1,13 +1,14 @@
-# Operator guide — EDR PoC
+# Operator guide
 
-End-to-end install / upgrade / operate runbook for the EDR. Companion
-docs:
+Day-to-day operations runbook: provisioning hosts, triaging alerts,
+queueing response actions, upgrading, decommissioning. For the
+first-time install (manager + agents), see `install.md`.
 
+Companion docs:
+
+- `install.md` — first-time bring-up of manager + agents.
 - `threat-model.md` — what the agent defends against and explicit gaps.
 - `rbac.md` — roles, host groups, audit log, API tokens.
-
-This guide assumes the manager (FastAPI + Postgres + Kafka + OpenSearch)
-is already running — see `README.md` for first-time bring-up.
 
 ## Glossary
 

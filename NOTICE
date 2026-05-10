@@ -1,0 +1,45 @@
+EDR
+Copyright 2026 isom21
+
+This product includes software developed by the EDR project
+(https://github.com/isom21/custom-edr).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+A copy of the License is provided in the LICENSE file at the root
+of this source tree.
+
+This product bundles or depends on third-party software whose
+licenses are listed in their respective package metadata. Notable
+runtime dependencies and their licenses are reproduced below; this
+list is informational and not exhaustive.
+
+----------------------------------------------------------------
+
+Rust agent (`agent-core`, `agent-linux`, `agent-windows`)
+  - tokio                MIT
+  - tonic / prost        MIT
+  - rustls               Apache-2.0 OR ISC OR MIT
+  - aya (eBPF loader)    Apache-2.0 OR MIT
+  - ferrisetw (Windows)  MIT
+  - sha2 / hmac          MIT OR Apache-2.0
+  - serde / serde_json   MIT OR Apache-2.0
+  - anyhow / thiserror   MIT OR Apache-2.0
+
+Manager backend (Python)
+  - FastAPI              MIT
+  - SQLAlchemy           MIT
+  - aiokafka             Apache-2.0
+  - opensearch-py        Apache-2.0
+  - pySigma              LGPL-2.1
+  - structlog            Apache-2.0 OR MIT
+  - prometheus-client    Apache-2.0
+
+Frontend (Node)
+  - React                MIT
+  - Vite                 MIT
+  - shadcn/ui            MIT
+  - Tailwind CSS         MIT
+
+Full SBOMs (CycloneDX) ship alongside release artefacts; see
+`make sbom`.

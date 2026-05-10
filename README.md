@@ -1,164 +1,102 @@
 # EDR
 
-Endpoint Detection and Response — agent + management plane. PoC inspired by HarfangLab.
+Endpoint Detection and Response — agent + management plane. Open-source
+under Apache 2.0; production-realistic where the upstream tooling is
+free, with a clearly documented set of features (driver code-signing,
+WHQL attestation, Microsoft Antimalware ELAM) that need paid signing
+work to ship to a real fleet.
 
-> **Status:** M0 → M7 complete. Linux + Windows agents with kernel-mode
-> telemetry, response actions, self-protection (M7.1 / M7.2), native
-> packaging (M7.3 / M7.4), per-host RBAC (M7.5), command UI (M7.6),
-> pipeline polish (M7.7), and operator docs (M7.8).
->
-> See [docs/operator-guide.md](docs/operator-guide.md) for install /
-> upgrade / operate, [docs/threat-model.md](docs/threat-model.md) for
-> what self-protection covers, and [docs/rbac.md](docs/rbac.md) for
-> roles + host groups + audit log.
+## What it does
 
-## Layout
+* **Telemetry** — process / file / network / image / registry / DNS
+  events from kernel-mode collectors. Linux uses eBPF + LSM hooks;
+  Windows uses a KMDF minifilter + WFP + ETW.
+* **Detection** — Sigma rules via OpenSearch percolator (~1s p95
+  end-to-end), IOC matching, first-time-process anomaly detection,
+  agent self-protection tamper detection.
+* **Response** — kill / block process / block file / quarantine file
+  via response-action commands queued from the UI or REST API.
+  Actions are kernel-enforced (BPF maps on Linux, IOCTL to the
+  driver on Windows).
+* **Self-protection** — BPF LSM (Linux) and ObRegisterCallbacks
+  (Windows) reject same-box-root attempts to kill, ptrace, debug, or
+  unlink the agent. Tamper-evident audit log on the manager.
+* **RBAC** — admin / analyst / viewer roles, host-group scoping,
+  per-user API tokens, full audit trail with HMAC chain.
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Agent — Linux | Rust + C (eBPF / aya) |
+| Agent — Windows | Rust + C (KMDF minifilter + ETW) |
+| Manager API | Python + FastAPI + SQLAlchemy |
+| Storage | Postgres 16 (state) + OpenSearch 2 (telemetry) |
+| Stream | Kafka (Redpanda in dev) + Python workers |
+| Frontend | React + Vite + TypeScript + shadcn/ui + Tailwind |
+| Wire schema | Protobuf, ECS-aligned |
+| Transport | mTLS gRPC bidi |
+
+See [`docs/adr/`](docs/adr/) for the reasoning behind each choice.
+
+## Repository layout
 
 ```
 proto/             Protobuf source of truth (edr.v1)
 agent-core/        Rust crate: cross-platform agent building blocks
-agent-windows/     Rust binary: Windows EDR agent (depends on agent-core)
-agent-linux/       Rust binary: Linux EDR agent (depends on agent-core)
-kernel-windows/    KMDF C/C++ driver (M4)
-kernel-linux/      eBPF C programs (M6)
-backend/           FastAPI manager (REST + gRPC ingest)
-stream/            Kafka consumers + Flink Sigma jobs
+agent-linux/       Rust binary: Linux EDR agent
+agent-windows/     Rust binary: Windows EDR agent
+kernel-windows/    KMDF C/C++ kernel driver
+backend/           FastAPI manager (REST + gRPC ingest + workers)
 frontend/          React + Vite + TS + shadcn/ui
-deploy/            docker-compose, installers
-docs/adr/          Architecture decision records
-tools/             Dev helpers (rule converters, etc.)
+deploy/            docker-compose, systemd units, installers
+docs/              Install, operator, threat model, RBAC, ADRs
+tools/             Smoke tests, dev helpers
 ```
 
-## Stack at a glance
-
-- **Agent**: Rust + C (Windows kernel / eBPF). gRPC bidi over mTLS.
-- **Manager**: FastAPI + PostgreSQL + OpenSearch + Kafka (Redpanda in dev) + Flink.
-- **Frontend**: React + Vite + TypeScript + shadcn/ui + Tailwind.
-- **Schema**: Protobuf (source of truth), ECS-aligned naming.
-
-See [docs/adr/](docs/adr/) for the reasoning behind each choice.
-
-## Dev environment
-
-Prerequisites:
-
-- Docker + Docker Compose
-- Rust toolchain (pinned in `rust-toolchain.toml`)
-- Python 3.12+
-- Node 20+
-- (For agent-windows kernel work) Windows 10/11 dev VM with `bcdedit /set testsigning on`
-
-Bring up infrastructure:
+## Get started
 
 ```bash
-cd deploy
-docker compose up -d
-./dev/bootstrap-kafka-topics.sh
+git clone https://github.com/isom21/custom-edr.git
+cd custom-edr
 ```
 
-Services exposed on the host:
+Then follow [`docs/install.md`](docs/install.md) — single document
+covering manager bring-up, enrollment-token generation, and Linux +
+Windows agent installation.
 
-| Service | URL |
-| --- | --- |
-| Postgres | `localhost:5432` (user `edr`, db `edr`) |
-| Redpanda Kafka | `localhost:19092` |
-| Redpanda Console | http://localhost:8080 |
-| OpenSearch | http://localhost:9200 |
-| OpenSearch Dashboards | http://localhost:5601 |
-| Flink Dashboard | http://localhost:8081 |
+For day-to-day operations after install, see
+[`docs/operator-guide.md`](docs/operator-guide.md).
 
-Backend (M1+):
+## What's not included
 
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
-```
+This release runs end-to-end on test-signed Windows drivers and
+unsigned Linux binaries. Three pieces of paid signing work are needed
+to ship into a production Windows fleet without test-signing or
+operator escape hatches:
 
-Frontend:
+1. **Authenticode signing** of `edr-agent.exe` and `edr.sys` with an
+   EV code-signing certificate.
+2. **WHQL attestation** of `edr.sys` via the Microsoft Hardware Dev
+   Center portal so the driver loads on Secure Boot + HVCI hosts.
+3. **Microsoft Antimalware ELAM** registration so the agent can
+   subscribe to the `Microsoft-Windows-Threat-Intelligence` ETW
+   provider for in-memory attack telemetry (manual map detection,
+   AMSI bypass tradecraft, LSASS access patterns).
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+The codebase is structured so adding these is purely a build-side
+change — no source modifications. The threat model
+([`docs/threat-model.md`](docs/threat-model.md)) documents what each
+of those buys.
 
-Agent (M2+):
+## Reporting bugs and contributing
 
-```bash
-# from repo root
-cargo build -p agent-windows --release   # cross-compile from WSL or build on Win VM
-cargo build -p agent-linux --release
-```
-
-## Milestones
-
-| # | Scope | Status |
-|---|---|---|
-| M0 | Foundations: monorepo, proto schema, dev infra, ADRs | **Done** |
-| M1 | Backend core + UI shell + enrollment CA | **Done** |
-| M2 | Agent thin slice — Linux agent (proc-poll) verified in WSL; Windows ETW skeleton needs a Windows VM | **Done** |
-| M3 | Sigma pipeline (realtime OpenSearch percolator; ~1s end-to-end latency on Linux). See [ADR 0005](docs/adr/0005-sigma-realtime-percolator.md). | **Done** |
-| M4 | Windows kernel driver (KMDF + minifilter) | Planned |
-| M5 | Response actions (kill / block) | Planned |
-| M6 | Linux agent (eBPF / aya) | Planned |
-| M7 | Polish, self-protection, installers, RBAC | Planned |
-
-## First-run quickstart
-
-```bash
-# 1. Bring up infra
-make infra-up
-make infra-bootstrap
-
-# 2. Backend
-cd backend
-# IMPORTANT (WSL2): put the venv on the Linux fs, not /mnt/d — file I/O on the
-# Windows mount is ~50x slower for venv creation and pip installs.
-python -m venv ~/edr-venvs/backend
-source ~/edr-venvs/backend/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env       # edit secrets
-alembic upgrade head
-python -m scripts.create_admin --email admin@example.local --password 'change-me-please-12chars'
-uvicorn app.main:app --reload --port 8000
-
-# 3. Frontend (in a new terminal, from repo root)
-cd frontend
-npm install
-npm run dev   # http://localhost:5173
-```
-
-## Running the full detection pipeline
-
-After the quickstart, you need five processes for end-to-end detection.
-Each in its own shell, from the repo root:
-
-```bash
-make backend-dev          # FastAPI REST API (:8000)
-make backend-grpc         # gRPC ingest for agents (:50051)
-make backend-normalizer   # telemetry.raw -> telemetry.normalized
-make backend-indexer      # telemetry.normalized -> OpenSearch (telemetry-*)
-make backend-detector     # IOC matching: emit alerts on filename/path/hash hits
-make backend-sigma        # realtime Sigma percolator (per-event match, ~1s latency)
-# make backend-sigma-scheduled  # legacy 30s scheduler — only useful for aggregation rules
-make frontend-dev         # React UI (:5173)
-```
-
-Then enroll an agent: in the UI go to **Enrollment → Generate**, copy the
-token, and on the endpoint run:
-
-```bash
-EDR_ENROLLMENT_TOKEN=enr_… \
-EDR_MANAGER_ENDPOINT=https://<manager-host>:50051 \
-EDR_MANAGER_REST=http://<manager-host>:8000 \
-edr-agent
-```
-
-Sign in with the admin you just created. The UI proxies `/api/*` to the backend on `:8000`.
+* **Bug reports / features**: open a GitHub issue.
+* **Patches**: open a pull request.
+* **Security**: see [`SECURITY.md`](SECURITY.md). Use GitHub's
+  private vulnerability reporting via the repo's *Security* tab, or
+  email `isom21@protonmail.com`.
 
 ## License
 
-Proprietary — internal PoC. No external use.
+Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

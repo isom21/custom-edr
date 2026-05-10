@@ -68,9 +68,9 @@ curl -s "$MANAGER_REST/api/host-groups/$GROUP_ID/members" -X POST \
 
 - One per production tier (`prod-web`, `prod-app`, `prod-db`).
 - One per environment (`production`, `staging`, `dev`).
-- One per customer / tenant (single-tenant for now; PoC schema is
-  not multi-tenant — plan group naming accordingly so a future
-  `Tenant` model maps cleanly).
+- One per customer / tenant (the schema is single-tenant today;
+  plan group naming accordingly so a future `Tenant` model maps
+  cleanly).
 
 A host can belong to multiple groups (e.g. `prod-web` AND
 `production`). A user can belong to multiple groups (e.g.

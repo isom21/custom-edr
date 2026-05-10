@@ -200,22 +200,22 @@ fn render_metrics(snap: &MetricsSnapshot) -> String {
         ),
         (
             "edr_agent_bpf_self_kill_blocked_total",
-            "M7.1 self-protection: kills blocked",
+            "Self-protection: kill signals to the agent rejected by lsm/task_kill",
             load(&snap.bpf_self_kill_blocked),
         ),
         (
             "edr_agent_bpf_self_ptrace_blocked_total",
-            "M7.1 self-protection: ptrace blocked",
+            "Self-protection: ptrace_attach to the agent rejected",
             load(&snap.bpf_self_ptrace_blocked),
         ),
         (
             "edr_agent_bpf_self_bpf_blocked_total",
-            "M7.1 self-protection: bpf detach blocked",
+            "Self-protection: bpf(2) detach attempts on agent programs rejected",
             load(&snap.bpf_self_bpf_blocked),
         ),
         (
             "edr_agent_bpf_self_unlink_blocked_total",
-            "M7.1 self-protection: inode unlink blocked",
+            "Self-protection: unlink under agent state/pin dirs rejected",
             load(&snap.bpf_self_unlink_blocked),
         ),
     ];
@@ -242,16 +242,16 @@ fn render_metrics(snap: &MetricsSnapshot) -> String {
          # HELP edr_agent_last_event_unix_ns Unix-ns timestamp of the most recent event emitted\n\
          # TYPE edr_agent_last_event_unix_ns gauge\n\
          edr_agent_last_event_unix_ns {last_ev}\n\
-         # HELP edr_agent_tamper_binary_total M12.a binary hash drift detections\n\
+         # HELP edr_agent_tamper_binary_total Runtime integrity watchdog: binary hash drift detections\n\
          # TYPE edr_agent_tamper_binary_total counter\n\
          edr_agent_tamper_binary_total {tamper_bin}\n\
-         # HELP edr_agent_tamper_config_total M12.a config hash drift detections\n\
+         # HELP edr_agent_tamper_config_total Runtime integrity watchdog: config hash drift detections\n\
          # TYPE edr_agent_tamper_config_total counter\n\
          edr_agent_tamper_config_total {tamper_cfg}\n\
-         # HELP edr_agent_tamper_bpf_detached_total M12.b BPF program detachment detections\n\
+         # HELP edr_agent_tamper_bpf_detached_total BPF watchdog: pinned-link disappearance detections\n\
          # TYPE edr_agent_tamper_bpf_detached_total counter\n\
          edr_agent_tamper_bpf_detached_total {tamper_bpf_det}\n\
-         # HELP edr_agent_tamper_bpf_map_missing_total M12.b pinned-map missing detections\n\
+         # HELP edr_agent_tamper_bpf_map_missing_total BPF watchdog: pinned-map disappearance detections\n\
          # TYPE edr_agent_tamper_bpf_map_missing_total counter\n\
          edr_agent_tamper_bpf_map_missing_total {tamper_bpf_map}\n"
     ));

@@ -29,14 +29,9 @@ ignore = [
 
 [licenses]
 version = 2
-# Our own workspace crates are marked "Proprietary" (not a real SPDX
-# id). `private = { ignore = true }` tells cargo-deny to skip the
-# license check for path-deps within this workspace; the third-party
-# allow list below still applies to crates.io deps.
-private = { ignore = true }
 allow = [
-    "MIT",
     "Apache-2.0",
+    "MIT",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",

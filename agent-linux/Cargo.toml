@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
 description = "EDR endpoint agent for Linux."
 
 [[bin]]
@@ -47,12 +46,13 @@ anyhow = "1"
 # ---------------------------------------------------------------------------
 [package.metadata.deb]
 name = "edr-agent"
-maintainer = "EDR project <noreply@edr.example>"
-copyright = "Copyright 2026 EDR project"
+maintainer = "isom21 <isom21@protonmail.com>"
+copyright = "Copyright 2026 isom21"
+license-file = ["../LICENSE", "0"]
 extended-description = """\
 EDR endpoint agent for Linux. Captures process / file / network / module
 events via eBPF (CO-RE) and ships them to the EDR manager over mTLS gRPC.
-M7.1 self-protection (BPF LSM) is enabled by default."""
+BPF LSM self-protection is enabled by default."""
 depends = "$auto, libc6 (>= 2.34)"
 section = "admin"
 priority = "optional"
@@ -77,7 +77,7 @@ systemd-units = { enable = false, start = false, unit-name = "edr-agent" }
 # ---------------------------------------------------------------------------
 [package.metadata.generate-rpm]
 name = "edr-agent"
-license = "Proprietary"
+license = "Apache-2.0"
 summary = "EDR endpoint agent (Linux)"
 assets = [
     { source = "target/release/edr-agent", dest = "/usr/bin/edr-agent", mode = "755" },

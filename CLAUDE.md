@@ -1,46 +1,65 @@
 # CLAUDE.md
 
-> **If this is your first session on this codebase, read
-> [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md) before doing
-> anything else.** It tells you where the previous session left off, how
-> to restore memory from `docs/handoff/memory/`, how to bring the dev
-> stack back up, and what to start on next (M4: Windows kernel driver).
+Working notes for Claude when contributing to this repo. Humans should
+start at [`README.md`](README.md) and [`docs/install.md`](docs/install.md).
 
 ## Quick orientation
 
-EDR (Endpoint Detection and Response) PoC inspired by HarfangLab. Agent
-in Rust + C (Windows kernel driver / Linux eBPF), manager in Python
-FastAPI + PostgreSQL + OpenSearch + Kafka, frontend in React. mTLS gRPC
-between agents and the manager. ECS-aligned protobuf schema.
+EDR (Endpoint Detection and Response) — agent + management plane,
+Apache 2.0. Agent in Rust + C (Windows kernel driver / Linux eBPF),
+manager in Python FastAPI + Postgres + OpenSearch + Kafka, frontend in
+React. mTLS gRPC between agents and the manager. ECS-aligned protobuf
+schema.
 
 | What | Where |
 |---|---|
-| Milestone roadmap & status | [docs/SESSION_HANDOFF.md](docs/SESSION_HANDOFF.md) |
+| Install (manager + agents) | [docs/install.md](docs/install.md) |
+| Day-to-day operations | [docs/operator-guide.md](docs/operator-guide.md) |
+| Threat model | [docs/threat-model.md](docs/threat-model.md) |
+| RBAC + audit + tokens | [docs/rbac.md](docs/rbac.md) |
 | Architecture decisions | [docs/adr/](docs/adr/) |
-| Frozen tech choices | [docs/handoff/memory/edr_stack_decisions.md](docs/handoff/memory/edr_stack_decisions.md) |
 | Smoke / e2e tests | [tools/smoke/](tools/smoke/) |
-| First-run quickstart | [README.md](README.md) |
-| Auto-memory snapshot | [docs/handoff/memory/](docs/handoff/memory/) |
 
-## Working agreements (read once)
+## Working agreements
 
-- **Git commits in this repo are unsigned by local config.** The user's
-  global gitconfig signs everything; this repo overrides it. Don't pass
-  `-c commit.gpgsign=…`. See
-  [feedback_edr_repo_gpgsign.md](docs/handoff/memory/feedback_edr_repo_gpgsign.md).
-- **Plan before code on ambitious work**, even in auto mode. The user
-  prefers focused design questions + a written milestone plan upfront.
-  See [feedback_plan_first.md](docs/handoff/memory/feedback_plan_first.md).
-- **Don't propose alternatives to the frozen stack** without flagging the
-  cost. See [edr_stack_decisions.md](docs/handoff/memory/edr_stack_decisions.md).
-- **Default to TOTP, not YubiKey/WebAuthn**, for any security design that
-  comes up. See [feedback_no_yubikey.md](docs/handoff/memory/feedback_no_yubikey.md).
+- **Plan before code on ambitious work**, even in auto mode. Open with
+  focused design questions and a written plan; only start writing code
+  once the user confirms direction.
+- **Don't propose alternatives to the frozen stack** without flagging
+  the cost. The stack choices live in
+  [`docs/adr/0001-stack-selection.md`](docs/adr/0001-stack-selection.md).
+- **Default to TOTP, not YubiKey/WebAuthn** for any 2FA design that
+  comes up — the project targets solo-developer / small-team operations.
+- **Git commits in this repo are unsigned.** The user's global
+  gitconfig signs everything; this repo overrides locally. Don't pass
+  `-c commit.gpgsign=…`.
 
 ## Don't be surprised by
 
 - Python venv must live on the Linux filesystem, not under `/mnt/d/...`
-  or any other slow remote mount. See SESSION_HANDOFF §4.1.
+  or any other slow remote mount.
 - Cargo needs `>=1.85` (edition 2024). `rust-toolchain.toml` pins
   `channel = "stable"`.
 - ADR 0004 is superseded by ADR 0005 (Sigma went from scheduled to
   realtime via OpenSearch percolator).
+- The Linux agent's BPF programs and pinned maps live under
+  `/sys/fs/bpf/edr/`; if a previous agent crashed, the next one runs
+  `cleanup_or_takeover` to claim them rather than refusing to start.
+- The audit log is INSERT-only at the DB role level (REVOKE UPDATE,
+  DELETE, TRUNCATE) and tamper-evident via an HMAC chain keyed off
+  `EDR_AUDIT_HMAC_KEY`. Don't try to "fix" rows by UPDATE; insert
+  compensating rows instead.
+
+## Optional commercial signing
+
+Three pieces of paid signing work let the project ship into a
+production Windows fleet without test-signing:
+
+1. **Authenticode** signing of `edr-agent.exe` and `edr.sys` (EV cert).
+2. **WHQL attestation** of `edr.sys` (Microsoft Hardware Dev Center).
+3. **Microsoft Antimalware ELAM** registration so the agent can
+   subscribe to the `Microsoft-Windows-Threat-Intelligence` ETW
+   provider.
+
+Tracked in [`docs/threat-model.md`](docs/threat-model.md). The
+codebase is structured so adding these is a build-side change only.
