@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "EDR endpoint agent for Windows."
+description = "Vigil endpoint agent for Windows."
 
 [[bin]]
-name = "edr-agent"
+name = "vigil-agent"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,6 +1,6 @@
 # Threat model
 
-This document scopes what the EDR defends against, what it does
+This document scopes what Vigil defends against, what it does
 *not* defend against, and where the explicit gaps are. Companion to
 `operator-guide.md` and `rbac.md`. Audience: anyone deploying or
 operating the agent + manager.
@@ -45,11 +45,11 @@ root / Administrator attacker who tries to:
 | `gdb -p` / `Stop-Process -Force` | Same as above (signals route through `task_kill`) / Same as above |
 | `ptrace(PTRACE_ATTACH)` / `ReadProcessMemory` | `lsm/ptrace_access_check` + `prctl(PR_SET_DUMPABLE,0)` | `ObRegisterCallbacks` strips `PROCESS_VM_READ`/`VM_WRITE` |
 | `bpftool prog detach` / `bpftool link detach` | `lsm/bpf` rejects DETACH from non-self callers | (N/A on Windows) |
-| `rm /sys/fs/bpf/edr/links/*` | `lsm/inode_unlink` rejects unlinks under protected dirs | (N/A on Windows) |
-| `rm /var/lib/edr/*` (state, identity material) | `lsm/inode_unlink` rejects unlinks under state dir | ProgramData ACL: SYSTEM + Administrators only |
+| `rm /sys/fs/bpf/vigil/links/*` | `lsm/inode_unlink` rejects unlinks under protected dirs | (N/A on Windows) |
+| `rm /var/lib/vigil/*` (state, identity material) | `lsm/inode_unlink` rejects unlinks under state dir | ProgramData ACL: SYSTEM + Administrators only |
 
 Crash survivability on Linux: BPF programs and links are pinned to
-`/sys/fs/bpf/edr/`, so the LSM hooks keep enforcing even if the agent
+`/sys/fs/bpf/vigil/`, so the LSM hooks keep enforcing even if the agent
 process is killed. On agent restart, a takeover protocol claims the
 old pinned `agent_self` map and unpins cleanly before reloading.
 
@@ -87,10 +87,10 @@ If the attacker can:
 
 Mitigations the operator can layer on top:
 
-- Linux: lockdown LSM in integrity mode, `chattr +i /usr/bin/edr-agent`,
+- Linux: lockdown LSM in integrity mode, `chattr +i /usr/bin/vigil-agent`,
   Secure Boot with shim-validated kernel modules.
 - Windows: HVCI / Memory Integrity, Secure Boot, attestation-signed
-  EDR driver via Microsoft (requires WHQL + cross-signed cert; see
+  Vigil driver via Microsoft (requires WHQL + cross-signed cert; see
   README "What's not included").
 
 ### Plaintext-before-TLS network visibility
@@ -104,7 +104,7 @@ out of scope for this codebase.
 
 ### Privileged operator turning the agent off
 
-`systemctl stop edr-agent` (Linux) or `Stop-ScheduledTask` (Windows)
+`systemctl stop vigil-agent` (Linux) or `Stop-ScheduledTask` (Windows)
 both succeed for an Administrator. This is intentional — the operator
 must be able to stop the agent for maintenance. Detection: alert when
 the agent disconnects gracefully (heartbeat gap), which the manager
@@ -112,13 +112,13 @@ already infers from `last_seen_at`.
 
 Mitigations: SCM ACL hardening (deny `SC_MANAGER_STOP` to non-admins
 even in the Administrators group via custom service DACL); systemd
-unit `RefuseManualStop=true` plus a separate `edr-agent-watchdog.service`
+unit `RefuseManualStop=true` plus a separate `vigil-agent-watchdog.service`
 that re-enables. Tracked as future polish.
 
 ### Disk forensics on a powered-down endpoint
 
 Identity material and the blocklist live unencrypted under
-`/var/lib/edr` and `C:\ProgramData\EDR`. An attacker with full disk
+`/var/lib/vigil` and `C:\ProgramData\Vigil`. An attacker with full disk
 access (cold boot, stolen laptop without FDE) can read keys + replay
 mTLS to impersonate the host, until the operator revokes the cert via
 `/api/hosts/{id}` PATCH.
@@ -138,9 +138,11 @@ sign packages — see README "What's not included".
 ### Anti-malware bypass against the response actions
 
 On Windows, Defender's behavioral signatures fire faster than our
-`IOCTL_EDR_KILL_PROCESS` against well-known names like `mimikatz.exe`.
-This is documented in the feedback memory `disable Defender for EDR
-tests`; in production it's a feature, not a bug. The block path
+`IOCTL_VIGIL_KILL_PROCESS` against well-known names like
+`mimikatz.exe`. In a lab where you want to confirm Vigil's kill path
+specifically, disable Defender's real-time protection with
+`Set-MpPreference -DisableRealtimeMonitoring $true`. In production
+Defender racing us is a feature, not a bug. The block path
 (`STATUS_ACCESS_DENIED` at `PsCreateProcessNotifyRoutineEx`) runs
 before any AV signature scan and is unaffected.
 
@@ -167,7 +169,7 @@ means our `-EPERM` returns are visible alongside SELinux's.
   and a real Authenticode codesigning cert for the agent binaries
   (see README "What's not included").
 - Operators don't share API tokens, don't enable
-  `EDR_DISABLE_SELF_PROTECTION=1` in production, and rotate
+  `VIGIL_DISABLE_SELF_PROTECTION=1` in production, and rotate
   enrollment tokens via the manager.
 
 ## What changes the calculus

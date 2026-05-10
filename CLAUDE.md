@@ -5,11 +5,11 @@ start at [`README.md`](README.md) and [`docs/install.md`](docs/install.md).
 
 ## Quick orientation
 
-EDR (Endpoint Detection and Response) — agent + management plane,
+Vigil — Endpoint Detection and Response, agent + management plane,
 Apache 2.0. Agent in Rust + C (Windows kernel driver / Linux eBPF),
-manager in Python FastAPI + Postgres + OpenSearch + Kafka, frontend in
-React. mTLS gRPC between agents and the manager. ECS-aligned protobuf
-schema.
+manager in Python FastAPI + Postgres + OpenSearch + Kafka, frontend
+in React. mTLS gRPC between agents and the manager. ECS-aligned
+protobuf schema.
 
 | What | Where |
 |---|---|
@@ -43,11 +43,11 @@ schema.
 - ADR 0004 is superseded by ADR 0005 (Sigma went from scheduled to
   realtime via OpenSearch percolator).
 - The Linux agent's BPF programs and pinned maps live under
-  `/sys/fs/bpf/edr/`; if a previous agent crashed, the next one runs
+  `/sys/fs/bpf/vigil/`; if a previous agent crashed, the next one runs
   `cleanup_or_takeover` to claim them rather than refusing to start.
 - The audit log is INSERT-only at the DB role level (REVOKE UPDATE,
   DELETE, TRUNCATE) and tamper-evident via an HMAC chain keyed off
-  `EDR_AUDIT_HMAC_KEY`. Don't try to "fix" rows by UPDATE; insert
+  `VIGIL_AUDIT_HMAC_KEY`. Don't try to "fix" rows by UPDATE; insert
   compensating rows instead.
 
 ## Optional commercial signing

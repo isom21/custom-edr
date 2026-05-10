@@ -1,6 +1,6 @@
 //! eBPF loader (M6).
 //!
-//! Loads the kernel-side programs from `agent-linux/ebpf/edr.bpf.o`,
+//! Loads the kernel-side programs from `agent-linux/ebpf/vigil.bpf.o`,
 //! attaches them, drains the shared ring buffer, and translates events
 //! into protobuf [`p::ClientMessage`]s that flow into the existing gRPC
 //! send channel.
@@ -28,20 +28,20 @@ use tokio::sync::mpsc;
 // struct to force the right alignment without an allocation.
 #[repr(C, align(8))]
 struct AlignedObject<const N: usize>([u8; N]);
-static EBPF_OBJECT_ALIGNED: &AlignedObject<{ include_bytes!("../ebpf/edr.bpf.o").len() }> =
-    &AlignedObject(*include_bytes!("../ebpf/edr.bpf.o"));
+static EBPF_OBJECT_ALIGNED: &AlignedObject<{ include_bytes!("../ebpf/vigil.bpf.o").len() }> =
+    &AlignedObject(*include_bytes!("../ebpf/vigil.bpf.o"));
 const EBPF_OBJECT: &[u8] = &EBPF_OBJECT_ALIGNED.0;
 
-const EDR_EVENT_KIND_PROCESS_START: u32 = 1;
-const EDR_EVENT_KIND_PROCESS_EXIT: u32 = 2;
-const EDR_EVENT_KIND_FILE_OPEN: u32 = 3;
-const EDR_EVENT_KIND_NETWORK_CONNECT: u32 = 4;
-const EDR_EVENT_KIND_MODULE_LOAD: u32 = 5;
+const VIGIL_EVENT_KIND_PROCESS_START: u32 = 1;
+const VIGIL_EVENT_KIND_PROCESS_EXIT: u32 = 2;
+const VIGIL_EVENT_KIND_FILE_OPEN: u32 = 3;
+const VIGIL_EVENT_KIND_NETWORK_CONNECT: u32 = 4;
+const VIGIL_EVENT_KIND_MODULE_LOAD: u32 = 5;
 
 const COMM_LEN: usize = 16;
 const PATH_MAX: usize = 384;
 
-/// Stat indices — must match `enum edr_stat` in `ebpf/edr.bpf.c`.
+/// Stat indices — must match `enum vigil_stat` in `ebpf/vigil.bpf.c`.
 #[repr(u32)]
 #[derive(Copy, Clone, Debug)]
 pub enum Stat {
@@ -65,11 +65,11 @@ const STAT_COUNT: usize = 14;
 /// Default location for pinned BPF objects. The agent owns this directory;
 /// installer must mount bpffs at `/sys/fs/bpf` (default on systemd) and
 /// give the parent dir to root.
-pub const DEFAULT_PIN_DIR: &str = "/sys/fs/bpf/edr";
+pub const DEFAULT_PIN_DIR: &str = "/sys/fs/bpf/vigil";
 
 /// LSM hooks pinned under `<pin_dir>/links/<hook>` after
 /// [`Loader::enable_self_protection`] succeeds. The first element is
-/// the C function name in `ebpf/edr.bpf.c`, the second is the kernel
+/// the C function name in `ebpf/vigil.bpf.c`, the second is the kernel
 /// hook name (which is also the bpffs filename — link pinning paths
 /// use the hook name, not the program name).
 ///
@@ -99,7 +99,7 @@ pub struct LoaderCtx {
 }
 
 /// Block-list keys are zero-padded 256-byte paths; matches `struct
-/// edr_block_key` in `edr.bpf.c`.
+/// vigil_block_key` in `vigil.bpf.c`.
 pub const BLOCK_KEY_LEN: usize = 256;
 
 /// Pad/truncate a path to a [`BLOCK_KEY_LEN`]-byte key. Paths longer than
@@ -234,7 +234,7 @@ impl Loader {
     /// `/sys/kernel/security/lsm`. We log + skip in that case so the
     /// rest of the pipeline still works.
     pub fn load_and_attach() -> Result<Self> {
-        let mut ebpf = Ebpf::load(EBPF_OBJECT).context("aya::Ebpf::load(edr.bpf.o)")?;
+        let mut ebpf = Ebpf::load(EBPF_OBJECT).context("aya::Ebpf::load(vigil.bpf.o)")?;
 
         for (name, category, event) in [
             ("handle_sched_exec", "sched", "sched_process_exec"),
@@ -496,7 +496,7 @@ fn attach_and_pin_lsm(
 }
 
 /// Pack `(dev, ino)` into the 16-byte little-endian layout that matches
-/// `struct edr_inode_key` in `edr.bpf.c`: `[u32 dev | u32 _pad | u64 ino]`.
+/// `struct vigil_inode_key` in `vigil.bpf.c`: `[u32 dev | u32 _pad | u64 ino]`.
 /// `userspace_dev` is the value from [`std::os::unix::fs::MetadataExt::dev`]
 /// (glibc encoding); we translate to the kernel `s_dev` encoding before
 /// packing so the BPF lookup matches what `BPF_CORE_READ(dir, i_sb, s_dev)`
@@ -636,7 +636,7 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
     let ppid = u32::from_ne_bytes(buf[20..24].try_into().ok()?);
 
     match kind {
-        EDR_EVENT_KIND_PROCESS_START => {
+        VIGIL_EVENT_KIND_PROCESS_START => {
             // header(32) + comm[16] + path_len(4) + path[384]
             if buf.len() < 32 + COMM_LEN + 4 {
                 return None;
@@ -672,14 +672,14 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 "",
             ))
         }
-        EDR_EVENT_KIND_PROCESS_EXIT => {
+        VIGIL_EVENT_KIND_PROCESS_EXIT => {
             // M6.2: process exit is counted in eBPF stats but not forwarded
             // upstream — we mirror the Windows agent which only ships
             // process_start. M6.x can add an exit event if Sigma rules
             // start needing it.
             None
         }
-        EDR_EVENT_KIND_MODULE_LOAD => {
+        VIGIL_EVENT_KIND_MODULE_LOAD => {
             // header(32) + comm[16] + name_len(4) + name[64]
             const HDR: usize = 32;
             const NAME_MAX: usize = 64;
@@ -706,7 +706,7 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 &name,
             ))
         }
-        EDR_EVENT_KIND_NETWORK_CONNECT => {
+        VIGIL_EVENT_KIND_NETWORK_CONNECT => {
             // header(32) + comm[16] + family(1) + protocol(1) + src_port(2) +
             // dst_port(2) + _pad(2) + src_addr[16] + dst_addr[16]
             const HDR: usize = 32;
@@ -766,7 +766,7 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 dst_port as u32,
             ))
         }
-        EDR_EVENT_KIND_FILE_OPEN => {
+        VIGIL_EVENT_KIND_FILE_OPEN => {
             // header(32) + comm[16] + open_flags(4) + path_len(4) + path[384]
             const HDR: usize = 32;
             if buf.len() < HDR + COMM_LEN + 8 {

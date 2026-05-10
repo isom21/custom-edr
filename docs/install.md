@@ -1,6 +1,6 @@
 # Installation guide
 
-Single source of truth for standing up the EDR end-to-end:
+Single source of truth for standing up Vigil end-to-end:
 
 1. [Install the manager](#1-install-the-manager) (FastAPI + Postgres + Kafka + OpenSearch + UI)
 2. [Generate an enrollment token](#2-generate-an-enrollment-token)
@@ -75,17 +75,17 @@ $EDITOR .env                                  # see "Required env" below
 Required env (`backend/.env`):
 
 ```
-EDR_PG_DSN=postgresql+asyncpg://edr:<password>@localhost:5432/edr
-EDR_KAFKA_BROKERS=localhost:19092
-EDR_OPENSEARCH_URL=http://localhost:9200
-EDR_SECRET_KEY=<generate via: openssl rand -hex 32>
-EDR_AUDIT_HMAC_KEY=<generate via: openssl rand -hex 32>
+VIGIL_PG_DSN=postgresql+asyncpg://edr:<password>@localhost:5432/edr
+VIGIL_KAFKA_BROKERS=localhost:19092
+VIGIL_OPENSEARCH_URL=http://localhost:9200
+VIGIL_SECRET_KEY=<generate via: openssl rand -hex 32>
+VIGIL_AUDIT_HMAC_KEY=<generate via: openssl rand -hex 32>
 ```
 
-`EDR_SECRET_KEY` signs JWTs. `EDR_AUDIT_HMAC_KEY` activates the
+`VIGIL_SECRET_KEY` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
 tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
-`EDR_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
+`VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
 
 ### 1.3 Apply the database schema
 
@@ -111,24 +111,24 @@ the REST enrollment flow. The CA itself can be either operator-supplied
 (production) or auto-generated on first start (dev / lab).
 
 For a dev / single-host install, the auto-generation is fine: the
-backend will lazily create the CA in `EDR_CA_DIR` (default
+backend will lazily create the CA in `VIGIL_CA_DIR` (default
 `backend/data/ca/`) on first call to the enrollment endpoint, and
 persist it there.
 
 For production:
 
 ```bash
-mkdir -p /var/lib/edr-ca
-openssl genrsa -out /var/lib/edr-ca/ca.key 4096
-openssl req -x509 -new -nodes -key /var/lib/edr-ca/ca.key -sha256 \
-  -days 3650 -subj "/CN=EDR Manager CA" -out /var/lib/edr-ca/ca.crt
-chmod 600 /var/lib/edr-ca/ca.key
+mkdir -p /var/lib/vigil-ca
+openssl genrsa -out /var/lib/vigil-ca/ca.key 4096
+openssl req -x509 -new -nodes -key /var/lib/vigil-ca/ca.key -sha256 \
+  -days 3650 -subj "/CN=Vigil Manager CA" -out /var/lib/vigil-ca/ca.crt
+chmod 600 /var/lib/vigil-ca/ca.key
 ```
 
 Then set in `.env`:
 
 ```
-EDR_CA_DIR=/var/lib/edr-ca
+VIGIL_CA_DIR=/var/lib/vigil-ca
 ```
 
 ### 1.6 Start the manager processes
@@ -201,8 +201,8 @@ From the repo root, on a Linux build host with `cargo install
 cargo-deb cargo-generate-rpm`:
 
 ```bash
-make agent-linux-deb       # writes target/debian/edr-agent_*.deb
-make agent-linux-rpm       # writes target/generate-rpm/edr-agent-*.rpm
+make agent-linux-deb       # writes target/debian/vigil-agent_*.deb
+make agent-linux-rpm       # writes target/generate-rpm/vigil-agent-*.rpm
 ```
 
 ### 3.2 Install on the endpoint
@@ -210,51 +210,51 @@ make agent-linux-rpm       # writes target/generate-rpm/edr-agent-*.rpm
 Debian / Ubuntu:
 
 ```bash
-sudo apt-get install -y /tmp/edr-agent_1.0.0-1_amd64.deb
+sudo apt-get install -y /tmp/vigil-agent_1.0.0-1_amd64.deb
 ```
 
 RHEL / Rocky / Alma:
 
 ```bash
-sudo dnf install -y /tmp/edr-agent-1.0.0-1.x86_64.rpm
+sudo dnf install -y /tmp/vigil-agent-1.0.0-1.x86_64.rpm
 ```
 
-The package creates `/etc/edr/agent.env` from a template, sets up
-`/var/lib/edr/` for state, and registers the systemd unit
-`edr-agent.service` (disabled by default).
+The package creates `/etc/vigil/agent.env` from a template, sets up
+`/var/lib/vigil/` for state, and registers the systemd unit
+`vigil-agent.service` (disabled by default).
 
 ### 3.3 Configure & start
 
 ```bash
-sudo $EDITOR /etc/edr/agent.env
+sudo $EDITOR /etc/vigil/agent.env
 ```
 
 Set at minimum:
 
 ```
-EDR_MANAGER_ENDPOINT=https://manager.example.com:50051
-EDR_MANAGER_REST=https://manager.example.com:8000
-EDR_ENROLLMENT_TOKEN=enr_<token-from-section-2>
+VIGIL_MANAGER_ENDPOINT=https://manager.example.com:50051
+VIGIL_MANAGER_REST=https://manager.example.com:8000
+VIGIL_ENROLLMENT_TOKEN=enr_<token-from-section-2>
 ```
 
 Optional:
 
 ```
-EDR_HOSTNAME=<override>            # default: kernel's hostname
-EDR_STATE_DIR=/var/lib/edr         # default
-EDR_DISABLE_SELF_PROTECTION=1      # only set if BPF LSM unavailable
-EDR_DISABLE_FILE_HASHING=1         # cuts CPU at the cost of file IOC matching
+VIGIL_HOSTNAME=<override>            # default: kernel's hostname
+VIGIL_STATE_DIR=/var/lib/vigil         # default
+VIGIL_DISABLE_SELF_PROTECTION=1      # only set if BPF LSM unavailable
+VIGIL_DISABLE_FILE_HASHING=1         # cuts CPU at the cost of file IOC matching
 ```
 
 Then:
 
 ```bash
-sudo systemctl enable --now edr-agent
-sudo journalctl -u edr-agent -f         # watch enrollment + first telemetry
+sudo systemctl enable --now vigil-agent
+sudo journalctl -u vigil-agent -f         # watch enrollment + first telemetry
 ```
 
 The agent enrolls with the manager, receives a client certificate,
-persists it in `/var/lib/edr/identity/`, and starts streaming events
+persists it in `/var/lib/vigil/identity/`, and starts streaming events
 over mTLS gRPC.
 
 ## 4. Install the Windows agent
@@ -265,11 +265,11 @@ On a Windows lab box (or a self-hosted runner), with the WDK 10 +
 Visual Studio Build Tools installed:
 
 ```powershell
-# Driver — produces edr.sys + edr.cat + edr.inf
+# Driver — produces vigil.sys + vigil.cat + vigil.inf
 cd kernel-windows
 .\build.ps1
 
-# Agent — produces edr-agent.exe
+# Agent — produces vigil-agent.exe
 cd ..
 cargo build -p agent-windows --release --target x86_64-pc-windows-msvc
 ```
@@ -292,7 +292,7 @@ The build output ships as a ZIP:
 
 ```powershell
 .\packaging\windows\make-package.ps1
-# produces edr-windows-1.0.0.zip
+# produces vigil-windows-1.0.0.zip
 ```
 
 On the endpoint, elevated PowerShell:
@@ -303,48 +303,48 @@ bcdedit /set testsigning on
 Restart-Computer
 
 # Then:
-Expand-Archive -Path .\edr-windows-1.0.0.zip -DestinationPath C:\edr
-cd C:\edr\edr-windows-1.0.0
-.\install-edr.ps1
+Expand-Archive -Path .\vigil-windows-1.0.0.zip -DestinationPath C:\edr
+cd C:\edr\vigil-windows-1.0.0
+.\install-vigil.ps1
 ```
 
 The installer:
 
-1. Copies `edr.sys` to `%SystemRoot%\System32\drivers\`.
+1. Copies `vigil.sys` to `%SystemRoot%\System32\drivers\`.
 2. Registers and starts the `edr` kernel service.
-3. Installs the agent at `%ProgramFiles%\EDR\edr-agent.exe`.
-4. Creates `%ProgramData%\EDR\agent.env` from a template.
-5. Registers the agent as a Windows service (`edr-agent`, manual
+3. Installs the agent at `%ProgramFiles%\Vigil\vigil-agent.exe`.
+4. Creates `%ProgramData%\Vigil\agent.env` from a template.
+5. Registers the agent as a Windows service (`vigil-agent`, manual
    start by default).
 
 ### 4.3 Configure & start
 
 ```powershell
-notepad %ProgramData%\EDR\agent.env
+notepad %ProgramData%\Vigil\agent.env
 ```
 
 Set:
 
 ```
-EDR_MANAGER_ENDPOINT=https://manager.example.com:50051
-EDR_MANAGER_REST=https://manager.example.com:8000
-EDR_ENROLLMENT_TOKEN=enr_<token-from-section-2>
+VIGIL_MANAGER_ENDPOINT=https://manager.example.com:50051
+VIGIL_MANAGER_REST=https://manager.example.com:8000
+VIGIL_ENROLLMENT_TOKEN=enr_<token-from-section-2>
 ```
 
 Then:
 
 ```powershell
 Start-Service edr           # kernel driver
-Start-Service edr-agent     # userspace agent
+Start-Service vigil-agent     # userspace agent
 
 # Watch the first enrollment:
-Get-EventLog -LogName Application -Source 'edr-agent' -Newest 50
+Get-EventLog -LogName Application -Source 'vigil-agent' -Newest 50
 ```
 
 For service start at boot, change the start type:
 
 ```powershell
-Set-Service -Name edr-agent -StartupType Automatic
+Set-Service -Name vigil-agent -StartupType Automatic
 ```
 
 ## 5. Verify

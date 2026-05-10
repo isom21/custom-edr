@@ -1,13 +1,13 @@
-//! Windows EDR agent entry point.
+//! Windows Vigil agent entry point.
 //!
 //! Three startup modes:
 //!   * **Service** (default when launched by SCM): registers the
 //!     service-control-handler, runs the agent on a tokio runtime, and
 //!     stops cleanly on SCM Stop / Shutdown.
-//!   * **Console** (`edr-agent --console`): foreground mode for dev /
+//!   * **Console** (`vigil-agent --console`): foreground mode for dev /
 //!     debugging. Same agent code path, no SCM glue.
-//!   * **Install / uninstall** (`edr-agent --install-service` /
-//!     `edr-agent --uninstall-service`): register with SCM and exit.
+//!   * **Install / uninstall** (`vigil-agent --install-service` /
+//!     `vigil-agent --uninstall-service`): register with SCM and exit.
 //!
 //! M9.1 introduced the SCM service path, replacing the M7.4
 //! scheduled-task wrapper. The agent's actual logic is in
@@ -63,7 +63,7 @@ fn main() -> Result<()> {
             anyhow::bail!("--uninstall-service is Windows-only")
         }
         Some("--version") => {
-            println!("edr-agent {AGENT_VERSION}");
+            println!("vigil-agent {AGENT_VERSION}");
             return Ok(());
         }
         Some("--help") => {
@@ -113,28 +113,28 @@ fn init_tracing() {
 
 fn print_help() {
     println!(
-        r"edr-agent — EDR endpoint agent for Windows
+        r"vigil-agent — EDR endpoint agent for Windows
 
 Usage:
-  edr-agent                       run as a Windows service (auto-detected) or console
-  edr-agent --console             force console mode (foreground)
-  edr-agent --install-service     register the SCM service (one-time)
-  edr-agent --uninstall-service   stop + remove the SCM service
-  edr-agent --version             print version
-  edr-agent --help                this message
+  vigil-agent                       run as a Windows service (auto-detected) or console
+  vigil-agent --console             force console mode (foreground)
+  vigil-agent --install-service     register the SCM service (one-time)
+  vigil-agent --uninstall-service   stop + remove the SCM service
+  vigil-agent --version             print version
+  vigil-agent --help                this message
 
 Environment:
-  EDR_AGENT_CONFIG       path to TOML config file
-  EDR_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)
-  EDR_MANAGER_REST       REST URL of the manager (http://host:8000)
-  EDR_ENROLLMENT_TOKEN   one-time enrollment token (first run only)
-  EDR_STATE_DIR          state directory (default %ProgramData%\EDR)
-  EDR_HOSTNAME           override registered hostname
+  VIGIL_AGENT_CONFIG       path to TOML config file
+  VIGIL_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)
+  VIGIL_MANAGER_REST       REST URL of the manager (http://host:8000)
+  VIGIL_ENROLLMENT_TOKEN   one-time enrollment token (first run only)
+  VIGIL_STATE_DIR          state directory (default %ProgramData%\Vigil)
+  VIGIL_HOSTNAME           override registered hostname
 
 Logs:
   Console mode: stdout (JSON).
   Service mode: stdout is captured by SCM and ends up in
-  C:\Windows\Temp\edr-agent.log if you wire `service` to redirect.
+  C:\Windows\Temp\vigil-agent.log if you wire `service` to redirect.
 "
     );
 }
@@ -153,7 +153,7 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         let token = cfg
             .enrollment_token
             .as_ref()
-            .context("not enrolled and EDR_ENROLLMENT_TOKEN unset")?;
+            .context("not enrolled and VIGIL_ENROLLMENT_TOKEN unset")?;
         let hostname = cfg.hostname_override.clone().unwrap_or_else(hostname);
         let os = os_info();
         tracing::info!(hostname = %hostname, "agent.enrolling");
@@ -286,15 +286,15 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
 }
 
 fn load_config() -> Result<AgentConfig> {
-    if let Ok(path) = env::var("EDR_AGENT_CONFIG") {
+    if let Ok(path) = env::var("VIGIL_AGENT_CONFIG") {
         return AgentConfig::load(&PathBuf::from(path));
     }
-    let manager_endpoint =
-        env::var("EDR_MANAGER_ENDPOINT").unwrap_or_else(|_| "https://localhost:50051".to_string());
-    let manager_rest_endpoint = env::var("EDR_MANAGER_REST").ok();
-    let enrollment_token = env::var("EDR_ENROLLMENT_TOKEN").ok();
-    let state_dir = env::var("EDR_STATE_DIR").ok().map(PathBuf::from);
-    let hostname_override = env::var("EDR_HOSTNAME").ok();
+    let manager_endpoint = env::var("VIGIL_MANAGER_ENDPOINT")
+        .unwrap_or_else(|_| "https://localhost:50051".to_string());
+    let manager_rest_endpoint = env::var("VIGIL_MANAGER_REST").ok();
+    let enrollment_token = env::var("VIGIL_ENROLLMENT_TOKEN").ok();
+    let state_dir = env::var("VIGIL_STATE_DIR").ok().map(PathBuf::from);
+    let hostname_override = env::var("VIGIL_HOSTNAME").ok();
     Ok(AgentConfig {
         manager_endpoint,
         manager_rest_endpoint,

@@ -2,7 +2,7 @@
 
 Mutation testing for the BPF LSM hooks. Why a custom harness rather
 than `cargo-mutants`: the actual logic that matters lives in
-`agent-linux/ebpf/edr.bpf.c`, not the Rust loader. The hooks have
+`agent-linux/ebpf/vigil.bpf.c`, not the Rust loader. The hooks have
 two characteristics that make them especially valuable to mutate-test:
 
 1. **Silent failures freeze the host.** The bprm-arity bug from M6.6
@@ -15,7 +15,7 @@ two characteristics that make them especially valuable to mutate-test:
 
 The harness:
 
-1. Reads `agent-linux/ebpf/edr.bpf.c`.
+1. Reads `agent-linux/ebpf/vigil.bpf.c`.
 2. For each `MUTANT_TARGET` block (annotated in source via
    `// MUTANT: name=...`), generates a mutated variant by applying a
    pre-defined transformation (e.g. flip `return -1` to `return 0`).
@@ -30,7 +30,7 @@ build+deploy cycle.
 ## Run
 
 ```bash
-EDR_LAB_LINUX=lab-linux tools/mutation/run.sh
+VIGIL_LAB_LINUX=lab-linux tools/mutation/run.sh
 ```
 
 Output: a CSV at `target/mutation/results.csv` with columns
@@ -38,7 +38,7 @@ Output: a CSV at `target/mutation/results.csv` with columns
 
 ## Adding a mutation target
 
-Annotate the source line in `edr.bpf.c`:
+Annotate the source line in `vigil.bpf.c`:
 
 ```c
 // MUTANT: name=task_kill_allow_root, op=replace, from="caller == 1", to="0"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mutation testing harness for the BPF LSM hooks (M8.5).
 #
-# Mutates `agent-linux/ebpf/edr.bpf.c` in well-defined ways, rebuilds,
+# Mutates `agent-linux/ebpf/vigil.bpf.c` in well-defined ways, rebuilds,
 # deploys to lab-linux, runs the M7.1 smoke test, and reports whether
 # each mutation was caught (smoke FAILS) or escaped (smoke PASSES).
 #
@@ -12,9 +12,9 @@
 set -uo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-LAB="${EDR_LAB_LINUX:-lab-linux}"
-BPF_C="$REPO/agent-linux/ebpf/edr.bpf.c"
-ORIG_BACKUP="/tmp/edr.bpf.c.orig"
+LAB="${VIGIL_LAB_LINUX:-lab-linux}"
+BPF_C="$REPO/agent-linux/ebpf/vigil.bpf.c"
+ORIG_BACKUP="/tmp/vigil.bpf.c.orig"
 RESULTS_DIR="$REPO/target/mutation"
 RESULTS_CSV="$RESULTS_DIR/results.csv"
 
@@ -36,7 +36,7 @@ MUTATIONS=(
 "task_kill_invert_self_check|Block self-signals too (invert): agent can't signal itself|s|if (caller == self || caller == 1)|if (!(caller == self || caller == 1))|"
 "ptrace_skip_check|Make ptrace hook a no-op: gdb attach succeeds|s|if (target_tgid != self)|if (target_tgid == self)|"
 "bpf_disable_detach_block|Drop the bpf detach block: bpftool can detach our links|s|if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH) {|if (0) {|"
-"unlink_skip_check|inode_unlink no-op: rm under /sys/fs/bpf/edr succeeds|s|if (is_protected_dir_inode(dir)) {|if (0) {|"
+"unlink_skip_check|inode_unlink no-op: rm under /sys/fs/bpf/vigil succeeds|s|if (is_protected_dir_inode(dir)) {|if (0) {|"
 )
 
 cleanup() {
@@ -73,14 +73,14 @@ for entry in "${MUTATIONS[@]}"; do
         continue
     fi
     echo "[mutation] deploying to $LAB..."
-    if ! scp -q "$REPO/target/release/edr-agent" "$LAB:/tmp/edr-agent.mut"; then
+    if ! scp -q "$REPO/target/release/vigil-agent" "$LAB:/tmp/vigil-agent.mut"; then
         echo "[mutation] scp failed; aborting"
         echo "$name,$desc,scp-failed,no" >> "$RESULTS_CSV"
         continue
     fi
-    ssh "$LAB" 'sudo systemctl stop edr-agent; sudo install -m 0755 /tmp/edr-agent.mut /usr/bin/edr-agent; sudo systemctl reset-failed edr-agent; sudo systemctl start edr-agent; sleep 4'
+    ssh "$LAB" 'sudo systemctl stop vigil-agent; sudo install -m 0755 /tmp/vigil-agent.mut /usr/bin/vigil-agent; sudo systemctl reset-failed vigil-agent; sudo systemctl start vigil-agent; sleep 4'
     echo "[mutation] running smoke..."
-    if ssh "$LAB" "EDR_STATE_DIR=/var/lib/edr-state bash /tmp/45-self-protection-linux.sh" > /tmp/mut-smoke.log 2>&1; then
+    if ssh "$LAB" "VIGIL_STATE_DIR=/var/lib/vigil-state bash /tmp/45-self-protection-linux.sh" > /tmp/mut-smoke.log 2>&1; then
         echo "[mutation] $name ESCAPED — smoke still passed despite mutation"
         echo "$name,$desc,smoke-passed,no" >> "$RESULTS_CSV"
     else
@@ -92,8 +92,8 @@ done
 # Restore original + rebuild + redeploy so we leave the lab in good shape.
 cp "$ORIG_BACKUP" "$BPF_C"
 cargo build -p agent-linux --release > /dev/null 2>&1
-scp -q "$REPO/target/release/edr-agent" "$LAB:/tmp/edr-agent.orig"
-ssh "$LAB" 'sudo systemctl stop edr-agent; sudo install -m 0755 /tmp/edr-agent.orig /usr/bin/edr-agent; sudo systemctl reset-failed edr-agent; sudo systemctl start edr-agent'
+scp -q "$REPO/target/release/vigil-agent" "$LAB:/tmp/vigil-agent.orig"
+ssh "$LAB" 'sudo systemctl stop vigil-agent; sudo install -m 0755 /tmp/vigil-agent.orig /usr/bin/vigil-agent; sudo systemctl reset-failed vigil-agent; sudo systemctl start vigil-agent'
 
 echo
 echo "=== mutation results ==="

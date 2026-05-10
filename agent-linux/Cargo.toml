@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "EDR endpoint agent for Linux."
+description = "Vigil endpoint agent for Linux."
 
 [[bin]]
-name = "edr-agent"
+name = "vigil-agent"
 path = "src/main.rs"
 
 [dependencies]
@@ -27,7 +27,7 @@ serde_json.workspace = true
 procfs = "0.17"
 libc = "0.2"
 nix = { version = "0.29", features = ["user", "hostname", "signal"] }
-# eBPF (M6). aya loads pre-compiled C eBPF objects (`agent-linux/ebpf/edr.bpf.o`).
+# eBPF (M6). aya loads pre-compiled C eBPF objects (`agent-linux/ebpf/vigil.bpf.o`).
 aya = "0.13"
 aya-log = "0.2"
 # M10.a file hashing on file_open events.
@@ -45,30 +45,30 @@ anyhow = "1"
 # may need a rebuild against an older glibc.
 # ---------------------------------------------------------------------------
 [package.metadata.deb]
-name = "edr-agent"
+name = "vigil-agent"
 maintainer = "isom21 <isom21@protonmail.com>"
 copyright = "Copyright 2026 isom21"
 license-file = ["../LICENSE", "0"]
 extended-description = """\
-EDR endpoint agent for Linux. Captures process / file / network / module
-events via eBPF (CO-RE) and ships them to the EDR manager over mTLS gRPC.
+Vigil endpoint agent for Linux. Captures process / file / network / module
+events via eBPF (CO-RE) and ships them to the Vigil manager over mTLS gRPC.
 BPF LSM self-protection is enabled by default."""
 depends = "$auto, libc6 (>= 2.34)"
 section = "admin"
 priority = "optional"
 assets = [
-    ["target/release/edr-agent", "/usr/bin/edr-agent", "755"],
-    ["../packaging/systemd/agent.env.example", "/usr/share/edr/agent.env.example", "644"],
-    ["../packaging/systemd/README.md", "/usr/share/doc/edr-agent/README.md", "644"],
+    ["target/release/vigil-agent", "/usr/bin/vigil-agent", "755"],
+    ["../packaging/systemd/agent.env.example", "/usr/share/vigil/agent.env.example", "644"],
+    ["../packaging/systemd/README.md", "/usr/share/doc/vigil-agent/README.md", "644"],
 ]
 maintainer-scripts = "../packaging/debian/"
 # cargo-deb finds packaging/debian/<unit-name>.service automatically and
-# installs it under /lib/systemd/system/edr-agent.service. enable=false /
+# installs it under /lib/systemd/system/vigil-agent.service. enable=false /
 # start=false keeps the service inactive on first install — the operator
-# must edit /etc/edr/agent.env and `systemctl enable --now edr-agent`.
+# must edit /etc/vigil/agent.env and `systemctl enable --now vigil-agent`.
 # `agent.env` itself is created by postinst from the bundled .example, so
 # it doesn't appear in conffiles or assets.
-systemd-units = { enable = false, start = false, unit-name = "edr-agent" }
+systemd-units = { enable = false, start = false, unit-name = "vigil-agent" }
 
 # ---------------------------------------------------------------------------
 # RPM package — `cargo generate-rpm -p agent-linux`. Drops a .rpm under
@@ -76,34 +76,34 @@ systemd-units = { enable = false, start = false, unit-name = "edr-agent" }
 # need a rebuild against an older glibc.
 # ---------------------------------------------------------------------------
 [package.metadata.generate-rpm]
-name = "edr-agent"
+name = "vigil-agent"
 license = "Apache-2.0"
-summary = "EDR endpoint agent (Linux)"
+summary = "Vigil endpoint agent (Linux)"
 assets = [
-    { source = "target/release/edr-agent", dest = "/usr/bin/edr-agent", mode = "755" },
-    { source = "packaging/systemd/edr-agent.service", dest = "/lib/systemd/system/edr-agent.service", mode = "644", config = false },
-    { source = "packaging/systemd/agent.env.example", dest = "/usr/share/edr/agent.env.example", mode = "644" },
-    { source = "packaging/systemd/README.md", dest = "/usr/share/doc/edr-agent/README.md", mode = "644", doc = true },
+    { source = "target/release/vigil-agent", dest = "/usr/bin/vigil-agent", mode = "755" },
+    { source = "packaging/systemd/vigil-agent.service", dest = "/lib/systemd/system/vigil-agent.service", mode = "644", config = false },
+    { source = "packaging/systemd/agent.env.example", dest = "/usr/share/vigil/agent.env.example", mode = "644" },
+    { source = "packaging/systemd/README.md", dest = "/usr/share/doc/vigil-agent/README.md", mode = "644", doc = true },
 ]
 auto-req = "no"
 post_install_script = """\
 systemctl daemon-reload || true
-install -d -m 0700 /var/lib/edr
-install -d -m 0700 /var/lib/edr/identity
-install -d -m 0700 /var/lib/edr/spool
-install -d -m 0750 /etc/edr
-[ -e /etc/edr/agent.env ] || install -m 0640 /usr/share/edr/agent.env.example /etc/edr/agent.env
+install -d -m 0700 /var/lib/vigil
+install -d -m 0700 /var/lib/vigil/identity
+install -d -m 0700 /var/lib/vigil/spool
+install -d -m 0750 /etc/vigil
+[ -e /etc/vigil/agent.env ] || install -m 0640 /usr/share/vigil/agent.env.example /etc/vigil/agent.env
 echo
-echo "  EDR agent installed but NOT YET STARTED."
-echo "  Edit /etc/edr/agent.env (set EDR_MANAGER_ENDPOINT, EDR_ENROLLMENT_TOKEN), then:"
-echo "    systemctl enable --now edr-agent"
+echo "  Vigil agent installed but NOT YET STARTED."
+echo "  Edit /etc/vigil/agent.env (set VIGIL_MANAGER_ENDPOINT, VIGIL_ENROLLMENT_TOKEN), then:"
+echo "    systemctl enable --now vigil-agent"
 echo
 """
 pre_uninstall_script = """\
 if [ "$1" = "0" ]; then
-    systemctl stop edr-agent.service 2>/dev/null || true
-    systemctl disable edr-agent.service 2>/dev/null || true
-    /usr/bin/edr-agent --unpin 2>/dev/null || true
+    systemctl stop vigil-agent.service 2>/dev/null || true
+    systemctl disable vigil-agent.service 2>/dev/null || true
+    /usr/bin/vigil-agent --unpin 2>/dev/null || true
 fi
 """
 post_uninstall_script = """\

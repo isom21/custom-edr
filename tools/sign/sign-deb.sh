@@ -4,7 +4,7 @@
 # Usage:
 #   GPG_KEY_ID=release@edr.example tools/sign/sign-deb.sh
 #
-# When EDR_DRY_RUN=1 is set, prints the command that would be run
+# When VIGIL_DRY_RUN=1 is set, prints the command that would be run
 # without actually signing. Useful for verifying the release flow
 # pre-M19 (when the operator may not yet have a GPG key).
 
@@ -31,7 +31,7 @@ if [ "${#debs[@]}" -eq 0 ]; then
 fi
 
 for deb in "${debs[@]}"; do
-    if [ "${EDR_DRY_RUN:-0}" = "1" ]; then
+    if [ "${VIGIL_DRY_RUN:-0}" = "1" ]; then
         echo "DRY-RUN: dpkg-sig --sign builder -k $GPG_KEY_ID $deb"
     else
         dpkg-sig --sign builder -k "$GPG_KEY_ID" "$deb"

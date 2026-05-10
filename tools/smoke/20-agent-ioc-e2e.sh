@@ -18,9 +18,9 @@ set -euo pipefail
 EMAIL="${EMAIL:-admin@example.local}"
 PASSWORD="${PASSWORD:-change-me-please-12chars}"
 BASE="${BASE:-http://127.0.0.1:8000}"
-AGENT_BIN="${AGENT_BIN:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)/target/release/edr-agent}"
-STATE_DIR=$(mktemp -d /tmp/edr-agent-state.XXXXXX)
-LOG=/tmp/edr-agent-e2e.log
+AGENT_BIN="${AGENT_BIN:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)/target/release/vigil-agent}"
+STATE_DIR=$(mktemp -d /tmp/vigil-agent-state.XXXXXX)
+LOG=/tmp/vigil-agent-e2e.log
 
 cleanup() {
   if [ -n "${AGENT_PID:-}" ]; then kill "$AGENT_PID" 2>/dev/null || true; fi
@@ -40,11 +40,11 @@ ENR=$(curl -fsS -X POST $BASE/api/enrollment/tokens -H "Authorization: Bearer $A
 TOKEN=$(printf '%s' "$ENR" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
 
 echo "[3] start agent ($AGENT_BIN)"
-EDR_MANAGER_ENDPOINT='https://localhost:50051' \
-EDR_MANAGER_REST=$BASE \
-EDR_ENROLLMENT_TOKEN="$TOKEN" \
-EDR_STATE_DIR="$STATE_DIR" \
-EDR_HOSTNAME=e2e-host-01 \
+VIGIL_MANAGER_ENDPOINT='https://localhost:50051' \
+VIGIL_MANAGER_REST=$BASE \
+VIGIL_ENROLLMENT_TOKEN="$TOKEN" \
+VIGIL_STATE_DIR="$STATE_DIR" \
+VIGIL_HOSTNAME=e2e-host-01 \
 RUST_LOG=info \
 "$AGENT_BIN" >"$LOG" 2>&1 &
 AGENT_PID=$!

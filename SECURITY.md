@@ -2,9 +2,8 @@
 
 ## Reporting a vulnerability
 
-If you believe you've found a security vulnerability in the EDR
-project, please report it privately rather than opening a public
-issue.
+If you believe you've found a security vulnerability in Vigil,
+please report it privately rather than opening a public issue.
 
 **Preferred channel**: GitHub's private vulnerability reporting via
 the repo's *Security* tab → *Report a vulnerability*.
@@ -53,8 +52,8 @@ The following are documented behaviour, not vulnerabilities:
   authoritative.
 * `bcdedit /set testsigning on` weakens Windows driver signing — only
   required for the test-cert build path. Production deployments use
-  WHQL-attested or cross-signed `edr.sys`.
-* Default `EDR_RL_*` rate limits are tuned for moderate fleets.
+  WHQL-attested or cross-signed `vigil.sys`.
+* Default `VIGIL_RL_*` rate limits are tuned for moderate fleets.
   Operators who don't tune for very large fleets can degrade ingest
   throughput. Operator responsibility, not a CVE-class bug.
 

@@ -11,9 +11,9 @@
 //! looks like. Either way, it's a tamper signal.
 //!
 //! The first-pass check at startup is a stronger gate: if a
-//! deb/rpm-installed manifest at `/etc/edr/agent.sha256` exists and
+//! deb/rpm-installed manifest at `/etc/vigil/agent.sha256` exists and
 //! the actual hash doesn't match it, the agent refuses to start at
-//! all (caller must opt-in to bypass via `EDR_DISABLE_INTEGRITY_CHECK`).
+//! all (caller must opt-in to bypass via `VIGIL_DISABLE_INTEGRITY_CHECK`).
 //! That's already wired in `agent-linux/src/main.rs` — this module
 //! provides the in-process *runtime* watchdog that catches tamper
 //! after startup.

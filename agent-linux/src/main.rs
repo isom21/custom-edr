@@ -1,4 +1,4 @@
-//! Linux EDR agent entry point.
+//! Linux Vigil agent entry point.
 //!
 //! Pipeline (M2):
 //! 1. Load config (or env vars).
@@ -48,16 +48,16 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
-    // CLI: `edr-agent --unpin` removes any pinned BPF objects from a
+    // CLI: `vigil-agent --unpin` removes any pinned BPF objects from a
     // previous run and exits. Useful when the operator wants to
     // permanently stop the agent and clean up bpffs (the LSM hooks
-    // would otherwise refuse rm under /sys/fs/bpf/edr/* even after
+    // would otherwise refuse rm under /sys/fs/bpf/vigil/* even after
     // graceful stop, since the pinned hooks survive process exit).
     let mut args = env::args().skip(1);
     if let Some(arg) = args.next() {
         if arg == "--unpin" {
             let pin_dir =
-                env::var("EDR_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+                env::var("VIGIL_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
             let pin_dir = PathBuf::from(pin_dir);
             ebpf::Loader::cleanup_or_takeover(&pin_dir)
                 .context("cleanup_or_takeover for --unpin")?;
@@ -70,10 +70,10 @@ async fn main() -> Result<()> {
             tracing::info!(pin_dir = %pin_dir.display(), "unpin.complete");
             return Ok(());
         } else if arg == "--version" {
-            println!("edr-agent {AGENT_VERSION}");
+            println!("vigil-agent {AGENT_VERSION}");
             return Ok(());
         } else if arg == "--help" {
-            println!("edr-agent — EDR endpoint agent\n\nUsage:\n  edr-agent              run the agent (config from EDR_AGENT_CONFIG / env)\n  edr-agent --unpin      remove pinned BPF objects from a previous run\n  edr-agent --version    print version and exit\n  edr-agent --help       this message\n\nKey environment variables:\n  EDR_AGENT_CONFIG       path to TOML config file\n  EDR_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)\n  EDR_MANAGER_REST       REST URL of the manager (http://host:8000)\n  EDR_ENROLLMENT_TOKEN   one-time enrollment token (first run only)\n  EDR_STATE_DIR          state directory (default /var/lib/edr)\n  EDR_HOSTNAME           override registered hostname\n  EDR_DISABLE_EBPF=1     skip eBPF, use /proc-poll fallback\n  EDR_DISABLE_SELF_PROTECTION=1   skip BPF LSM self-protection hooks\n  EDR_PIN_DIR            override bpffs pin dir (default /sys/fs/bpf/edr)\n");
+            println!("vigil-agent — EDR endpoint agent\n\nUsage:\n  vigil-agent              run the agent (config from VIGIL_AGENT_CONFIG / env)\n  vigil-agent --unpin      remove pinned BPF objects from a previous run\n  vigil-agent --version    print version and exit\n  vigil-agent --help       this message\n\nKey environment variables:\n  VIGIL_AGENT_CONFIG       path to TOML config file\n  VIGIL_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)\n  VIGIL_MANAGER_REST       REST URL of the manager (http://host:8000)\n  VIGIL_ENROLLMENT_TOKEN   one-time enrollment token (first run only)\n  VIGIL_STATE_DIR          state directory (default /var/lib/vigil)\n  VIGIL_HOSTNAME           override registered hostname\n  VIGIL_DISABLE_EBPF=1     skip eBPF, use /proc-poll fallback\n  VIGIL_DISABLE_SELF_PROTECTION=1   skip BPF LSM self-protection hooks\n  VIGIL_PIN_DIR            override bpffs pin dir (default /sys/fs/bpf/vigil)\n");
             return Ok(());
         } else {
             anyhow::bail!("unknown argument: {arg} (try --help)");
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
     // BPF hook installed below — this one works even when BPF LSM is
     // unavailable (older kernel, lockdown) and prevents the kernel from
     // generating core dumps that could leak our keys.
-    if env::var_os("EDR_DISABLE_SELF_PROTECTION").is_none() {
+    if env::var_os("VIGIL_DISABLE_SELF_PROTECTION").is_none() {
         // SAFETY: prctl(PR_SET_DUMPABLE, ...) takes one int arg; the
         // remaining four longs are documented as ignored. libc::prctl is
         // variadic on Linux glibc, so we still pass placeholders.
@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
         // M12.a: refuse to start if the on-disk binary's SHA-256 doesn't
         // match the value recorded by the deb/rpm postinst.
         if let Err(e) = check_binary_integrity() {
-            if env::var_os("EDR_DISABLE_INTEGRITY_CHECK").is_some() {
+            if env::var_os("VIGIL_DISABLE_INTEGRITY_CHECK").is_some() {
                 tracing::warn!(error = %e, "agent.binary_integrity.bypassed");
             } else {
                 tracing::error!(error = %e, "agent.binary_integrity.mismatch");
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
         let token = cfg
             .enrollment_token
             .as_ref()
-            .context("not enrolled and EDR_ENROLLMENT_TOKEN / config.enrollment_token unset")?;
+            .context("not enrolled and VIGIL_ENROLLMENT_TOKEN / config.enrollment_token unset")?;
         let hostname = cfg.hostname_override.clone().unwrap_or_else(hostname);
         let os = os_info();
         tracing::info!(hostname = %hostname, "agent.enrolling");
@@ -162,8 +162,8 @@ async fn main() -> Result<()> {
     // after creation so /metrics is reachable as soon as possible
     // during agent boot.
     let metrics_snap = std::sync::Arc::new(prom::MetricsSnapshot::default());
-    if env::var_os("EDR_DISABLE_AGENT_METRICS").is_none() {
-        let bind = env::var("EDR_AGENT_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9101".into());
+    if env::var_os("VIGIL_DISABLE_AGENT_METRICS").is_none() {
+        let bind = env::var("VIGIL_AGENT_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9101".into());
         prom::spawn(&bind, metrics_snap.clone());
     }
 
@@ -197,10 +197,10 @@ async fn main() -> Result<()> {
     // post-startup runtime check that catches an attacker who
     // overwrites the binary while the agent is paused or rotates the
     // config without going through the package manager. Disabled via
-    // EDR_DISABLE_INTEGRITY_WATCHDOG=1.
-    if env::var_os("EDR_DISABLE_INTEGRITY_WATCHDOG").is_none() {
+    // VIGIL_DISABLE_INTEGRITY_WATCHDOG=1.
+    if env::var_os("VIGIL_DISABLE_INTEGRITY_WATCHDOG").is_none() {
         let bin_path = PathBuf::from("/proc/self/exe");
-        let cfg_path = env::var("EDR_AGENT_CONFIG").ok().map(PathBuf::from);
+        let cfg_path = env::var("VIGIL_AGENT_CONFIG").ok().map(PathBuf::from);
         match IntegrityBaseline::capture(bin_path, cfg_path) {
             Ok(baseline) => {
                 tracing::info!(
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
                 let watchdog_tx = send_tx.clone();
                 let host_id = identity.host_id.clone();
                 let agent_id = identity.host_id.clone();
-                let interval_secs = env::var("EDR_INTEGRITY_INTERVAL_SECS")
+                let interval_secs = env::var("VIGIL_INTEGRITY_INTERVAL_SECS")
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(300);
@@ -338,25 +338,26 @@ async fn main() -> Result<()> {
 
     // eBPF collector first (M6). On any failure (no CAP_BPF, kernel feature
     // missing, kernel version too old, etc.), fall back to the M2 /proc
-    // poller so the agent still produces telemetry. EDR_DISABLE_EBPF=1
+    // poller so the agent still produces telemetry. VIGIL_DISABLE_EBPF=1
     // forces the fallback for testing the legacy path on a kernel that
     // would otherwise load the BPF object.
-    let self_protect_enabled = env::var_os("EDR_DISABLE_SELF_PROTECTION").is_none();
-    let pin_dir_str = env::var("EDR_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+    let self_protect_enabled = env::var_os("VIGIL_DISABLE_SELF_PROTECTION").is_none();
+    let pin_dir_str =
+        env::var("VIGIL_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
     let pin_dir = PathBuf::from(&pin_dir_str);
 
     // Take over (or clean up) any pinned objects from a previous run
     // *before* we Ebpf::load — otherwise stale lsm/bpf hooks can refuse
     // operations we do during normal load. cleanup_or_takeover is a
     // no-op when no pins exist.
-    if self_protect_enabled && env::var_os("EDR_DISABLE_EBPF").is_none() {
+    if self_protect_enabled && env::var_os("VIGIL_DISABLE_EBPF").is_none() {
         if let Err(e) = ebpf::Loader::cleanup_or_takeover(&pin_dir) {
             tracing::warn!(error = %e, "self_protection.takeover.failed");
         }
     }
 
-    let mut ebpf_loader = if env::var_os("EDR_DISABLE_EBPF").is_some() {
-        tracing::info!("ebpf disabled by EDR_DISABLE_EBPF; using /proc poller");
+    let mut ebpf_loader = if env::var_os("VIGIL_DISABLE_EBPF").is_some() {
+        tracing::info!("ebpf disabled by VIGIL_DISABLE_EBPF; using /proc poller");
         None
     } else {
         match ebpf::Loader::load_and_attach() {
@@ -379,7 +380,7 @@ async fn main() -> Result<()> {
         // M10.a: file hashing for FileEvent enrichment. Disabled by
         // env var when an operator wants the absolute lowest CPU
         // footprint.
-        let hasher = if env::var_os("EDR_DISABLE_FILE_HASHING").is_some() {
+        let hasher = if env::var_os("VIGIL_DISABLE_FILE_HASHING").is_some() {
             None
         } else {
             Some(hasher::Hasher::spawn())
@@ -418,9 +419,9 @@ async fn main() -> Result<()> {
                     // nothing to watch otherwise. Periodically verifies
                     // each pinned link + map file is still present;
                     // missing files are a tamper signal (root attacker
-                    // running `rm /sys/fs/bpf/edr/...` to detach our
+                    // running `rm /sys/fs/bpf/vigil/...` to detach our
                     // hooks).
-                    if env::var_os("EDR_DISABLE_BPF_WATCHDOG").is_none() {
+                    if env::var_os("VIGIL_DISABLE_BPF_WATCHDOG").is_none() {
                         spawn_bpf_watchdog(
                             pin_dir.clone(),
                             identity.host_id.clone(),
@@ -434,7 +435,7 @@ async fn main() -> Result<()> {
                 }
             }
         } else {
-            tracing::warn!("self_protection.disabled by EDR_DISABLE_SELF_PROTECTION");
+            tracing::warn!("self_protection.disabled by VIGIL_DISABLE_SELF_PROTECTION");
         }
     }
 
@@ -446,8 +447,8 @@ async fn main() -> Result<()> {
     // dead weight in our threat model — dropping them shrinks what an
     // exploit on the agent's userspace half (e.g. through the gRPC
     // wire path) gives the attacker.
-    if env::var_os("EDR_DISABLE_CAPDROP").is_some() {
-        tracing::warn!("capdrop.disabled by EDR_DISABLE_CAPDROP");
+    if env::var_os("VIGIL_DISABLE_CAPDROP").is_some() {
+        tracing::warn!("capdrop.disabled by VIGIL_DISABLE_CAPDROP");
     } else {
         match capdrop::drop_to_minimum() {
             Ok(report) => {
@@ -512,16 +513,16 @@ async fn main() -> Result<()> {
 }
 
 fn load_config() -> Result<AgentConfig> {
-    if let Ok(path) = env::var("EDR_AGENT_CONFIG") {
+    if let Ok(path) = env::var("VIGIL_AGENT_CONFIG") {
         return AgentConfig::load(&PathBuf::from(path));
     }
     // Otherwise build from env vars (convenient for dev runs).
-    let manager_endpoint =
-        env::var("EDR_MANAGER_ENDPOINT").unwrap_or_else(|_| "https://localhost:50051".to_string());
-    let manager_rest_endpoint = env::var("EDR_MANAGER_REST").ok();
-    let enrollment_token = env::var("EDR_ENROLLMENT_TOKEN").ok();
-    let state_dir = env::var("EDR_STATE_DIR").ok().map(PathBuf::from);
-    let hostname_override = env::var("EDR_HOSTNAME").ok();
+    let manager_endpoint = env::var("VIGIL_MANAGER_ENDPOINT")
+        .unwrap_or_else(|_| "https://localhost:50051".to_string());
+    let manager_rest_endpoint = env::var("VIGIL_MANAGER_REST").ok();
+    let enrollment_token = env::var("VIGIL_ENROLLMENT_TOKEN").ok();
+    let state_dir = env::var("VIGIL_STATE_DIR").ok().map(PathBuf::from);
+    let hostname_override = env::var("VIGIL_HOSTNAME").ok();
     Ok(AgentConfig {
         manager_endpoint,
         manager_rest_endpoint,
@@ -579,7 +580,7 @@ fn chrono_now_iso() -> String {
 }
 
 /// M12.a: hash `/proc/self/exe` and compare against
-/// `/etc/edr/agent.sha256` recorded by postinst. Skips silently if the
+/// `/etc/vigil/agent.sha256` recorded by postinst. Skips silently if the
 /// manifest file is missing — covers operator workflows where the
 /// agent was installed manually (no postinst) and the integrity check
 /// is opt-in via the deb/rpm install path.
@@ -587,7 +588,7 @@ fn check_binary_integrity() -> Result<()> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
 
-    let manifest_path = "/etc/edr/agent.sha256";
+    let manifest_path = "/etc/vigil/agent.sha256";
     let expected = match std::fs::read_to_string(manifest_path) {
         Ok(s) => s.trim().to_string(),
         Err(_) => {
@@ -643,7 +644,7 @@ fn check_binary_integrity() -> Result<()> {
 /// strips the persistence guarantee, so a subsequent agent crash
 /// leaves the kernel hookless).
 ///
-/// We poll for missing pin files every `EDR_BPF_WATCHDOG_INTERVAL_SECS`
+/// We poll for missing pin files every `VIGIL_BPF_WATCHDOG_INTERVAL_SECS`
 /// (default 30s) and emit AgentTamperEvent when one disappears. The
 /// alarm is per-file with a one-shot suppression to avoid log/alert
 /// flooding if it stays missing — re-fires only when we see it
@@ -654,7 +655,7 @@ fn spawn_bpf_watchdog(
     snap: std::sync::Arc<prom::MetricsSnapshot>,
     send_tx: tokio::sync::mpsc::Sender<p::ClientMessage>,
 ) {
-    let interval_secs = env::var("EDR_BPF_WATCHDOG_INTERVAL_SECS")
+    let interval_secs = env::var("VIGIL_BPF_WATCHDOG_INTERVAL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(30)

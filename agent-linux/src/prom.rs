@@ -9,12 +9,12 @@
 //! rolling the response keeps the dep weight off the agent.
 //!
 //! Bind: `127.0.0.1:9101` by default. Override via
-//! `EDR_AGENT_METRICS_BIND` (e.g. `0.0.0.0:9101` to expose to a
+//! `VIGIL_AGENT_METRICS_BIND` (e.g. `0.0.0.0:9101` to expose to a
 //! Prometheus instance on another host — only do this behind a
 //! trusted boundary, the metrics surface includes data attackers
 //! would find useful).
 //!
-//! Disable via `EDR_DISABLE_AGENT_METRICS=1`.
+//! Disable via `VIGIL_DISABLE_AGENT_METRICS=1`.
 
 #![cfg(target_os = "linux")]
 

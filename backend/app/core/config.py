@@ -11,14 +11,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_prefix="EDR_",
+        env_prefix="VIGIL_",
         extra="ignore",
     )
 
     debug: bool = False
 
     # Postgres
-    pg_dsn: str = "postgresql+asyncpg://edr:edr_dev_password@localhost:5432/edr"
+    pg_dsn: str = "postgresql+asyncpg://edr:vigil_dev_password@localhost:5432/edr"
 
     # OpenSearch
     opensearch_url: str = "http://localhost:9200"

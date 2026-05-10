@@ -80,7 +80,7 @@ Layer four levels of testing:
 
 - Coverage ratchet: pick a target (60% manager, 40% agent) once the
   suite stabilises and gate via `cov-fail-under`.
-- Per-PR Windows VM build of `edr.sys` + `agent-windows.exe` via a
+- Per-PR Windows VM build of `vigil.sys` + `agent-windows.exe` via a
   self-hosted runner on lab-windows. Today the workflow `cargo check`s
   the windows-msvc target on a hosted runner; a real build needs the
   WDK headers + cl.exe.

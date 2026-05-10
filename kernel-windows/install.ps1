@@ -6,7 +6,7 @@
 #   - The driver is signed by an attestation-signed / WHQL cert.
 #
 # Usage:
-#   .\install.ps1 install      copies edr.sys to %windir%\system32\drivers
+#   .\install.ps1 install      copies vigil.sys to %windir%\system32\drivers
 #                              and creates the service via SCM
 #   .\install.ps1 start
 #   .\install.ps1 stop
@@ -16,11 +16,11 @@
 $ErrorActionPreference = 'Stop'
 
 $ServiceName = 'edr'
-$Source      = Join-Path $PSScriptRoot 'edr.sys'
-$Target      = "$env:windir\system32\drivers\edr.sys"
+$Source      = Join-Path $PSScriptRoot 'vigil.sys'
+$Target      = "$env:windir\system32\drivers\vigil.sys"
 
 function Install-Driver {
-    if (-not (Test-Path $Source)) { throw "edr.sys not found at $Source. Build first (build.bat)." }
+    if (-not (Test-Path $Source)) { throw "vigil.sys not found at $Source. Build first (build.bat)." }
     Copy-Item -Force $Source $Target
     Write-Host "copied -> $Target"
 

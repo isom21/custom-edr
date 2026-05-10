@@ -1,4 +1,4 @@
-# install-edr.ps1 - top-level installer for the EDR agent + driver on Windows.
+# install-vigil.ps1 - top-level installer for the EDR agent + driver on Windows.
 #
 # Run elevated. Idempotent: re-running over an existing install reuses
 # enrollment + state, only refreshing binaries.
@@ -6,20 +6,20 @@
 # What this does:
 #   1. Pre-flight: admin check, OS version, testsigning hint.
 #   2. Install the test cert into LocalMachine\Root + TrustedPublisher.
-#      (Skipped if a system-trusted production cert was used to sign edr.sys.)
-#   3. Copy edr.sys to %windir%\system32\drivers and register the driver
+#      (Skipped if a system-trusted production cert was used to sign vigil.sys.)
+#   3. Copy vigil.sys to %windir%\system32\drivers and register the driver
 #      service via SCM (file system filter, demand start).
-#   4. Copy edr-agent.exe to %ProgramFiles%\EDR\.
-#   5. Stage %ProgramData%\EDR\ (state dir) with mode-restricted ACL.
+#   4. Copy vigil-agent.exe to %ProgramFiles%\Vigil\.
+#   5. Stage %ProgramData%\Vigil\ (state dir) with mode-restricted ACL.
 #   6. Stage agent.env from agent.env.example unless one already exists.
-#   7. Register a scheduled task "EDRAgent" that runs at startup as SYSTEM
+#   7. Register a scheduled task "VigilAgent" that runs at startup as SYSTEM
 #      with auto-restart on failure. (A real Windows service would be
 #      cleaner; documented as future polish in packaging/windows/README.md.)
 #
 # What this does NOT do:
-#   - Auto-start the agent. The operator must edit %ProgramData%\EDR\agent.env
-#     to set EDR_MANAGER_ENDPOINT and EDR_ENROLLMENT_TOKEN, then run
-#     `Start-ScheduledTask -TaskName EDRAgent` (or reboot).
+#   - Auto-start the agent. The operator must edit %ProgramData%\Vigil\agent.env
+#     to set VIGIL_MANAGER_ENDPOINT and VIGIL_ENROLLMENT_TOKEN, then run
+#     `Start-ScheduledTask -TaskName VigilAgent` (or reboot).
 #   - Sign the MSI. There's no MSI here yet (M7.4 ships a ZIP-based
 #     installer; WiX MSI is documented as future polish).
 
@@ -34,18 +34,18 @@ Set-StrictMode -Version 3.0
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProductName = 'EDR'
-$AgentTaskName = 'EDRAgent'
+$AgentTaskName = 'VigilAgent'
 $DriverServiceName = 'edr'
 $DriverAltitude = '385100'
 $InstallDir = Join-Path $env:ProgramFiles $ProductName
 $DataDir = Join-Path $env:ProgramData $ProductName
-$DriverTarget = Join-Path $env:windir 'system32\drivers\edr.sys'
+$DriverTarget = Join-Path $env:windir 'system32\drivers\vigil.sys'
 
 function Assert-Admin {
     $current = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($current)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-        throw "install-edr.ps1 must be run as Administrator. Right-click PowerShell -> Run as administrator."
+        throw "install-vigil.ps1 must be run as Administrator. Right-click PowerShell -> Run as administrator."
     }
 }
 
@@ -69,8 +69,8 @@ function Install-TestCert {
 }
 
 function Install-Driver {
-    $src = Join-Path $here 'edr.sys'
-    if (-not (Test-Path $src)) { throw "edr.sys not found at $src" }
+    $src = Join-Path $here 'vigil.sys'
+    if (-not (Test-Path $src)) { throw "vigil.sys not found at $src" }
     Copy-Item -Force $src $DriverTarget
     Write-Host "  copied -> $DriverTarget"
 
@@ -95,10 +95,10 @@ function Install-Driver {
 
 function Install-Agent {
     if (-not (Test-Path $InstallDir)) { New-Item -Path $InstallDir -ItemType Directory | Out-Null }
-    $src = Join-Path $here 'edr-agent.exe'
-    if (-not (Test-Path $src)) { throw "edr-agent.exe not found at $src" }
-    Copy-Item -Force $src (Join-Path $InstallDir 'edr-agent.exe')
-    Write-Host "  copied -> $InstallDir\edr-agent.exe"
+    $src = Join-Path $here 'vigil-agent.exe'
+    if (-not (Test-Path $src)) { throw "vigil-agent.exe not found at $src" }
+    Copy-Item -Force $src (Join-Path $InstallDir 'vigil-agent.exe')
+    Write-Host "  copied -> $InstallDir\vigil-agent.exe"
 }
 
 function Stage-DataDir {
@@ -138,14 +138,14 @@ function Register-AgentTask {
     & schtasks.exe /Delete /TN $AgentTaskName /F 2>&1 | Out-Null
     $ErrorActionPreference = $oldEAP
 
-    $exe = Join-Path $InstallDir 'edr-agent.exe'
+    $exe = Join-Path $InstallDir 'vigil-agent.exe'
     $envFile = Join-Path $DataDir 'agent.env'
     # PowerShell launcher: parses agent.env (KEY=VALUE, # comments OK,
     # blank lines OK) into the process environment, then execs the agent
     # binary. We use a .ps1 launcher rather than .cmd because batch's
     # variable scoping and quoting around paths-with-spaces are too
     # fragile to reproduce reliably across Windows versions.
-    $launcher = Join-Path $InstallDir 'edr-agent-launcher.ps1'
+    $launcher = Join-Path $InstallDir 'vigil-agent-launcher.ps1'
     $launcherScript = @"
 `$ErrorActionPreference = 'Continue'
 `$envFile = '$envFile'
@@ -216,7 +216,7 @@ if (Test-Path `$envFile) {
   </Actions>
 </Task>
 "@
-    $xmlPath = Join-Path $env:TEMP "edr-agent-task.xml"
+    $xmlPath = Join-Path $env:TEMP "vigil-agent-task.xml"
     # Encode UTF-16 to satisfy schtasks /XML's requirement.
     [IO.File]::WriteAllText($xmlPath, $taskXml, [Text.Encoding]::Unicode)
     & schtasks.exe /Create /TN $AgentTaskName /XML $xmlPath /F | Out-Null
@@ -256,14 +256,14 @@ Write-Host "Install complete." -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. notepad $DataDir\agent.env"
-Write-Host "       set EDR_MANAGER_ENDPOINT and EDR_ENROLLMENT_TOKEN"
+Write-Host "       set VIGIL_MANAGER_ENDPOINT and VIGIL_ENROLLMENT_TOKEN"
 Write-Host "  2. sc.exe start $DriverServiceName"
 Write-Host "  3. Start-ScheduledTask -TaskName $AgentTaskName"
 Write-Host "       (or reboot to start automatically)"
 Write-Host ""
 Write-Host "Verify:"
 Write-Host "  fltmc instances -f $DriverServiceName"
-Write-Host "  Get-Process edr-agent"
+Write-Host "  Get-Process vigil-agent"
 Write-Host "  Get-ScheduledTask -TaskName $AgentTaskName | Get-ScheduledTaskInfo"
 
 if ($AutoStart) {

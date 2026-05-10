@@ -45,22 +45,22 @@ pub fn start(ctx: WatcherCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> 
         })
         .build();
 
-    // M7.7: stop any stale "EDRKernelSession" left in the kernel from a
+    // M7.7: stop any stale "VigilKernelSession" left in the kernel from a
     // previous (possibly crashed) run. Without this, start_and_process
     // returns EtwNativeError(AlreadyExist) and the agent fails to fall
     // back gracefully. We use ControlTraceA with EVENT_TRACE_CONTROL_STOP;
     // failures are non-fatal (no prior session, lack of privilege, etc.).
-    stop_stale_kernel_session("EDRKernelSession");
+    stop_stale_kernel_session("VigilKernelSession");
 
     // Kernel sessions use a fixed name. Two agents fighting for it lose.
     // ferrisetw's TraceError doesn't impl std::error::Error, so wrap it
     // through anyhow's display.
     let trace = KernelTrace::new()
-        .named(String::from("EDRKernelSession"))
+        .named(String::from("VigilKernelSession"))
         .enable(provider)
         .start_and_process()
         .map_err(|e| anyhow::anyhow!("ferrisetw start_and_process: {e:?}"))?;
-    tracing::info!(session = "EDRKernelSession", "etw.kernel_trace.started");
+    tracing::info!(session = "VigilKernelSession", "etw.kernel_trace.started");
 
     // ferrisetw owns the worker thread for the trace's lifetime; we just keep
     // the handle alive for the process lifetime. Named binding (`_trace`,

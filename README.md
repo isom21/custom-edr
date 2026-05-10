@@ -1,10 +1,14 @@
-# EDR
+# Vigil
 
-Endpoint Detection and Response — agent + management plane. Open-source
-under Apache 2.0; production-realistic where the upstream tooling is
-free, with a clearly documented set of features (driver code-signing,
-WHQL attestation, Microsoft Antimalware ELAM) that need paid signing
-work to ship to a real fleet.
+Endpoint Detection and Response — agent + management plane.
+Open-source under Apache 2.0; production-realistic where the upstream
+tooling is free, with a clearly documented set of features (driver
+code-signing, WHQL attestation, Microsoft Antimalware ELAM) that need
+paid signing work to ship to a real fleet.
+
+The name is from the *Vigiles Urbani*, Rome's professional night
+watch — they patrolled, spotted threats, and responded; the closest
+analog Roman society had to what an EDR does.
 
 ## What it does
 
@@ -44,8 +48,8 @@ See [`docs/adr/`](docs/adr/) for the reasoning behind each choice.
 ```
 proto/             Protobuf source of truth (edr.v1)
 agent-core/        Rust crate: cross-platform agent building blocks
-agent-linux/       Rust binary: Linux EDR agent
-agent-windows/     Rust binary: Windows EDR agent
+agent-linux/       Rust binary: Linux Vigil agent
+agent-windows/     Rust binary: Windows Vigil agent
 kernel-windows/    KMDF C/C++ kernel driver
 backend/           FastAPI manager (REST + gRPC ingest + workers)
 frontend/          React + Vite + TS + shadcn/ui
@@ -75,9 +79,9 @@ unsigned Linux binaries. Three pieces of paid signing work are needed
 to ship into a production Windows fleet without test-signing or
 operator escape hatches:
 
-1. **Authenticode signing** of `edr-agent.exe` and `edr.sys` with an
+1. **Authenticode signing** of `vigil-agent.exe` and `vigil.sys` with an
    EV code-signing certificate.
-2. **WHQL attestation** of `edr.sys` via the Microsoft Hardware Dev
+2. **WHQL attestation** of `vigil.sys` via the Microsoft Hardware Dev
    Center portal so the driver loads on Secure Boot + HVCI hosts.
 3. **Microsoft Antimalware ELAM** registration so the agent can
    subscribe to the `Microsoft-Windows-Threat-Intelligence` ETW

@@ -23,12 +23,12 @@ agent-linux-build: ## Build the Linux agent in release mode.
 .PHONY: agent-linux-deb
 agent-linux-deb: agent-linux-build ## Build a .deb (Ubuntu 22.04+ / Debian 12+). Requires `cargo install cargo-deb`.
 	cargo deb -p agent-linux --no-build
-	@echo "wrote: target/debian/edr-agent_*_amd64.deb"
+	@echo "wrote: target/debian/vigil-agent_*_amd64.deb"
 
 .PHONY: agent-linux-rpm
 agent-linux-rpm: agent-linux-build ## Build a .rpm (RHEL/Rocky/Alma 9). Requires `cargo install cargo-generate-rpm`.
 	cargo generate-rpm -p agent-linux
-	@echo "wrote: target/generate-rpm/edr-agent-*.x86_64.rpm"
+	@echo "wrote: target/generate-rpm/vigil-agent-*.x86_64.rpm"
 
 .PHONY: agent-linux-packages
 agent-linux-packages: agent-linux-deb agent-linux-rpm ## Build .deb + .rpm in one go.
@@ -76,7 +76,7 @@ gate-frontend: ## tsc + eslint + prettier + npm audit on frontend.
 	cd frontend && npm audit --omit=dev --audit-level=high || echo "  (advisory only)"
 
 .PHONY: test-backend
-test-backend: ## Run the backend pytest suite against the dev DB (assumes EDR_TEST_PG_DSN or EDR_PG_DSN).
+test-backend: ## Run the backend pytest suite against the dev DB (assumes VIGIL_TEST_PG_DSN or VIGIL_PG_DSN).
 	cd backend && pytest -v --cov=app --cov-report=term-missing
 
 .PHONY: proto-python

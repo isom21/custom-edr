@@ -38,9 +38,9 @@ jobs:
       # CI just validates the user-space Rust. The eBPF C compile
       # needs bpftool + a BTF kernel, neither of which the GH
       # runner reliably provides. agent-linux/build.rs writes an
-      # ELF stub so include_bytes!("edr.bpf.o") resolves; the stub
+      # ELF stub so include_bytes!("vigil.bpf.o") resolves; the stub
       # never reaches a real deployment.
-      EDR_SKIP_EBPF_BUILD: "1"
+      VIGIL_SKIP_EBPF_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -53,7 +53,7 @@ jobs:
     name: test (linux)
     runs-on: ubuntu-latest
     env:
-      EDR_SKIP_EBPF_BUILD: "1"
+      VIGIL_SKIP_EBPF_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

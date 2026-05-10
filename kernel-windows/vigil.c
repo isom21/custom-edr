@@ -1,5 +1,5 @@
 // edr.c — M4.2: minifilter skeleton + process create + image load callbacks
-// + control device with IOCTL_EDR_GET_STATS so user-mode can verify the
+// + control device with IOCTL_VIGIL_GET_STATS so user-mode can verify the
 // callbacks are actually firing.
 //
 // What's here vs. what's coming:
@@ -26,56 +26,56 @@
 
 DRIVER_INITIALIZE DriverEntry;
 
-static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
+static FLT_PREOP_CALLBACK_STATUS VigilPreCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext);
-static FLT_POSTOP_CALLBACK_STATUS EdrPostCreate(
+static FLT_POSTOP_CALLBACK_STATUS VigilPostCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_opt_ PVOID CompletionContext,
     _In_ FLT_POST_OPERATION_FLAGS Flags);
 
-static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
-static NTSTATUS EdrInstanceSetup(
+static NTSTATUS VigilFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags);
+static NTSTATUS VigilInstanceSetup(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_SETUP_FLAGS Flags,
     _In_ DEVICE_TYPE VolumeDeviceType,
     _In_ FLT_FILESYSTEM_TYPE VolumeFilesystemType);
-static NTSTATUS EdrInstanceQueryTeardown(
+static NTSTATUS VigilInstanceQueryTeardown(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags);
-static VOID EdrInstanceTeardownStart(
+static VOID VigilInstanceTeardownStart(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags);
-static VOID EdrInstanceTeardownComplete(
+static VOID VigilInstanceTeardownComplete(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags);
 
-static VOID EdrCreateProcessNotify(
+static VOID VigilCreateProcessNotify(
     _Inout_ PEPROCESS Process,
     _In_ HANDLE ProcessId,
     _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo);
-static VOID EdrLoadImageNotify(
+static VOID VigilLoadImageNotify(
     _In_opt_ PUNICODE_STRING FullImageName,
     _In_ HANDLE ProcessId,
     _In_ PIMAGE_INFO ImageInfo);
-static NTSTATUS EdrRegistryCallback(
+static NTSTATUS VigilRegistryCallback(
     _In_ PVOID CallbackContext,
     _In_opt_ PVOID Argument1,
     _In_opt_ PVOID Argument2);
 
 // Block-list helpers — defined further down (after the WFP block) but called
-// from EdrCreateProcessNotify and EdrPreCreate which appear earlier.
-static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name);
-static NTSTATUS EdrBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
-static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
-static NTSTATUS EdrBlockClear(_In_ UINT32 kind);
-static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind);
+// from VigilCreateProcessNotify and VigilPreCreate which appear earlier.
+static BOOLEAN VigilBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name);
+static NTSTATUS VigilBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
+static NTSTATUS VigilBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes);
+static NTSTATUS VigilBlockClear(_In_ UINT32 kind);
+static NTSTATUS VigilBlockLoadFromReg(_In_ UINT32 kind);
 
-static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject);
-static VOID EdrWfpCleanup(VOID);
-static VOID EdrWfpClassifyV4(
+static NTSTATUS VigilWfpInit(_In_ PDRIVER_OBJECT DriverObject);
+static VOID VigilWfpCleanup(VOID);
+static VOID VigilWfpClassifyV4(
     _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
     _Inout_opt_ void *layerData,
@@ -83,7 +83,7 @@ static VOID EdrWfpClassifyV4(
     _In_ const FWPS_FILTER1 *filter,
     _In_ UINT64 flowContext,
     _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut);
-static VOID EdrWfpClassifyV6(
+static VOID VigilWfpClassifyV6(
     _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
     _Inout_opt_ void *layerData,
@@ -91,28 +91,28 @@ static VOID EdrWfpClassifyV6(
     _In_ const FWPS_FILTER1 *filter,
     _In_ UINT64 flowContext,
     _Inout_ FWPS_CLASSIFY_OUT0 *classifyOut);
-static NTSTATUS EdrWfpNotify(
+static NTSTATUS VigilWfpNotify(
     _In_ FWPS_CALLOUT_NOTIFY_TYPE notifyType,
     _In_ const GUID *filterKey,
     _Inout_ FWPS_FILTER1 *filter);
 
-static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
-static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
+static NTSTATUS VigilDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
+static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp);
 
 // M7.2 self-protection prototypes.
-static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
+static OB_PREOP_CALLBACK_STATUS VigilPreOpProcess(
     _In_ PVOID RegistrationContext,
     _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation);
-static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
+static OB_PREOP_CALLBACK_STATUS VigilPreOpThread(
     _In_ PVOID RegistrationContext,
     _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation);
-static NTSTATUS EdrSelfProtectInit(VOID);
-static VOID     EdrSelfProtectCleanup(VOID);
+static NTSTATUS VigilSelfProtectInit(VOID);
+static VOID     VigilSelfProtectCleanup(VOID);
 
 static PFLT_FILTER     g_FilterHandle  = NULL;
 static PDEVICE_OBJECT  g_DeviceObject  = NULL;
-static UNICODE_STRING  g_DeviceName    = RTL_CONSTANT_STRING(EDR_DEVICE_NAME);
-static UNICODE_STRING  g_SymLinkName   = RTL_CONSTANT_STRING(EDR_SYMLINK_NAME);
+static UNICODE_STRING  g_DeviceName    = RTL_CONSTANT_STRING(VIGIL_DEVICE_NAME);
+static UNICODE_STRING  g_SymLinkName   = RTL_CONSTANT_STRING(VIGIL_SYMLINK_NAME);
 
 // Counters — written from any IRQL <= DISPATCH_LEVEL. We use Interlocked ops
 // to keep them coherent across CPUs without taking a lock.
@@ -150,11 +150,11 @@ static PVOID g_ObRegistrationHandle = NULL;
 // Match cost is O(N * M) per check (N = list size, M = path length); list
 // sizes are expected to be tens, not thousands. Pattern matching is
 // case-insensitive substring match.
-typedef struct _EDR_BLOCK_ENTRY {
+typedef struct _VIGIL_BLOCK_ENTRY {
     LIST_ENTRY List;
     USHORT Length;          // bytes (UTF-16)
     WCHAR Buffer[1];        // pattern; allocated as [Length / 2] WCHARs
-} EDR_BLOCK_ENTRY, *PEDR_BLOCK_ENTRY;
+} VIGIL_BLOCK_ENTRY, *PVIGIL_BLOCK_ENTRY;
 
 static LIST_ENTRY g_ProcessBlockList;
 static LIST_ENTRY g_FileBlockList;
@@ -169,11 +169,11 @@ static UNICODE_STRING g_RegistryPath = { 0 };
 static PWCHAR g_RegistryPathBuf = NULL;
 
 // Event ring buffer. Producers are kernel callbacks (IRQL <= APC_LEVEL),
-// consumer is the IOCTL_EDR_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
+// consumer is the IOCTL_VIGIL_DRAIN_EVENTS handler at PASSIVE_LEVEL — KSPIN_LOCK
 // works at any IRQL, simplifying lifecycle vs. FAST_MUTEX. Size is generous
 // for 1MB so a 1-2 second user-mode poll cadence covers normal loads.
-#define EDR_RING_SIZE  (1u * 1024u * 1024u)
-#define EDR_TAG        'rdEr'   // 'rEdr' little-endian — visible in pool tracing
+#define VIGIL_RING_SIZE  (1u * 1024u * 1024u)
+#define VIGIL_TAG        'rdEr'   // 'rEdr' little-endian — visible in pool tracing
 
 static PUCHAR    g_RingBuf  = NULL;
 static UINT32    g_RingHead = 0;   // next read offset
@@ -206,18 +206,18 @@ static BOOLEAN g_WfpInTransaction = FALSE;
 //   sublayer:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f001}
 //   callout4:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f002}
 //   callout6:  {3a0b6d1f-4e2c-4f6a-9d11-37e0c4a5f003}
-DEFINE_GUID(EDR_WFP_SUBLAYER_GUID,
+DEFINE_GUID(VIGIL_WFP_SUBLAYER_GUID,
     0x3a0b6d1f, 0x4e2c, 0x4f6a,
     0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x01);
-DEFINE_GUID(EDR_WFP_CALLOUT_V4_GUID,
+DEFINE_GUID(VIGIL_WFP_CALLOUT_V4_GUID,
     0x3a0b6d1f, 0x4e2c, 0x4f6a,
     0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x02);
-DEFINE_GUID(EDR_WFP_CALLOUT_V6_GUID,
+DEFINE_GUID(VIGIL_WFP_CALLOUT_V6_GUID,
     0x3a0b6d1f, 0x4e2c, 0x4f6a,
     0x9d, 0x11, 0x37, 0xe0, 0xc4, 0xa5, 0xf0, 0x03);
 
 static const FLT_OPERATION_REGISTRATION g_Callbacks[] = {
-    { IRP_MJ_CREATE,           0, EdrPreCreate, EdrPostCreate },
+    { IRP_MJ_CREATE,           0, VigilPreCreate, VigilPostCreate },
     { IRP_MJ_OPERATION_END }
 };
 
@@ -227,18 +227,18 @@ static const FLT_REGISTRATION g_FilterRegistration = {
     0,
     NULL,
     g_Callbacks,
-    EdrFilterUnload,
-    EdrInstanceSetup,
-    EdrInstanceQueryTeardown,
-    EdrInstanceTeardownStart,
-    EdrInstanceTeardownComplete,
+    VigilFilterUnload,
+    VigilInstanceSetup,
+    VigilInstanceQueryTeardown,
+    VigilInstanceTeardownStart,
+    VigilInstanceTeardownComplete,
     NULL, NULL, NULL, NULL, NULL, NULL,
 };
 
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
     KeInitializeSpinLock(&g_RingLock);
-    g_RingBuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, EDR_RING_SIZE, EDR_TAG);
+    g_RingBuf = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, VIGIL_RING_SIZE, VIGIL_TAG);
     if (g_RingBuf == NULL) {
         DbgPrint("[EDR] ring allocation failed\n");
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -252,7 +252,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     // BlockList subkey under it (created on first add). RegistryPath
     // contents are owned by the kernel; we copy.
     if (RegistryPath != NULL && RegistryPath->Buffer != NULL && RegistryPath->Length > 0) {
-        g_RegistryPathBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegistryPath->Length, EDR_TAG);
+        g_RegistryPathBuf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, RegistryPath->Length, VIGIL_TAG);
         if (g_RegistryPathBuf) {
             RtlCopyMemory(g_RegistryPathBuf, RegistryPath->Buffer, RegistryPath->Length);
             g_RegistryPath.Buffer = g_RegistryPathBuf;
@@ -262,13 +262,13 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     }
     // Best-effort load of persisted block lists. Failures here are
     // non-fatal: an empty list is a valid initial state.
-    (void)EdrBlockLoadFromReg(EDR_BLOCK_KIND_PROCESS);
-    (void)EdrBlockLoadFromReg(EDR_BLOCK_KIND_FILE);
+    (void)VigilBlockLoadFromReg(VIGIL_BLOCK_KIND_PROCESS);
+    (void)VigilBlockLoadFromReg(VIGIL_BLOCK_KIND_FILE);
 
     NTSTATUS status = FltRegisterFilter(DriverObject, &g_FilterRegistration, &g_FilterHandle);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FltRegisterFilter failed: 0x%08x\n", status);
-        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        ExFreePoolWithTag(g_RingBuf, VIGIL_TAG);
         g_RingBuf = NULL;
         return status;
     }
@@ -292,9 +292,9 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
         return status;
     }
 
-    DriverObject->MajorFunction[IRP_MJ_CREATE]         = EdrDispatchCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = EdrDispatchCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = EdrDispatchDeviceControl;
+    DriverObject->MajorFunction[IRP_MJ_CREATE]         = VigilDispatchCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = VigilDispatchCreateClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = VigilDispatchDeviceControl;
 
     status = IoCreateSymbolicLink(&g_SymLinkName, &g_DeviceName);
     if (!NT_SUCCESS(status)) {
@@ -307,14 +307,14 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     }
     g_SymLinkCreated = TRUE;
 
-    status = PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, FALSE);
+    status = PsSetCreateProcessNotifyRoutineEx(VigilCreateProcessNotify, FALSE);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] PsSetCreateProcessNotifyRoutineEx failed: 0x%08x\n", status);
         goto fail_unwind;
     }
     g_PsNotifyCreateRegistered = TRUE;
 
-    status = PsSetLoadImageNotifyRoutine(EdrLoadImageNotify);
+    status = PsSetLoadImageNotifyRoutine(VigilLoadImageNotify);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] PsSetLoadImageNotifyRoutine failed: 0x%08x\n", status);
         goto fail_unwind;
@@ -324,7 +324,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     {
         UNICODE_STRING regAltitude = RTL_CONSTANT_STRING(L"385100");
         status = CmRegisterCallbackEx(
-            EdrRegistryCallback,
+            VigilRegistryCallback,
             &regAltitude,
             DriverObject,
             NULL,
@@ -337,12 +337,12 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
         g_RegCallbackRegistered = TRUE;
     }
 
-    status = EdrWfpInit(DriverObject);
+    status = VigilWfpInit(DriverObject);
     if (!NT_SUCCESS(status)) {
-        // EdrWfpInit cleans up its own partial state on failure, but it does
+        // VigilWfpInit cleans up its own partial state on failure, but it does
         // not unregister our other subsystems — that's still fail_unwind's
         // job. Just bail.
-        EdrWfpCleanup();
+        VigilWfpCleanup();
         goto fail_unwind;
     }
 
@@ -351,9 +351,9 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     // log + continue — the rest of the driver still works without
     // self-protection.
     {
-        NTSTATUS spStatus = EdrSelfProtectInit();
+        NTSTATUS spStatus = VigilSelfProtectInit();
         if (!NT_SUCCESS(spStatus)) {
-            DbgPrint("[EDR] EdrSelfProtectInit failed: 0x%08x (continuing without ObCallbacks)\n", spStatus);
+            DbgPrint("[EDR] VigilSelfProtectInit failed: 0x%08x (continuing without ObCallbacks)\n", spStatus);
         }
     }
 
@@ -367,18 +367,18 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
     return STATUS_SUCCESS;
 
 fail_unwind:
-    EdrSelfProtectCleanup();
-    EdrWfpCleanup();
+    VigilSelfProtectCleanup();
+    VigilWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
         g_RegCallbackRegistered = FALSE;
     }
     if (g_PsNotifyImageRegistered) {
-        PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
+        PsRemoveLoadImageNotifyRoutine(VigilLoadImageNotify);
         g_PsNotifyImageRegistered = FALSE;
     }
     if (g_PsNotifyCreateRegistered) {
-        PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, TRUE);
+        PsSetCreateProcessNotifyRoutineEx(VigilCreateProcessNotify, TRUE);
         g_PsNotifyCreateRegistered = FALSE;
     }
     if (g_SymLinkCreated) {
@@ -392,13 +392,13 @@ fail_unwind:
     FltUnregisterFilter(g_FilterHandle);
     g_FilterHandle = NULL;
     if (g_RingBuf) {
-        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        ExFreePoolWithTag(g_RingBuf, VIGIL_TAG);
         g_RingBuf = NULL;
     }
     return status;
 }
 
-static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
+static NTSTATUS VigilFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 {
     UNREFERENCED_PARAMETER(Flags);
 
@@ -407,18 +407,18 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
     // unregister call returns. WFP first because deleting filters quiesces
     // future classify calls, then unregistering kernel callouts drains
     // in-flight ones.
-    EdrSelfProtectCleanup();
-    EdrWfpCleanup();
+    VigilSelfProtectCleanup();
+    VigilWfpCleanup();
     if (g_RegCallbackRegistered) {
         CmUnRegisterCallback(g_RegCookie);
         g_RegCallbackRegistered = FALSE;
     }
     if (g_PsNotifyImageRegistered) {
-        PsRemoveLoadImageNotifyRoutine(EdrLoadImageNotify);
+        PsRemoveLoadImageNotifyRoutine(VigilLoadImageNotify);
         g_PsNotifyImageRegistered = FALSE;
     }
     if (g_PsNotifyCreateRegistered) {
-        PsSetCreateProcessNotifyRoutineEx(EdrCreateProcessNotify, TRUE);
+        PsSetCreateProcessNotifyRoutineEx(VigilCreateProcessNotify, TRUE);
         g_PsNotifyCreateRegistered = FALSE;
     }
     if (g_SymLinkCreated) {
@@ -452,17 +452,17 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
     KeReleaseSpinLock(&g_BlockListLock, irql);
     while (!IsListEmpty(&freed)) {
         LIST_ENTRY *e = RemoveHeadList(&freed);
-        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
-        ExFreePoolWithTag(entry, EDR_TAG);
+        PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
+        ExFreePoolWithTag(entry, VIGIL_TAG);
     }
     if (g_RegistryPathBuf) {
-        ExFreePoolWithTag(g_RegistryPathBuf, EDR_TAG);
+        ExFreePoolWithTag(g_RegistryPathBuf, VIGIL_TAG);
         g_RegistryPathBuf = NULL;
         RtlZeroMemory(&g_RegistryPath, sizeof(g_RegistryPath));
     }
 
     if (g_RingBuf) {
-        ExFreePoolWithTag(g_RingBuf, EDR_TAG);
+        ExFreePoolWithTag(g_RingBuf, VIGIL_TAG);
         g_RingBuf = NULL;
     }
     DbgPrint("[EDR] Unload\n");
@@ -471,28 +471,28 @@ static NTSTATUS EdrFilterUnload(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
 
 // Ring buffer push. Caller does NOT hold the lock; we acquire/release
 // internally. Returns TRUE on success, FALSE if ring is full (event dropped).
-static BOOLEAN EdrRingPush(_In_reads_bytes_(size) const VOID *src, _In_ UINT32 size)
+static BOOLEAN VigilRingPush(_In_reads_bytes_(size) const VOID *src, _In_ UINT32 size)
 {
-    if (size == 0 || size > EDR_RING_SIZE) {
+    if (size == 0 || size > VIGIL_RING_SIZE) {
         return FALSE;
     }
     KIRQL irql;
     KeAcquireSpinLock(&g_RingLock, &irql);
-    if (g_RingUsed + size > EDR_RING_SIZE) {
+    if (g_RingUsed + size > VIGIL_RING_SIZE) {
         KeReleaseSpinLock(&g_RingLock, irql);
         return FALSE;
     }
     UINT32 first = size;
     UINT32 second = 0;
-    if (g_RingTail + size > EDR_RING_SIZE) {
-        first = EDR_RING_SIZE - g_RingTail;
+    if (g_RingTail + size > VIGIL_RING_SIZE) {
+        first = VIGIL_RING_SIZE - g_RingTail;
         second = size - first;
     }
     RtlCopyMemory(g_RingBuf + g_RingTail, src, first);
     if (second) {
         RtlCopyMemory(g_RingBuf, (const UCHAR *)src + first, second);
     }
-    g_RingTail = (g_RingTail + size) % EDR_RING_SIZE;
+    g_RingTail = (g_RingTail + size) % VIGIL_RING_SIZE;
     g_RingUsed += size;
     KeReleaseSpinLock(&g_RingLock, irql);
     return TRUE;
@@ -501,22 +501,22 @@ static BOOLEAN EdrRingPush(_In_reads_bytes_(size) const VOID *src, _In_ UINT32 s
 // Drain as many complete events as fit in [dst, dst+maxBytes). Returns the
 // number of bytes written (0 if ring is empty or maxBytes too small for the
 // next event). nEvents receives the count of events emitted.
-static UINT32 EdrRingDrain(_Out_writes_bytes_(maxBytes) PVOID dst, _In_ UINT32 maxBytes, _Out_ PUINT32 nEvents)
+static UINT32 VigilRingDrain(_Out_writes_bytes_(maxBytes) PVOID dst, _In_ UINT32 maxBytes, _Out_ PUINT32 nEvents)
 {
     UINT32 written = 0;
     UINT32 events = 0;
     KIRQL irql;
     KeAcquireSpinLock(&g_RingLock, &irql);
-    while (g_RingUsed >= sizeof(EDR_EVENT_HEADER)) {
+    while (g_RingUsed >= sizeof(VIGIL_EVENT_HEADER)) {
         // Read the event Size field (first UINT32 of the event). Handle the
         // case where the field straddles the wrap boundary.
         UINT32 size;
-        if (g_RingHead + sizeof(UINT32) <= EDR_RING_SIZE) {
+        if (g_RingHead + sizeof(UINT32) <= VIGIL_RING_SIZE) {
             size = *(const UINT32 *)(g_RingBuf + g_RingHead);
         } else {
             UCHAR sb[sizeof(UINT32)];
             for (UINT32 i = 0; i < sizeof(UINT32); ++i) {
-                sb[i] = g_RingBuf[(g_RingHead + i) % EDR_RING_SIZE];
+                sb[i] = g_RingBuf[(g_RingHead + i) % VIGIL_RING_SIZE];
             }
             size = *(const UINT32 *)sb;
         }
@@ -530,15 +530,15 @@ static UINT32 EdrRingDrain(_Out_writes_bytes_(maxBytes) PVOID dst, _In_ UINT32 m
         }
         UINT32 first = size;
         UINT32 second = 0;
-        if (g_RingHead + size > EDR_RING_SIZE) {
-            first = EDR_RING_SIZE - g_RingHead;
+        if (g_RingHead + size > VIGIL_RING_SIZE) {
+            first = VIGIL_RING_SIZE - g_RingHead;
             second = size - first;
         }
         RtlCopyMemory((UCHAR *)dst + written, g_RingBuf + g_RingHead, first);
         if (second) {
             RtlCopyMemory((UCHAR *)dst + written + first, g_RingBuf, second);
         }
-        g_RingHead = (g_RingHead + size) % EDR_RING_SIZE;
+        g_RingHead = (g_RingHead + size) % VIGIL_RING_SIZE;
         g_RingUsed -= size;
         written += size;
         events++;
@@ -548,7 +548,7 @@ static UINT32 EdrRingDrain(_Out_writes_bytes_(maxBytes) PVOID dst, _In_ UINT32 m
     return written;
 }
 
-static NTSTATUS EdrInstanceSetup(
+static NTSTATUS VigilInstanceSetup(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_SETUP_FLAGS Flags,
     _In_ DEVICE_TYPE VolumeDeviceType,
@@ -561,7 +561,7 @@ static NTSTATUS EdrInstanceSetup(
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS EdrInstanceQueryTeardown(
+static NTSTATUS VigilInstanceQueryTeardown(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags)
 {
@@ -570,7 +570,7 @@ static NTSTATUS EdrInstanceQueryTeardown(
     return STATUS_SUCCESS;
 }
 
-static VOID EdrInstanceTeardownStart(
+static VOID VigilInstanceTeardownStart(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags)
 {
@@ -578,7 +578,7 @@ static VOID EdrInstanceTeardownStart(
     UNREFERENCED_PARAMETER(Flags);
 }
 
-static VOID EdrInstanceTeardownComplete(
+static VOID VigilInstanceTeardownComplete(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_ FLT_INSTANCE_TEARDOWN_FLAGS Flags)
 {
@@ -594,7 +594,7 @@ static VOID EdrInstanceTeardownComplete(
 // Volume of these callbacks is high (10s-100s of opens per second on an
 // idle machine). FltGetFileNameInformation is moderately expensive; we
 // only call it when the block list is non-empty.
-static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
+static FLT_PREOP_CALLBACK_STATUS VigilPreCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
@@ -611,7 +611,7 @@ static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
                 &nameInfo)))
         {
             (void)FltParseFileNameInformation(nameInfo);
-            if (EdrBlockMatch(&g_FileBlockList, &nameInfo->Name)) {
+            if (VigilBlockMatch(&g_FileBlockList, &nameInfo->Name)) {
                 Data->IoStatus.Status = STATUS_ACCESS_DENIED;
                 Data->IoStatus.Information = 0;
                 FltReleaseFileNameInformation(nameInfo);
@@ -630,7 +630,7 @@ static FLT_PREOP_CALLBACK_STATUS EdrPreCreate(
 // Post-op fires after the file system has handled the IRP. Data->IoStatus
 // has the final status. We only count succeeded opens for now; useful as a
 // signal that the FS actually executed the IRP (vs. denied / failed).
-static FLT_POSTOP_CALLBACK_STATUS EdrPostCreate(
+static FLT_POSTOP_CALLBACK_STATUS VigilPostCreate(
     _Inout_ PFLT_CALLBACK_DATA Data,
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _In_opt_ PVOID CompletionContext,
@@ -650,7 +650,7 @@ static FLT_POSTOP_CALLBACK_STATUS EdrPostCreate(
 
 // Process create / exit. CreateInfo != NULL for create, == NULL for exit.
 // Runs at PASSIVE_LEVEL.
-static VOID EdrCreateProcessNotify(
+static VOID VigilCreateProcessNotify(
     _Inout_ PEPROCESS Process,
     _In_ HANDLE ProcessId,
     _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo)
@@ -665,7 +665,7 @@ static VOID EdrCreateProcessNotify(
         // CreateInfo->CreationStatus to a non-success value causes the
         // create to fail in user-mode (CreateProcess returns the error).
         if (CreateInfo->ImageFileName != NULL &&
-            EdrBlockMatch(&g_ProcessBlockList, CreateInfo->ImageFileName))
+            VigilBlockMatch(&g_ProcessBlockList, CreateInfo->ImageFileName))
         {
             CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
             InterlockedIncrement64(&g_ProcessBlockHits);
@@ -680,7 +680,7 @@ static VOID EdrCreateProcessNotify(
         UCHAR scratch[1536];
         const UINT32 maxStringBytes = 480;  // each of imageName / cmdLine
 
-        PEDR_EVENT_PROCESS_START ev = (PEDR_EVENT_PROCESS_START)scratch;
+        PVIGIL_EVENT_PROCESS_START ev = (PVIGIL_EVENT_PROCESS_START)scratch;
         UINT16 imageLen = 0, cmdLen = 0;
         if (CreateInfo->ImageFileName != NULL) {
             imageLen = (UINT16)min((UINT32)CreateInfo->ImageFileName->Length, maxStringBytes);
@@ -688,19 +688,19 @@ static VOID EdrCreateProcessNotify(
         if (CreateInfo->CommandLine != NULL) {
             cmdLen = (UINT16)min((UINT32)CreateInfo->CommandLine->Length, maxStringBytes);
         }
-        UINT32 evSize = sizeof(EDR_EVENT_PROCESS_START) + imageLen + cmdLen;
+        UINT32 evSize = sizeof(VIGIL_EVENT_PROCESS_START) + imageLen + cmdLen;
 
         LARGE_INTEGER ts;
         KeQuerySystemTimePrecise(&ts);
 
         ev->Header.Size = evSize;
-        ev->Header.Kind = EDR_EVENT_KIND_PROCESS_START;
+        ev->Header.Kind = VIGIL_EVENT_KIND_PROCESS_START;
         ev->Header.TimestampNs = (UINT64)ts.QuadPart;
         ev->Header.ProcessId = (UINT64)(ULONG_PTR)ProcessId;
         ev->ParentProcessId = (UINT64)(ULONG_PTR)CreateInfo->ParentProcessId;
         ev->ImageNameLen = imageLen;
         ev->CommandLineLen = cmdLen;
-        UCHAR *p = scratch + sizeof(EDR_EVENT_PROCESS_START);
+        UCHAR *p = scratch + sizeof(VIGIL_EVENT_PROCESS_START);
         if (imageLen) {
             RtlCopyMemory(p, CreateInfo->ImageFileName->Buffer, imageLen);
             p += imageLen;
@@ -709,7 +709,7 @@ static VOID EdrCreateProcessNotify(
             RtlCopyMemory(p, CreateInfo->CommandLine->Buffer, cmdLen);
         }
 
-        if (EdrRingPush(scratch, evSize)) {
+        if (VigilRingPush(scratch, evSize)) {
             InterlockedIncrement64(&g_EventsEnqueued);
         } else {
             InterlockedIncrement64(&g_EventsDropped);
@@ -732,7 +732,7 @@ static VOID EdrCreateProcessNotify(
 
 // Image load. Runs at PASSIVE_LEVEL. ImageInfo->SystemModeImage is TRUE for
 // drivers loading into the kernel; FALSE for user-mode image loads.
-static VOID EdrLoadImageNotify(
+static VOID VigilLoadImageNotify(
     _In_opt_ PUNICODE_STRING FullImageName,
     _In_ HANDLE ProcessId,
     _In_ PIMAGE_INFO ImageInfo)
@@ -751,25 +751,25 @@ static VOID EdrLoadImageNotify(
 
 // ---- Block list -----------------------------------------------------------
 
-#define EDR_BLOCK_PATTERN_MAX_BYTES 512
+#define VIGIL_BLOCK_PATTERN_MAX_BYTES 512
 
-static LIST_ENTRY *EdrBlockListForKind(UINT32 kind)
+static LIST_ENTRY *VigilBlockListForKind(UINT32 kind)
 {
-    if (kind == EDR_BLOCK_KIND_PROCESS) return &g_ProcessBlockList;
-    if (kind == EDR_BLOCK_KIND_FILE)    return &g_FileBlockList;
+    if (kind == VIGIL_BLOCK_KIND_PROCESS) return &g_ProcessBlockList;
+    if (kind == VIGIL_BLOCK_KIND_FILE)    return &g_FileBlockList;
     return NULL;
 }
 
-static volatile LONG *EdrBlockCountForKind(UINT32 kind)
+static volatile LONG *VigilBlockCountForKind(UINT32 kind)
 {
-    if (kind == EDR_BLOCK_KIND_PROCESS) return &g_ProcessBlockCount;
-    if (kind == EDR_BLOCK_KIND_FILE)    return &g_FileBlockCount;
+    if (kind == VIGIL_BLOCK_KIND_PROCESS) return &g_ProcessBlockCount;
+    if (kind == VIGIL_BLOCK_KIND_FILE)    return &g_FileBlockCount;
     return NULL;
 }
 
 // Case-insensitive substring match: does `pattern` appear anywhere in
 // `name`? Caller does NOT hold the spinlock — we acquire it here.
-static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name)
+static BOOLEAN VigilBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING name)
 {
     if (name == NULL || name->Buffer == NULL || name->Length == 0) {
         return FALSE;
@@ -778,7 +778,7 @@ static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING na
     KIRQL irql;
     KeAcquireSpinLock(&g_BlockListLock, &irql);
     for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
-        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
         if (entry->Length == 0 || entry->Length > name->Length) {
             continue;
         }
@@ -810,17 +810,17 @@ static BOOLEAN EdrBlockMatch(_In_ LIST_ENTRY *list, _In_opt_ PCUNICODE_STRING na
 // RegistryPath received in DriverEntry is e.g.
 // "\REGISTRY\MACHINE\SYSTEM\ControlSet001\Services\edr".
 
-static NTSTATUS EdrBlockPersist(_In_ UINT32 kind);
+static NTSTATUS VigilBlockPersist(_In_ UINT32 kind);
 
-static NTSTATUS EdrBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
+static NTSTATUS VigilBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
 {
-    LIST_ENTRY *list = EdrBlockListForKind(kind);
-    volatile LONG *count = EdrBlockCountForKind(kind);
-    if (!list || patternBytes == 0 || patternBytes > EDR_BLOCK_PATTERN_MAX_BYTES) {
+    LIST_ENTRY *list = VigilBlockListForKind(kind);
+    volatile LONG *count = VigilBlockCountForKind(kind);
+    if (!list || patternBytes == 0 || patternBytes > VIGIL_BLOCK_PATTERN_MAX_BYTES) {
         return STATUS_INVALID_PARAMETER;
     }
-    SIZE_T entryBytes = FIELD_OFFSET(EDR_BLOCK_ENTRY, Buffer) + patternBytes;
-    PEDR_BLOCK_ENTRY entry = (PEDR_BLOCK_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, entryBytes, EDR_TAG);
+    SIZE_T entryBytes = FIELD_OFFSET(VIGIL_BLOCK_ENTRY, Buffer) + patternBytes;
+    PVIGIL_BLOCK_ENTRY entry = (PVIGIL_BLOCK_ENTRY)ExAllocatePool2(POOL_FLAG_NON_PAGED, entryBytes, VIGIL_TAG);
     if (!entry) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -832,13 +832,13 @@ static NTSTATUS EdrBlockAdd(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) con
     InsertTailList(list, &entry->List);
     KeReleaseSpinLock(&g_BlockListLock, irql);
     InterlockedIncrement(count);
-    return EdrBlockPersist(kind);
+    return VigilBlockPersist(kind);
 }
 
-static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
+static NTSTATUS VigilBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) const WCHAR *pattern, _In_ USHORT patternBytes)
 {
-    LIST_ENTRY *list = EdrBlockListForKind(kind);
-    volatile LONG *count = EdrBlockCountForKind(kind);
+    LIST_ENTRY *list = VigilBlockListForKind(kind);
+    volatile LONG *count = VigilBlockCountForKind(kind);
     if (!list || patternBytes == 0) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -847,11 +847,11 @@ static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) 
     needle.Length = patternBytes;
     needle.MaximumLength = patternBytes;
 
-    PEDR_BLOCK_ENTRY toFree = NULL;
+    PVIGIL_BLOCK_ENTRY toFree = NULL;
     KIRQL irql;
     KeAcquireSpinLock(&g_BlockListLock, &irql);
     for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
-        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
         UNICODE_STRING ent;
         ent.Buffer = entry->Buffer;
         ent.Length = entry->Length;
@@ -865,24 +865,24 @@ static NTSTATUS EdrBlockRemove(_In_ UINT32 kind, _In_reads_bytes_(patternBytes) 
     KeReleaseSpinLock(&g_BlockListLock, irql);
 
     if (toFree == NULL) return STATUS_NOT_FOUND;
-    ExFreePoolWithTag(toFree, EDR_TAG);
+    ExFreePoolWithTag(toFree, VIGIL_TAG);
     InterlockedDecrement(count);
-    return EdrBlockPersist(kind);
+    return VigilBlockPersist(kind);
 }
 
-static NTSTATUS EdrBlockClear(_In_ UINT32 kind)
+static NTSTATUS VigilBlockClear(_In_ UINT32 kind)
 {
     UINT32 kinds[2] = { 0, 0 };
     UINT32 nKinds = 0;
     if (kind == 0) {
-        kinds[nKinds++] = EDR_BLOCK_KIND_PROCESS;
-        kinds[nKinds++] = EDR_BLOCK_KIND_FILE;
+        kinds[nKinds++] = VIGIL_BLOCK_KIND_PROCESS;
+        kinds[nKinds++] = VIGIL_BLOCK_KIND_FILE;
     } else {
         kinds[nKinds++] = kind;
     }
     for (UINT32 k = 0; k < nKinds; ++k) {
-        LIST_ENTRY *list = EdrBlockListForKind(kinds[k]);
-        volatile LONG *count = EdrBlockCountForKind(kinds[k]);
+        LIST_ENTRY *list = VigilBlockListForKind(kinds[k]);
+        volatile LONG *count = VigilBlockCountForKind(kinds[k]);
         if (!list) continue;
 
         LIST_ENTRY freed;
@@ -898,28 +898,28 @@ static NTSTATUS EdrBlockClear(_In_ UINT32 kind)
 
         while (!IsListEmpty(&freed)) {
             LIST_ENTRY *e = RemoveHeadList(&freed);
-            PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
-            ExFreePoolWithTag(entry, EDR_TAG);
+            PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
+            ExFreePoolWithTag(entry, VIGIL_TAG);
         }
-        EdrBlockPersist(kinds[k]);
+        VigilBlockPersist(kinds[k]);
     }
     return STATUS_SUCCESS;
 }
 
 // Snapshot one list under the spinlock as a series of (Length, Buffer) pairs
 // the caller can serialize at PASSIVE_LEVEL without holding the lock.
-typedef struct _EDR_BLOCK_SNAPSHOT_ENTRY {
+typedef struct _VIGIL_BLOCK_SNAPSHOT_ENTRY {
     USHORT Length;
     PWCHAR Buffer;          // points into a pool-allocated arena
-} EDR_BLOCK_SNAPSHOT_ENTRY;
+} VIGIL_BLOCK_SNAPSHOT_ENTRY;
 
-static NTSTATUS EdrBlockSnapshot(
+static NTSTATUS VigilBlockSnapshot(
     _In_ UINT32 kind,
-    _Outptr_ EDR_BLOCK_SNAPSHOT_ENTRY **outEntries,
+    _Outptr_ VIGIL_BLOCK_SNAPSHOT_ENTRY **outEntries,
     _Out_ UINT32 *outCount,
     _Outptr_ PVOID *outArena)
 {
-    LIST_ENTRY *list = EdrBlockListForKind(kind);
+    LIST_ENTRY *list = VigilBlockListForKind(kind);
     if (!list) return STATUS_INVALID_PARAMETER;
 
     *outEntries = NULL;
@@ -932,7 +932,7 @@ static NTSTATUS EdrBlockSnapshot(
     UINT32 count = 0;
     SIZE_T totalBytes = 0;
     for (LIST_ENTRY *e = list->Flink; e != list; e = e->Flink) {
-        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
         count++;
         totalBytes += entry->Length;
     }
@@ -942,16 +942,16 @@ static NTSTATUS EdrBlockSnapshot(
         return STATUS_SUCCESS;
     }
 
-    SIZE_T arrayBytes = count * sizeof(EDR_BLOCK_SNAPSHOT_ENTRY);
-    EDR_BLOCK_SNAPSHOT_ENTRY *arr = NULL;
+    SIZE_T arrayBytes = count * sizeof(VIGIL_BLOCK_SNAPSHOT_ENTRY);
+    VIGIL_BLOCK_SNAPSHOT_ENTRY *arr = NULL;
     PVOID arena = NULL;
 
     KeReleaseSpinLock(&g_BlockListLock, irql);
-    arr = (EDR_BLOCK_SNAPSHOT_ENTRY *)ExAllocatePool2(POOL_FLAG_NON_PAGED, arrayBytes, EDR_TAG);
-    arena = ExAllocatePool2(POOL_FLAG_NON_PAGED, totalBytes, EDR_TAG);
+    arr = (VIGIL_BLOCK_SNAPSHOT_ENTRY *)ExAllocatePool2(POOL_FLAG_NON_PAGED, arrayBytes, VIGIL_TAG);
+    arena = ExAllocatePool2(POOL_FLAG_NON_PAGED, totalBytes, VIGIL_TAG);
     if (!arr || !arena) {
-        if (arr) ExFreePoolWithTag(arr, EDR_TAG);
-        if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+        if (arr) ExFreePoolWithTag(arr, VIGIL_TAG);
+        if (arena) ExFreePoolWithTag(arena, VIGIL_TAG);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -961,7 +961,7 @@ static NTSTATUS EdrBlockSnapshot(
     UINT32 i = 0;
     SIZE_T off = 0;
     for (LIST_ENTRY *e = list->Flink; e != list && i < count && off < totalBytes; e = e->Flink) {
-        PEDR_BLOCK_ENTRY entry = CONTAINING_RECORD(e, EDR_BLOCK_ENTRY, List);
+        PVIGIL_BLOCK_ENTRY entry = CONTAINING_RECORD(e, VIGIL_BLOCK_ENTRY, List);
         if (off + entry->Length > totalBytes || i >= count) break;
         RtlCopyMemory((UCHAR *)arena + off, entry->Buffer, entry->Length);
         arr[i].Length = entry->Length;
@@ -977,15 +977,15 @@ static NTSTATUS EdrBlockSnapshot(
     return STATUS_SUCCESS;
 }
 
-static const WCHAR *EdrBlockRegValueName(UINT32 kind)
+static const WCHAR *VigilBlockRegValueName(UINT32 kind)
 {
-    return kind == EDR_BLOCK_KIND_PROCESS ? L"ProcessPatterns" :
-           kind == EDR_BLOCK_KIND_FILE    ? L"FilePatterns"    : NULL;
+    return kind == VIGIL_BLOCK_KIND_PROCESS ? L"ProcessPatterns" :
+           kind == VIGIL_BLOCK_KIND_FILE    ? L"FilePatterns"    : NULL;
 }
 
 // Open the driver's service key plus a "BlockList" subkey for persistence.
 // Returns a HANDLE the caller must ZwClose. Creates the subkey if missing.
-static NTSTATUS EdrOpenBlockListKey(_Out_ PHANDLE OutKey)
+static NTSTATUS VigilOpenBlockListKey(_Out_ PHANDLE OutKey)
 {
     *OutKey = NULL;
     if (g_RegistryPath.Buffer == NULL) {
@@ -994,7 +994,7 @@ static NTSTATUS EdrOpenBlockListKey(_Out_ PHANDLE OutKey)
     // BlockListPath = <RegistryPath>\BlockList
     UNICODE_STRING suffix = RTL_CONSTANT_STRING(L"\\BlockList");
     USHORT bytes = g_RegistryPath.Length + suffix.Length;
-    PWCHAR buf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bytes, EDR_TAG);
+    PWCHAR buf = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, bytes, VIGIL_TAG);
     if (!buf) return STATUS_INSUFFICIENT_RESOURCES;
     RtlCopyMemory(buf, g_RegistryPath.Buffer, g_RegistryPath.Length);
     RtlCopyMemory((UCHAR *)buf + g_RegistryPath.Length, suffix.Buffer, suffix.Length);
@@ -1007,7 +1007,7 @@ static NTSTATUS EdrOpenBlockListKey(_Out_ PHANDLE OutKey)
     HANDLE key;
     ULONG disposition;
     NTSTATUS status = ZwCreateKey(&key, KEY_ALL_ACCESS, &oa, 0, NULL, REG_OPTION_NON_VOLATILE, &disposition);
-    ExFreePoolWithTag(buf, EDR_TAG);
+    ExFreePoolWithTag(buf, VIGIL_TAG);
     if (NT_SUCCESS(status)) {
         *OutKey = key;
     }
@@ -1017,12 +1017,12 @@ static NTSTATUS EdrOpenBlockListKey(_Out_ PHANDLE OutKey)
 // Serialize current in-memory list of `kind` as REG_MULTI_SZ. Each pattern
 // is null-terminated; the buffer ends with an extra null. Even if the list
 // is empty we write a single null-terminator (a valid empty REG_MULTI_SZ).
-static NTSTATUS EdrBlockPersist(_In_ UINT32 kind)
+static NTSTATUS VigilBlockPersist(_In_ UINT32 kind)
 {
-    EDR_BLOCK_SNAPSHOT_ENTRY *entries = NULL;
+    VIGIL_BLOCK_SNAPSHOT_ENTRY *entries = NULL;
     UINT32 count = 0;
     PVOID arena = NULL;
-    NTSTATUS status = EdrBlockSnapshot(kind, &entries, &count, &arena);
+    NTSTATUS status = VigilBlockSnapshot(kind, &entries, &count, &arena);
     if (!NT_SUCCESS(status)) return status;
 
     // Compute serialized size in bytes: sum(length + sizeof(WCHAR) for null) + final WCHAR null.
@@ -1030,10 +1030,10 @@ static NTSTATUS EdrBlockPersist(_In_ UINT32 kind)
     for (UINT32 i = 0; i < count; ++i) {
         outBytes += entries[i].Length + sizeof(WCHAR);
     }
-    PWCHAR multi = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outBytes, EDR_TAG);
+    PWCHAR multi = (PWCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, outBytes, VIGIL_TAG);
     if (!multi) {
-        if (entries) ExFreePoolWithTag(entries, EDR_TAG);
-        if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+        if (entries) ExFreePoolWithTag(entries, VIGIL_TAG);
+        if (arena) ExFreePoolWithTag(arena, VIGIL_TAG);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     UCHAR *p = (UCHAR *)multi;
@@ -1046,29 +1046,29 @@ static NTSTATUS EdrBlockPersist(_In_ UINT32 kind)
     *(WCHAR *)p = L'\0';
 
     HANDLE key = NULL;
-    status = EdrOpenBlockListKey(&key);
+    status = VigilOpenBlockListKey(&key);
     if (NT_SUCCESS(status)) {
-        const WCHAR *valueName = EdrBlockRegValueName(kind);
+        const WCHAR *valueName = VigilBlockRegValueName(kind);
         UNICODE_STRING vn;
         RtlInitUnicodeString(&vn, valueName);
         status = ZwSetValueKey(key, &vn, 0, REG_MULTI_SZ, multi, (ULONG)outBytes);
         ZwClose(key);
     }
-    ExFreePoolWithTag(multi, EDR_TAG);
-    if (entries) ExFreePoolWithTag(entries, EDR_TAG);
-    if (arena) ExFreePoolWithTag(arena, EDR_TAG);
+    ExFreePoolWithTag(multi, VIGIL_TAG);
+    if (entries) ExFreePoolWithTag(entries, VIGIL_TAG);
+    if (arena) ExFreePoolWithTag(arena, VIGIL_TAG);
     return status;
 }
 
 // Read REG_MULTI_SZ for one kind back into the in-memory list. Called at
 // DriverEntry, before the callbacks are armed.
-static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind)
+static NTSTATUS VigilBlockLoadFromReg(_In_ UINT32 kind)
 {
     HANDLE key = NULL;
-    NTSTATUS status = EdrOpenBlockListKey(&key);
+    NTSTATUS status = VigilOpenBlockListKey(&key);
     if (!NT_SUCCESS(status)) return status;
 
-    const WCHAR *valueName = EdrBlockRegValueName(kind);
+    const WCHAR *valueName = VigilBlockRegValueName(kind);
     UNICODE_STRING vn;
     RtlInitUnicodeString(&vn, valueName);
 
@@ -1084,7 +1084,7 @@ static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind)
         return status;
     }
 
-    PKEY_VALUE_PARTIAL_INFORMATION info = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeNeeded, EDR_TAG);
+    PKEY_VALUE_PARTIAL_INFORMATION info = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeNeeded, VIGIL_TAG);
     if (!info) {
         ZwClose(key);
         return STATUS_INSUFFICIENT_RESOURCES;
@@ -1092,7 +1092,7 @@ static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind)
     status = ZwQueryValueKey(key, &vn, KeyValuePartialInformation, info, sizeNeeded, &sizeNeeded);
     ZwClose(key);
     if (!NT_SUCCESS(status) || info->Type != REG_MULTI_SZ) {
-        ExFreePoolWithTag(info, EDR_TAG);
+        ExFreePoolWithTag(info, VIGIL_TAG);
         return NT_SUCCESS(status) ? STATUS_OBJECT_TYPE_MISMATCH : status;
     }
 
@@ -1105,19 +1105,19 @@ static NTSTATUS EdrBlockLoadFromReg(_In_ UINT32 kind)
         PWCHAR p = cur;
         while (p < end && *p != L'\0') p++;
         USHORT bytes = (USHORT)((p - cur) * sizeof(WCHAR));
-        if (bytes > 0 && bytes <= EDR_BLOCK_PATTERN_MAX_BYTES) {
-            (void)EdrBlockAdd(kind, cur, bytes);
+        if (bytes > 0 && bytes <= VIGIL_BLOCK_PATTERN_MAX_BYTES) {
+            (void)VigilBlockAdd(kind, cur, bytes);
         }
         cur = p + 1;  // skip null
     }
-    ExFreePoolWithTag(info, EDR_TAG);
+    ExFreePoolWithTag(info, VIGIL_TAG);
     return STATUS_SUCCESS;
 }
 
 // Build and ring-push a NETWORK_CONNECT event. Shared by both the V4 and V6
 // classifiers; the caller has already converted addresses + ports to network
 // byte order and selected the right family.
-static VOID EdrEnqueueNetworkConnect(
+static VOID VigilEnqueueNetworkConnect(
     _In_ UINT8 ipVersion,
     _In_ UINT8 protocol,
     _In_ UINT16 localPortBe,
@@ -1127,13 +1127,13 @@ static VOID EdrEnqueueNetworkConnect(
     _In_ UINT32 addrBytes,
     _In_ UINT64 processId)
 {
-    EDR_EVENT_NETWORK_CONNECT ev;
+    VIGIL_EVENT_NETWORK_CONNECT ev;
     RtlZeroMemory(&ev, sizeof(ev));
     LARGE_INTEGER ts;
     KeQuerySystemTimePrecise(&ts);
 
-    ev.Header.Size = sizeof(EDR_EVENT_NETWORK_CONNECT);
-    ev.Header.Kind = EDR_EVENT_KIND_NETWORK_CONNECT;
+    ev.Header.Size = sizeof(VIGIL_EVENT_NETWORK_CONNECT);
+    ev.Header.Kind = VIGIL_EVENT_KIND_NETWORK_CONNECT;
     ev.Header.TimestampNs = (UINT64)ts.QuadPart;
     ev.Header.ProcessId = processId;
     ev.IpVersion = ipVersion;
@@ -1146,7 +1146,7 @@ static VOID EdrEnqueueNetworkConnect(
     RtlCopyMemory(ev.LocalAddr, localAddr, copyBytes);
     RtlCopyMemory(ev.RemoteAddr, remoteAddr, copyBytes);
 
-    if (EdrRingPush(&ev, sizeof(ev))) {
+    if (VigilRingPush(&ev, sizeof(ev))) {
         InterlockedIncrement64(&g_EventsEnqueued);
         InterlockedIncrement64(&g_NetConnectCount);
     } else {
@@ -1157,7 +1157,7 @@ static VOID EdrEnqueueNetworkConnect(
 // IPv4 ALE classify. WFP delivers V4 addresses + ports in HOST byte order
 // at this layer. We byte-swap to network order on the way out so the wire
 // format is consistent across V4 and V6 events.
-static VOID EdrWfpClassifyV4(
+static VOID VigilWfpClassifyV4(
     _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
     _Inout_opt_ void *layerData,
@@ -1187,7 +1187,7 @@ static VOID EdrWfpClassifyV4(
 
     UINT32 localAddrBe = RtlUlongByteSwap(localAddrHe);
     UINT32 remoteAddrBe = RtlUlongByteSwap(remoteAddrHe);
-    EdrEnqueueNetworkConnect(
+    VigilEnqueueNetworkConnect(
         4,
         protocol,
         RtlUshortByteSwap(localPortHe),
@@ -1200,7 +1200,7 @@ static VOID EdrWfpClassifyV4(
 
 // IPv6 ALE classify. V6 addresses are byteArray16* (already in network order
 // per WFP); ports are HOST byte order at this layer.
-static VOID EdrWfpClassifyV6(
+static VOID VigilWfpClassifyV6(
     _In_ const FWPS_INCOMING_VALUES0 *inFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0 *inMetaValues,
     _Inout_opt_ void *layerData,
@@ -1230,7 +1230,7 @@ static VOID EdrWfpClassifyV6(
     if (localAddr == NULL || remoteAddr == NULL) {
         return;
     }
-    EdrEnqueueNetworkConnect(
+    VigilEnqueueNetworkConnect(
         6,
         protocol,
         RtlUshortByteSwap(localPortHe),
@@ -1243,7 +1243,7 @@ static VOID EdrWfpClassifyV6(
 
 // WFP callout notify. Required by FwpsCalloutRegister1 but we don't need to
 // do anything at filter add/remove time — return STATUS_SUCCESS.
-static NTSTATUS EdrWfpNotify(
+static NTSTATUS VigilWfpNotify(
     _In_ FWPS_CALLOUT_NOTIFY_TYPE notifyType,
     _In_ const GUID *filterKey,
     _Inout_ FWPS_FILTER1 *filter)
@@ -1256,8 +1256,8 @@ static NTSTATUS EdrWfpNotify(
 
 // WFP setup. Must be called from DriverEntry after the control device exists
 // (FwpsCalloutRegister1 needs a device object). On any failure we tear down
-// every step that succeeded — see EdrWfpCleanup.
-static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
+// every step that succeeded — see VigilWfpCleanup.
+static NTSTATUS VigilWfpInit(_In_ PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);
     NTSTATUS status;
@@ -1277,7 +1277,7 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
 
     FWPM_SUBLAYER0 sublayer;
     RtlZeroMemory(&sublayer, sizeof(sublayer));
-    sublayer.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    sublayer.subLayerKey = VIGIL_WFP_SUBLAYER_GUID;
     sublayer.displayData.name = (wchar_t *)L"EDR Observation Sublayer";
     sublayer.displayData.description = (wchar_t *)L"EDR observation-only filters";
     sublayer.flags = 0;
@@ -1293,9 +1293,9 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     // FwpmCalloutAdd0 because the latter looks up the kernel callout by key.
     FWPS_CALLOUT1 calloutV4;
     RtlZeroMemory(&calloutV4, sizeof(calloutV4));
-    calloutV4.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
-    calloutV4.classifyFn = EdrWfpClassifyV4;
-    calloutV4.notifyFn = EdrWfpNotify;
+    calloutV4.calloutKey = VIGIL_WFP_CALLOUT_V4_GUID;
+    calloutV4.classifyFn = VigilWfpClassifyV4;
+    calloutV4.notifyFn = VigilWfpNotify;
     status = FwpsCalloutRegister1(g_DeviceObject, &calloutV4, &g_WfpCalloutIdV4);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FwpsCalloutRegister1 V4 failed: 0x%08x\n", status);
@@ -1304,9 +1304,9 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
 
     FWPS_CALLOUT1 calloutV6;
     RtlZeroMemory(&calloutV6, sizeof(calloutV6));
-    calloutV6.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
-    calloutV6.classifyFn = EdrWfpClassifyV6;
-    calloutV6.notifyFn = EdrWfpNotify;
+    calloutV6.calloutKey = VIGIL_WFP_CALLOUT_V6_GUID;
+    calloutV6.classifyFn = VigilWfpClassifyV6;
+    calloutV6.notifyFn = VigilWfpNotify;
     status = FwpsCalloutRegister1(g_DeviceObject, &calloutV6, &g_WfpCalloutIdV6);
     if (!NT_SUCCESS(status)) {
         DbgPrint("[EDR] FwpsCalloutRegister1 V6 failed: 0x%08x\n", status);
@@ -1316,7 +1316,7 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     // Management-side callout entries.
     FWPM_CALLOUT0 fwpmCalloutV4;
     RtlZeroMemory(&fwpmCalloutV4, sizeof(fwpmCalloutV4));
-    fwpmCalloutV4.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
+    fwpmCalloutV4.calloutKey = VIGIL_WFP_CALLOUT_V4_GUID;
     fwpmCalloutV4.displayData.name = (wchar_t *)L"EDR ALE Auth Connect IPv4";
     fwpmCalloutV4.displayData.description = (wchar_t *)L"";
     fwpmCalloutV4.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
@@ -1329,7 +1329,7 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
 
     FWPM_CALLOUT0 fwpmCalloutV6;
     RtlZeroMemory(&fwpmCalloutV6, sizeof(fwpmCalloutV6));
-    fwpmCalloutV6.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
+    fwpmCalloutV6.calloutKey = VIGIL_WFP_CALLOUT_V6_GUID;
     fwpmCalloutV6.displayData.name = (wchar_t *)L"EDR ALE Auth Connect IPv6";
     fwpmCalloutV6.displayData.description = (wchar_t *)L"";
     fwpmCalloutV6.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
@@ -1344,10 +1344,10 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     FWPM_FILTER0 filterV4;
     RtlZeroMemory(&filterV4, sizeof(filterV4));
     filterV4.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-    filterV4.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    filterV4.subLayerKey = VIGIL_WFP_SUBLAYER_GUID;
     filterV4.displayData.name = (wchar_t *)L"EDR ALE Connect V4";
     filterV4.action.type = FWP_ACTION_CALLOUT_INSPECTION;
-    filterV4.action.calloutKey = EDR_WFP_CALLOUT_V4_GUID;
+    filterV4.action.calloutKey = VIGIL_WFP_CALLOUT_V4_GUID;
     filterV4.weight.type = FWP_EMPTY;
     status = FwpmFilterAdd0(g_WfpEngine, &filterV4, NULL, &g_WfpFilterIdV4);
     if (!NT_SUCCESS(status)) {
@@ -1358,10 +1358,10 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
     FWPM_FILTER0 filterV6;
     RtlZeroMemory(&filterV6, sizeof(filterV6));
     filterV6.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
-    filterV6.subLayerKey = EDR_WFP_SUBLAYER_GUID;
+    filterV6.subLayerKey = VIGIL_WFP_SUBLAYER_GUID;
     filterV6.displayData.name = (wchar_t *)L"EDR ALE Connect V6";
     filterV6.action.type = FWP_ACTION_CALLOUT_INSPECTION;
-    filterV6.action.calloutKey = EDR_WFP_CALLOUT_V6_GUID;
+    filterV6.action.calloutKey = VIGIL_WFP_CALLOUT_V6_GUID;
     filterV6.weight.type = FWP_EMPTY;
     status = FwpmFilterAdd0(g_WfpEngine, &filterV6, NULL, &g_WfpFilterIdV6);
     if (!NT_SUCCESS(status)) {
@@ -1381,10 +1381,10 @@ static NTSTATUS EdrWfpInit(_In_ PDRIVER_OBJECT DriverObject)
 }
 
 // Tear down WFP state. Idempotent: each `if` checks whether that step was
-// completed in EdrWfpInit. Filters reference callouts so delete in this
+// completed in VigilWfpInit. Filters reference callouts so delete in this
 // order: filter -> fwpm callout -> sublayer; then close engine; then
 // unregister kernel callouts.
-static VOID EdrWfpCleanup(VOID)
+static VOID VigilWfpCleanup(VOID)
 {
     if (g_WfpEngine != NULL) {
         if (g_WfpInTransaction) {
@@ -1400,15 +1400,15 @@ static VOID EdrWfpCleanup(VOID)
             g_WfpFilterIdV6 = 0;
         }
         if (g_WfpFwpmCalloutV4Added) {
-            FwpmCalloutDeleteByKey0(g_WfpEngine, &EDR_WFP_CALLOUT_V4_GUID);
+            FwpmCalloutDeleteByKey0(g_WfpEngine, &VIGIL_WFP_CALLOUT_V4_GUID);
             g_WfpFwpmCalloutV4Added = FALSE;
         }
         if (g_WfpFwpmCalloutV6Added) {
-            FwpmCalloutDeleteByKey0(g_WfpEngine, &EDR_WFP_CALLOUT_V6_GUID);
+            FwpmCalloutDeleteByKey0(g_WfpEngine, &VIGIL_WFP_CALLOUT_V6_GUID);
             g_WfpFwpmCalloutV6Added = FALSE;
         }
         if (g_WfpSubLayerAdded) {
-            FwpmSubLayerDeleteByKey0(g_WfpEngine, &EDR_WFP_SUBLAYER_GUID);
+            FwpmSubLayerDeleteByKey0(g_WfpEngine, &VIGIL_WFP_SUBLAYER_GUID);
             g_WfpSubLayerAdded = FALSE;
         }
         FwpmEngineClose0(g_WfpEngine);
@@ -1427,7 +1427,7 @@ static VOID EdrWfpCleanup(VOID)
 // Registry callback. Argument1 is REG_NOTIFY_CLASS encoded as PVOID. We bump
 // per-class counters and always allow the operation. Like file IO, registry
 // activity is high-volume so we don't DbgPrint per event.
-static NTSTATUS EdrRegistryCallback(
+static NTSTATUS VigilRegistryCallback(
     _In_ PVOID CallbackContext,
     _In_opt_ PVOID Argument1,
     _In_opt_ PVOID Argument2)
@@ -1459,7 +1459,7 @@ static NTSTATUS EdrRegistryCallback(
 // IRP_MJ_CREATE / IRP_MJ_CLOSE: succeed unconditionally. The control device
 // has no per-handle state in M4.2; that gets added in M4.5 when each handle
 // owns an event-stream cursor.
-static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+static NTSTATUS VigilDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     Irp->IoStatus.Status = STATUS_SUCCESS;
@@ -1472,7 +1472,7 @@ static NTSTATUS EdrDispatchCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _Inout_
 // ZwTerminateProcess which are paged. Dispatch is at PASSIVE_LEVEL so we're
 // good. Termination is async (Windows doesn't unblock until ETHREAD list
 // drains), but the IOCTL completes once we've delivered the kill.
-static NTSTATUS EdrKillProcess(_In_ HANDLE Pid)
+static NTSTATUS VigilKillProcess(_In_ HANDLE Pid)
 {
     InterlockedIncrement64(&g_KillRequests);
 
@@ -1502,7 +1502,7 @@ static NTSTATUS EdrKillProcess(_In_ HANDLE Pid)
     return status;
 }
 
-static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
+static NTSTATUS VigilDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -1511,13 +1511,13 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
     ULONG_PTR information = 0;
 
     switch (sp->Parameters.DeviceIoControl.IoControlCode) {
-    case EDR_IOCTL_GET_STATS: {
-        if (sp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(EDR_STATS)) {
+    case VIGIL_IOCTL_GET_STATS: {
+        if (sp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(VIGIL_STATS)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_STATS);
+            information = sizeof(VIGIL_STATS);
             break;
         }
-        PEDR_STATS out = (PEDR_STATS)Irp->AssociatedIrp.SystemBuffer;
+        PVIGIL_STATS out = (PVIGIL_STATS)Irp->AssociatedIrp.SystemBuffer;
         out->ProcessCreateCount         = (UINT64)ReadAcquire64(&g_ProcessCreateCount);
         out->ProcessExitCount           = (UINT64)ReadAcquire64(&g_ProcessExitCount);
         out->ImageLoadCount             = (UINT64)ReadAcquire64(&g_ImageLoadCount);
@@ -1543,20 +1543,20 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         out->SelfProtectThreadStripped  = (UINT64)ReadAcquire64(&g_SelfProtectThreadStripped);
         out->ProtectedPid               = (UINT64)ReadAcquire64(&g_ProtectedPid);
         status = STATUS_SUCCESS;
-        information = sizeof(EDR_STATS);
+        information = sizeof(VIGIL_STATS);
         break;
     }
-    case EDR_IOCTL_DRAIN_EVENTS: {
+    case VIGIL_IOCTL_DRAIN_EVENTS: {
         ULONG outBytes = sp->Parameters.DeviceIoControl.OutputBufferLength;
-        // The smallest possible event is sizeof(EDR_EVENT_HEADER); reject
+        // The smallest possible event is sizeof(VIGIL_EVENT_HEADER); reject
         // truly undersized buffers so caller knows to grow.
-        if (outBytes < sizeof(EDR_EVENT_HEADER)) {
+        if (outBytes < sizeof(VIGIL_EVENT_HEADER)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_EVENT_HEADER);
+            information = sizeof(VIGIL_EVENT_HEADER);
             break;
         }
         UINT32 nEvents = 0;
-        UINT32 written = EdrRingDrain(Irp->AssociatedIrp.SystemBuffer, outBytes, &nEvents);
+        UINT32 written = VigilRingDrain(Irp->AssociatedIrp.SystemBuffer, outBytes, &nEvents);
         if (nEvents > 0) {
             InterlockedExchangeAdd64(&g_EventsDrained, (LONG64)nEvents);
         }
@@ -1564,60 +1564,60 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
         information = written;
         break;
     }
-    case EDR_IOCTL_KILL_PROCESS: {
-        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_KILL_PROCESS_REQ)) {
+    case VIGIL_IOCTL_KILL_PROCESS: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(VIGIL_KILL_PROCESS_REQ)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_KILL_PROCESS_REQ);
+            information = sizeof(VIGIL_KILL_PROCESS_REQ);
             break;
         }
-        PEDR_KILL_PROCESS_REQ req = (PEDR_KILL_PROCESS_REQ)Irp->AssociatedIrp.SystemBuffer;
-        status = EdrKillProcess((HANDLE)(ULONG_PTR)req->ProcessId);
+        PVIGIL_KILL_PROCESS_REQ req = (PVIGIL_KILL_PROCESS_REQ)Irp->AssociatedIrp.SystemBuffer;
+        status = VigilKillProcess((HANDLE)(ULONG_PTR)req->ProcessId);
         information = 0;
         break;
     }
-    case EDR_IOCTL_BLOCK_ADD:
-    case EDR_IOCTL_BLOCK_REMOVE: {
+    case VIGIL_IOCTL_BLOCK_ADD:
+    case VIGIL_IOCTL_BLOCK_REMOVE: {
         ULONG inLen = sp->Parameters.DeviceIoControl.InputBufferLength;
-        if (inLen < sizeof(EDR_BLOCK_REQ)) {
+        if (inLen < sizeof(VIGIL_BLOCK_REQ)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_BLOCK_REQ);
+            information = sizeof(VIGIL_BLOCK_REQ);
             break;
         }
-        PEDR_BLOCK_REQ req = (PEDR_BLOCK_REQ)Irp->AssociatedIrp.SystemBuffer;
+        PVIGIL_BLOCK_REQ req = (PVIGIL_BLOCK_REQ)Irp->AssociatedIrp.SystemBuffer;
         if (req->PatternBytes == 0 ||
-            req->PatternBytes > EDR_BLOCK_PATTERN_MAX_BYTES ||
-            sizeof(EDR_BLOCK_REQ) + req->PatternBytes > inLen)
+            req->PatternBytes > VIGIL_BLOCK_PATTERN_MAX_BYTES ||
+            sizeof(VIGIL_BLOCK_REQ) + req->PatternBytes > inLen)
         {
             status = STATUS_INVALID_PARAMETER;
             break;
         }
-        const WCHAR *pattern = (const WCHAR *)((UCHAR *)req + sizeof(EDR_BLOCK_REQ));
-        if (sp->Parameters.DeviceIoControl.IoControlCode == EDR_IOCTL_BLOCK_ADD) {
-            status = EdrBlockAdd(req->Kind, pattern, (USHORT)req->PatternBytes);
+        const WCHAR *pattern = (const WCHAR *)((UCHAR *)req + sizeof(VIGIL_BLOCK_REQ));
+        if (sp->Parameters.DeviceIoControl.IoControlCode == VIGIL_IOCTL_BLOCK_ADD) {
+            status = VigilBlockAdd(req->Kind, pattern, (USHORT)req->PatternBytes);
         } else {
-            status = EdrBlockRemove(req->Kind, pattern, (USHORT)req->PatternBytes);
+            status = VigilBlockRemove(req->Kind, pattern, (USHORT)req->PatternBytes);
         }
         information = 0;
         break;
     }
-    case EDR_IOCTL_BLOCK_CLEAR: {
-        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_BLOCK_CLEAR_REQ)) {
+    case VIGIL_IOCTL_BLOCK_CLEAR: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(VIGIL_BLOCK_CLEAR_REQ)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_BLOCK_CLEAR_REQ);
+            information = sizeof(VIGIL_BLOCK_CLEAR_REQ);
             break;
         }
-        PEDR_BLOCK_CLEAR_REQ req = (PEDR_BLOCK_CLEAR_REQ)Irp->AssociatedIrp.SystemBuffer;
-        status = EdrBlockClear(req->Kind);
+        PVIGIL_BLOCK_CLEAR_REQ req = (PVIGIL_BLOCK_CLEAR_REQ)Irp->AssociatedIrp.SystemBuffer;
+        status = VigilBlockClear(req->Kind);
         information = 0;
         break;
     }
-    case EDR_IOCTL_REGISTER_PROTECTED_PID: {
-        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(EDR_REGISTER_PID_REQ)) {
+    case VIGIL_IOCTL_REGISTER_PROTECTED_PID: {
+        if (sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(VIGIL_REGISTER_PID_REQ)) {
             status = STATUS_BUFFER_TOO_SMALL;
-            information = sizeof(EDR_REGISTER_PID_REQ);
+            information = sizeof(VIGIL_REGISTER_PID_REQ);
             break;
         }
-        PEDR_REGISTER_PID_REQ req = (PEDR_REGISTER_PID_REQ)Irp->AssociatedIrp.SystemBuffer;
+        PVIGIL_REGISTER_PID_REQ req = (PVIGIL_REGISTER_PID_REQ)Irp->AssociatedIrp.SystemBuffer;
         // The pid value travels through a single 64-bit slot read by the
         // ObCallback fast paths. Atomic exchange so concurrent ObCallback
         // executions see either the old or new value, never a torn read.
@@ -1661,7 +1661,7 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
 //     agent clears the slot when it shuts down cleanly so the driver
 //     stops protecting a dead pid that may be reused.
 
-#define EDR_DENY_PROCESS_BITS \
+#define VIGIL_DENY_PROCESS_BITS \
     (0x0001u  /* PROCESS_TERMINATE              */ | \
      0x0008u  /* PROCESS_VM_OPERATION           */ | \
      0x0010u  /* PROCESS_VM_READ                */ | \
@@ -1671,7 +1671,7 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
      0x0200u  /* PROCESS_SET_QUOTA              */ | \
      0x0800u  /* PROCESS_SUSPEND_RESUME         */)
 
-#define EDR_DENY_THREAD_BITS \
+#define VIGIL_DENY_THREAD_BITS \
     (0x0001u  /* THREAD_TERMINATE               */ | \
      0x0002u  /* THREAD_SUSPEND_RESUME          */ | \
      0x0008u  /* THREAD_GET_CONTEXT             */ | \
@@ -1682,7 +1682,7 @@ static NTSTATUS EdrDispatchDeviceControl(_In_ PDEVICE_OBJECT DeviceObject, _Inou
      0x0100u  /* THREAD_IMPERSONATE             */ | \
      0x0200u  /* THREAD_DIRECT_IMPERSONATION    */)
 
-static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
+static OB_PREOP_CALLBACK_STATUS VigilPreOpProcess(
     _In_ PVOID RegistrationContext,
     _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation)
 {
@@ -1726,7 +1726,7 @@ static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
     }
 
     ACCESS_MASK before = *mask;
-    ACCESS_MASK after  = before & ~(ACCESS_MASK)EDR_DENY_PROCESS_BITS;
+    ACCESS_MASK after  = before & ~(ACCESS_MASK)VIGIL_DENY_PROCESS_BITS;
     if (after != before) {
         *mask = after;
         InterlockedIncrement64(&g_SelfProtectHandleStripped);
@@ -1734,7 +1734,7 @@ static OB_PREOP_CALLBACK_STATUS EdrPreOpProcess(
     return OB_PREOP_SUCCESS;
 }
 
-static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
+static OB_PREOP_CALLBACK_STATUS VigilPreOpThread(
     _In_ PVOID RegistrationContext,
     _Inout_ POB_PRE_OPERATION_INFORMATION OperationInformation)
 {
@@ -1772,7 +1772,7 @@ static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
     }
 
     ACCESS_MASK before = *mask;
-    ACCESS_MASK after  = before & ~(ACCESS_MASK)EDR_DENY_THREAD_BITS;
+    ACCESS_MASK after  = before & ~(ACCESS_MASK)VIGIL_DENY_THREAD_BITS;
     if (after != before) {
         *mask = after;
         InterlockedIncrement64(&g_SelfProtectThreadStripped);
@@ -1780,7 +1780,7 @@ static OB_PREOP_CALLBACK_STATUS EdrPreOpThread(
     return OB_PREOP_SUCCESS;
 }
 
-static NTSTATUS EdrSelfProtectInit(VOID)
+static NTSTATUS VigilSelfProtectInit(VOID)
 {
     if (g_ObRegistrationHandle != NULL) {
         return STATUS_SUCCESS;  // already up
@@ -1793,10 +1793,10 @@ static NTSTATUS EdrSelfProtectInit(VOID)
     RtlZeroMemory(ops, sizeof(ops));
     ops[0].ObjectType   = PsProcessType;
     ops[0].Operations   = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    ops[0].PreOperation = EdrPreOpProcess;
+    ops[0].PreOperation = VigilPreOpProcess;
     ops[1].ObjectType   = PsThreadType;
     ops[1].Operations   = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;
-    ops[1].PreOperation = EdrPreOpThread;
+    ops[1].PreOperation = VigilPreOpThread;
 
     // Altitude must be unique across all ObRegisterCallbacks consumers on
     // the system; reuse our minifilter base 385100 + 1 so it sits beside us
@@ -1821,7 +1821,7 @@ static NTSTATUS EdrSelfProtectInit(VOID)
     return STATUS_SUCCESS;
 }
 
-static VOID EdrSelfProtectCleanup(VOID)
+static VOID VigilSelfProtectCleanup(VOID)
 {
     if (g_ObRegistrationHandle != NULL) {
         ObUnRegisterCallbacks(g_ObRegistrationHandle);

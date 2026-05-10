@@ -1,5 +1,5 @@
-//! Kernel driver IPC: open `\\.\edr` and drain events via
-//! `IOCTL_EDR_DRAIN_EVENTS`.
+//! Kernel driver IPC: open `\\.\Vigil` and drain events via
+//! `IOCTL_VIGIL_DRAIN_EVENTS`.
 //!
 //! Replaces the ferrisetw-based ETW collection from M2.3c with the kernel
 //! driver's event ring (M4.5). The driver must be installed and started
@@ -22,17 +22,17 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::IO::DeviceIoControl;
 
 // CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, function=0x801, METHOD_BUFFERED=0,
-//          FILE_ANY_ACCESS=0). Must match `EDR_IOCTL_DRAIN_EVENTS` in
-// `kernel-windows/edr.h`.
-const IOCTL_EDR_DRAIN_EVENTS: u32 = 0x222004;
-const IOCTL_EDR_KILL_PROCESS: u32 = 0x222008;
-const IOCTL_EDR_BLOCK_ADD: u32 = 0x22200C;
-const IOCTL_EDR_BLOCK_REMOVE: u32 = 0x222010;
+//          FILE_ANY_ACCESS=0). Must match `VIGIL_IOCTL_DRAIN_EVENTS` in
+// `kernel-windows/vigil.h`.
+const IOCTL_VIGIL_DRAIN_EVENTS: u32 = 0x222004;
+const IOCTL_VIGIL_KILL_PROCESS: u32 = 0x222008;
+const IOCTL_VIGIL_BLOCK_ADD: u32 = 0x22200C;
+const IOCTL_VIGIL_BLOCK_REMOVE: u32 = 0x222010;
 // Reserved — the driver supports a CLEAR IOCTL (0x222014) but agent-windows
 // doesn't currently expose it via a Command kind. Test scripts use it.
 // M7.2 self-protection: agent registers its own pid so the driver's
 // ObCallbacks know whose handles to filter.
-const IOCTL_EDR_REGISTER_PROTECTED_PID: u32 = 0x222018;
+const IOCTL_VIGIL_REGISTER_PROTECTED_PID: u32 = 0x222018;
 
 const BLOCK_KIND_PROCESS: u32 = 1;
 const BLOCK_KIND_FILE: u32 = 2;
@@ -50,9 +50,9 @@ pub struct DriverCtx {
     pub agent_version: String,
 }
 
-/// Open `\\.\edr`, spawn the drain thread, return.
+/// Open `\\.\Vigil`, spawn the drain thread, return.
 pub fn start(ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> {
-    let mut path: Vec<u16> = "\\\\.\\edr".encode_utf16().collect();
+    let mut path: Vec<u16> = "\\\\.\\Vigil".encode_utf16().collect();
     path.push(0);
 
     let handle = unsafe {
@@ -66,10 +66,10 @@ pub fn start(ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> {
             None,
         )
     }
-    .context("CreateFileW \\\\.\\edr (driver not loaded?)")?;
+    .context("CreateFileW \\\\.\\Vigil (driver not loaded?)")?;
 
     if handle.is_invalid() {
-        anyhow::bail!("invalid handle for \\\\.\\edr");
+        anyhow::bail!("invalid handle for \\\\.\\Vigil");
     }
 
     tracing::info!("driver.collector.opened");
@@ -110,7 +110,7 @@ fn drain_loop(handle: HANDLE, ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>
         let ok = unsafe {
             DeviceIoControl(
                 handle,
-                IOCTL_EDR_DRAIN_EVENTS,
+                IOCTL_VIGIL_DRAIN_EVENTS,
                 None,
                 0,
                 Some(buf.as_mut_ptr() as *mut c_void),
@@ -120,7 +120,7 @@ fn drain_loop(handle: HANDLE, ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>
             )
         };
         if ok.is_err() {
-            anyhow::bail!("DeviceIoControl(IOCTL_EDR_DRAIN_EVENTS) failed: {ok:?}");
+            anyhow::bail!("DeviceIoControl(IOCTL_VIGIL_DRAIN_EVENTS) failed: {ok:?}");
         }
 
         let n = bytes_returned as usize;
@@ -226,7 +226,7 @@ fn build_process_start(
 }
 
 fn build_network_connect(buf: &[u8], pid: u64, ctx: &DriverCtx) -> Option<p::ClientMessage> {
-    // Layout (matches kernel-windows/edr.h EDR_EVENT_NETWORK_CONNECT):
+    // Layout (matches kernel-windows/vigil.h VIGIL_EVENT_NETWORK_CONNECT):
     //   header(24) + IpVersion(1) + Protocol(1) + LocalPort(2 BE) +
     //   RemotePort(2 BE) + _Reserved(2) + LocalAddr(16) + RemoteAddr(16)
     if buf.len() < 64 {
@@ -307,10 +307,10 @@ fn utf16_to_string(bytes: &[u8]) -> String {
 
 use windows::Win32::Foundation::GENERIC_WRITE;
 
-/// Open `\\.\edr` for IOCTLs that need write access (kill, block, unblock).
+/// Open `\\.\Vigil` for IOCTLs that need write access (kill, block, unblock).
 /// Returns a usize-wrapped handle so the caller closes it explicitly.
 fn open_edr_for_ioctl() -> Result<HANDLE> {
-    let mut path: Vec<u16> = "\\\\.\\edr".encode_utf16().collect();
+    let mut path: Vec<u16> = "\\\\.\\Vigil".encode_utf16().collect();
     path.push(0);
     let handle = unsafe {
         CreateFileW(
@@ -323,9 +323,9 @@ fn open_edr_for_ioctl() -> Result<HANDLE> {
             None,
         )
     }
-    .context("CreateFileW \\\\.\\edr")?;
+    .context("CreateFileW \\\\.\\Vigil")?;
     if handle.is_invalid() {
-        anyhow::bail!("invalid handle for \\\\.\\edr");
+        anyhow::bail!("invalid handle for \\\\.\\Vigil");
     }
     Ok(handle)
 }
@@ -354,18 +354,18 @@ fn ioctl(handle: HANDLE, code: u32, in_buf: &[u8]) -> Result<()> {
 /// Pass 0 to clear (graceful shutdown). Reuses the already-open drain
 /// handle since we don't need write access for this IOCTL.
 fn register_protected_pid(handle: HANDLE) -> Result<()> {
-    // EDR_REGISTER_PID_REQ = UINT64 ProcessId.
+    // VIGIL_REGISTER_PID_REQ = UINT64 ProcessId.
     let pid = std::process::id() as u64;
     let buf = pid.to_le_bytes();
-    ioctl(handle, IOCTL_EDR_REGISTER_PROTECTED_PID, &buf)
+    ioctl(handle, IOCTL_VIGIL_REGISTER_PROTECTED_PID, &buf)
 }
 
 pub fn dispatch_kill_process(pid: u32) -> Result<()> {
     let handle = open_edr_for_ioctl()?;
     let result = (|| {
-        // EDR_KILL_PROCESS_REQ = UINT64 ProcessId
+        // VIGIL_KILL_PROCESS_REQ = UINT64 ProcessId
         let buf = (pid as u64).to_le_bytes();
-        ioctl(handle, IOCTL_EDR_KILL_PROCESS, &buf)
+        ioctl(handle, IOCTL_VIGIL_KILL_PROCESS, &buf)
     })();
     unsafe {
         let _ = CloseHandle(handle);
@@ -374,7 +374,7 @@ pub fn dispatch_kill_process(pid: u32) -> Result<()> {
 }
 
 fn block_request_buffer(kind: u32, pattern: &str) -> Vec<u8> {
-    // EDR_BLOCK_REQ = UINT32 Kind, UINT32 PatternBytes, then UTF-16 bytes.
+    // VIGIL_BLOCK_REQ = UINT32 Kind, UINT32 PatternBytes, then UTF-16 bytes.
     let utf16: Vec<u16> = pattern.encode_utf16().collect();
     let pattern_bytes = utf16.len() * 2;
     let mut buf = Vec::with_capacity(8 + pattern_bytes);
@@ -398,9 +398,9 @@ pub fn dispatch_block(kind_str: &str, pattern: &str, add: bool) -> Result<()> {
     let buf = block_request_buffer(kind, pattern);
     let handle = open_edr_for_ioctl()?;
     let code = if add {
-        IOCTL_EDR_BLOCK_ADD
+        IOCTL_VIGIL_BLOCK_ADD
     } else {
-        IOCTL_EDR_BLOCK_REMOVE
+        IOCTL_VIGIL_BLOCK_REMOVE
     };
     let result = ioctl(handle, code, &buf);
     unsafe {

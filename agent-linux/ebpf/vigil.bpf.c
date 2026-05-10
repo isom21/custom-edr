@@ -1,4 +1,4 @@
-// edr.bpf.c — kernel-side eBPF programs for the EDR Linux agent (M6).
+// vigil.bpf.c — kernel-side eBPF programs for the Vigil Linux agent (M6).
 //
 // Compiles to a single BTF-relocatable .bpf.o that the user-mode agent
 // loads via aya at startup. Each function is a separate program attached
@@ -29,33 +29,33 @@ char LICENSE[] SEC("license") = "GPL";
 // Stats array
 // ---------------------------------------------------------------------------
 
-enum edr_stat {
-    EDR_STAT_PROCESS_EXEC = 0,
-    EDR_STAT_PROCESS_EXIT,
-    EDR_STAT_FILE_OPEN,
-    EDR_STAT_NETWORK_CONNECT,
-    EDR_STAT_MODULE_LOAD,
-    EDR_STAT_PROCESS_BLOCK_HITS,
-    EDR_STAT_FILE_BLOCK_HITS,
-    EDR_STAT_NETWORK_BLOCK_HITS,
-    EDR_STAT_KILL_REQUESTS,
-    EDR_STAT_EVENTS_DROPPED,
+enum vigil_stat {
+    VIGIL_STAT_PROCESS_EXEC = 0,
+    VIGIL_STAT_PROCESS_EXIT,
+    VIGIL_STAT_FILE_OPEN,
+    VIGIL_STAT_NETWORK_CONNECT,
+    VIGIL_STAT_MODULE_LOAD,
+    VIGIL_STAT_PROCESS_BLOCK_HITS,
+    VIGIL_STAT_FILE_BLOCK_HITS,
+    VIGIL_STAT_NETWORK_BLOCK_HITS,
+    VIGIL_STAT_KILL_REQUESTS,
+    VIGIL_STAT_EVENTS_DROPPED,
     // M7.1 self-protection counters.
-    EDR_STAT_SELF_KILL_BLOCKED,
-    EDR_STAT_SELF_PTRACE_BLOCKED,
-    EDR_STAT_SELF_BPF_BLOCKED,
-    EDR_STAT_SELF_UNLINK_BLOCKED,
-    EDR_STAT_MAX,
+    VIGIL_STAT_SELF_KILL_BLOCKED,
+    VIGIL_STAT_SELF_PTRACE_BLOCKED,
+    VIGIL_STAT_SELF_BPF_BLOCKED,
+    VIGIL_STAT_SELF_UNLINK_BLOCKED,
+    VIGIL_STAT_MAX,
 };
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __type(key, __u32);
     __type(value, __u64);
-    __uint(max_entries, EDR_STAT_MAX);
+    __uint(max_entries, VIGIL_STAT_MAX);
 } stats SEC(".maps");
 
-static __always_inline void stat_inc(enum edr_stat which)
+static __always_inline void stat_inc(enum vigil_stat which)
 {
     __u32 key = (__u32)which;
     __u64 *v = bpf_map_lookup_elem(&stats, &key);
@@ -67,19 +67,19 @@ static __always_inline void stat_inc(enum edr_stat which)
 // Event ring + wire format
 // ---------------------------------------------------------------------------
 
-#define EDR_EVENT_KIND_PROCESS_START   1
-#define EDR_EVENT_KIND_PROCESS_EXIT    2
-#define EDR_EVENT_KIND_FILE_OPEN       3
-#define EDR_EVENT_KIND_NETWORK_CONNECT 4
-#define EDR_EVENT_KIND_MODULE_LOAD     5
+#define VIGIL_EVENT_KIND_PROCESS_START   1
+#define VIGIL_EVENT_KIND_PROCESS_EXIT    2
+#define VIGIL_EVENT_KIND_FILE_OPEN       3
+#define VIGIL_EVENT_KIND_NETWORK_CONNECT 4
+#define VIGIL_EVENT_KIND_MODULE_LOAD     5
 // 6..8 reserved to mirror Windows numbering.
 
-#define EDR_COMM_LEN 16
-#define EDR_PATH_MAX 384   // executable path; truncated if longer
+#define VIGIL_COMM_LEN 16
+#define VIGIL_PATH_MAX 384   // executable path; truncated if longer
 
-struct edr_event_header {
+struct vigil_event_header {
     __u32 size;            // total bytes including header + payload
-    __u32 kind;            // EDR_EVENT_KIND_*
+    __u32 kind;            // VIGIL_EVENT_KIND_*
     __u64 timestamp_ns;    // bpf_ktime_get_boot_ns()
     __u32 pid;
     __u32 ppid;
@@ -87,30 +87,30 @@ struct edr_event_header {
     __u32 gid;
 };
 
-struct edr_event_process_start {
-    struct edr_event_header header;
-    char comm[EDR_COMM_LEN];   // task->comm (basename, up to 15 chars)
+struct vigil_event_process_start {
+    struct vigil_event_header header;
+    char comm[VIGIL_COMM_LEN];   // task->comm (basename, up to 15 chars)
     __u32 path_len;            // bytes of `path` in use; 0 if absent
-    char path[EDR_PATH_MAX];   // full executable path via bpf_d_path
+    char path[VIGIL_PATH_MAX];   // full executable path via bpf_d_path
 };
 
-struct edr_event_process_exit {
-    struct edr_event_header header;
-    char comm[EDR_COMM_LEN];
+struct vigil_event_process_exit {
+    struct vigil_event_header header;
+    char comm[VIGIL_COMM_LEN];
     __s32 exit_code;
 };
 
-struct edr_event_file_open {
-    struct edr_event_header header;
-    char comm[EDR_COMM_LEN];
+struct vigil_event_file_open {
+    struct vigil_event_header header;
+    char comm[VIGIL_COMM_LEN];
     __u32 open_flags;          // f_flags from struct file
     __u32 path_len;
-    char path[EDR_PATH_MAX];
+    char path[VIGIL_PATH_MAX];
 };
 
-struct edr_event_network_connect {
-    struct edr_event_header header;
-    char comm[EDR_COMM_LEN];
+struct vigil_event_network_connect {
+    struct vigil_event_header header;
+    char comm[VIGIL_COMM_LEN];
     __u8  family;              // AF_INET or AF_INET6
     __u8  protocol;             // IPPROTO_TCP / IPPROTO_UDP / etc.
     __u16 src_port;             // host byte order, may be 0 pre-connect
@@ -120,13 +120,13 @@ struct edr_event_network_connect {
     __u8  dst_addr[16];
 };
 
-#define EDR_MODULE_NAME_MAX 64
+#define VIGIL_MODULE_NAME_MAX 64
 
-struct edr_event_module_load {
-    struct edr_event_header header;
-    char comm[EDR_COMM_LEN];     // task that triggered load (modprobe, insmod, …)
+struct vigil_event_module_load {
+    struct vigil_event_header header;
+    char comm[VIGIL_COMM_LEN];     // task that triggered load (modprobe, insmod, …)
     __u32 name_len;              // bytes used in `name`
-    char  name[EDR_MODULE_NAME_MAX];
+    char  name[VIGIL_MODULE_NAME_MAX];
 };
 
 struct {
@@ -134,29 +134,29 @@ struct {
     __uint(max_entries, 1 << 20);
 } events SEC(".maps");
 
-// Block-list maps. Keys are zero-padded 256-byte paths (EDR_BLOCK_KEY_LEN);
+// Block-list maps. Keys are zero-padded 256-byte paths (VIGIL_BLOCK_KEY_LEN);
 // values are 1 byte (presence == "block"). BPF_F_NO_PREALLOC keeps the
 // kernel from preallocating max_entries × 256 bytes up front.
-#define EDR_BLOCK_KEY_LEN 256
-#define EDR_BLOCK_MAX     256
+#define VIGIL_BLOCK_KEY_LEN 256
+#define VIGIL_BLOCK_MAX     256
 
-struct edr_block_key {
-    char path[EDR_BLOCK_KEY_LEN];
+struct vigil_block_key {
+    char path[VIGIL_BLOCK_KEY_LEN];
 };
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, struct edr_block_key);
+    __type(key, struct vigil_block_key);
     __type(value, __u8);
-    __uint(max_entries, EDR_BLOCK_MAX);
+    __uint(max_entries, VIGIL_BLOCK_MAX);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } process_block SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, struct edr_block_key);
+    __type(key, struct vigil_block_key);
     __type(value, __u8);
-    __uint(max_entries, EDR_BLOCK_MAX);
+    __uint(max_entries, VIGIL_BLOCK_MAX);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } file_block SEC(".maps");
 
@@ -169,7 +169,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, __u32);
-    __type(value, struct edr_block_key);
+    __type(value, struct vigil_block_key);
     __uint(max_entries, 1);
 } block_scratch SEC(".maps");
 
@@ -197,7 +197,7 @@ struct {
 //     `agent_self` value during restart-after-crash.
 // ---------------------------------------------------------------------------
 
-#define EDR_SELF_KEY 0  // index in agent_self
+#define VIGIL_SELF_KEY 0  // index in agent_self
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -206,7 +206,7 @@ struct {
     __uint(max_entries, 1);
 } agent_self SEC(".maps");
 
-struct edr_inode_key {
+struct vigil_inode_key {
     __u32 dev;
     __u32 _pad;
     __u64 ino;
@@ -214,7 +214,7 @@ struct edr_inode_key {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, struct edr_inode_key);
+    __type(key, struct vigil_inode_key);
     __type(value, __u8);
     __uint(max_entries, 32);
     __uint(map_flags, BPF_F_NO_PREALLOC);
@@ -222,7 +222,7 @@ struct {
 
 static __always_inline __u32 self_tgid(void)
 {
-    __u32 zero = EDR_SELF_KEY;
+    __u32 zero = VIGIL_SELF_KEY;
     __u32 *p = bpf_map_lookup_elem(&agent_self, &zero);
     return p ? *p : 0;  // 0 = not set yet -> all hooks no-op
 }
@@ -237,7 +237,7 @@ static __always_inline int is_protected_dir_inode(struct inode *dir)
 {
     if (!dir)
         return 0;
-    struct edr_inode_key key = {};
+    struct vigil_inode_key key = {};
     key.dev = (__u32)BPF_CORE_READ(dir, i_sb, s_dev);
     key.ino = BPF_CORE_READ(dir, i_ino);
     __u8 *hit = bpf_map_lookup_elem(&protected_inodes, &key);
@@ -265,7 +265,7 @@ int BPF_PROG(handle_task_kill, struct task_struct *p,
     __u32 caller = caller_tgid();
     if (caller == self || caller == 1)
         return 0;
-    stat_inc(EDR_STAT_SELF_KILL_BLOCKED);
+    stat_inc(VIGIL_STAT_SELF_KILL_BLOCKED);
     return -1; // -EPERM
 }
 
@@ -285,7 +285,7 @@ int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int
     __u32 caller = caller_tgid();
     if (caller == self)
         return 0;
-    stat_inc(EDR_STAT_SELF_PTRACE_BLOCKED);
+    stat_inc(VIGIL_STAT_SELF_PTRACE_BLOCKED);
     return -1;
 }
 
@@ -310,7 +310,7 @@ int BPF_PROG(handle_bpf_lsm, int cmd, union bpf_attr *attr, unsigned int size)
     if (caller == self)
         return 0;
     if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH) {
-        stat_inc(EDR_STAT_SELF_BPF_BLOCKED);
+        stat_inc(VIGIL_STAT_SELF_BPF_BLOCKED);
         return -1;
     }
     return 0;
@@ -329,7 +329,7 @@ int BPF_PROG(handle_inode_unlink, struct inode *dir, struct dentry *dentry)
     if (caller == self)
         return 0;
     if (is_protected_dir_inode(dir)) {
-        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        stat_inc(VIGIL_STAT_SELF_UNLINK_BLOCKED);
         return -1;
     }
     return 0;
@@ -346,7 +346,7 @@ int BPF_PROG(handle_inode_rmdir, struct inode *dir, struct dentry *dentry)
     if (caller == self)
         return 0;
     if (is_protected_dir_inode(dir)) {
-        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        stat_inc(VIGIL_STAT_SELF_UNLINK_BLOCKED);
         return -1;
     }
     return 0;
@@ -368,13 +368,13 @@ int BPF_PROG(handle_inode_rename, struct inode *old_dir, struct dentry *old_dent
     if (caller == self)
         return 0;
     if (is_protected_dir_inode(old_dir) || is_protected_dir_inode(new_dir)) {
-        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        stat_inc(VIGIL_STAT_SELF_UNLINK_BLOCKED);
         return -1;
     }
     return 0;
 }
 
-static __always_inline void fill_header_common(struct edr_event_header *h, __u32 kind, __u32 size)
+static __always_inline void fill_header_common(struct vigil_event_header *h, __u32 kind, __u32 size)
 {
     h->size = size;
     h->kind = kind;
@@ -402,15 +402,15 @@ SEC("tracepoint/sched/sched_process_exec")
 int handle_sched_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
     (void)ctx;
-    stat_inc(EDR_STAT_PROCESS_EXEC);
+    stat_inc(VIGIL_STAT_PROCESS_EXEC);
 
-    struct edr_event_process_start *e =
+    struct vigil_event_process_start *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        stat_inc(VIGIL_STAT_EVENTS_DROPPED);
         return 0;
     }
-    fill_header_common(&e->header, EDR_EVENT_KIND_PROCESS_START, sizeof(*e));
+    fill_header_common(&e->header, VIGIL_EVENT_KIND_PROCESS_START, sizeof(*e));
 
     // ppid: walk current->real_parent->tgid via CO-RE.
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
@@ -436,8 +436,8 @@ int handle_sched_exec(struct trace_event_raw_sched_process_exec *ctx)
     bpf_probe_read_kernel(&dl, sizeof(dl), (void *)ctx + 8);
     __u32 off = dl & 0xFFFF;
     __u32 len = (dl >> 16) & 0xFFFF;
-    if (len > EDR_PATH_MAX) {
-        len = EDR_PATH_MAX;
+    if (len > VIGIL_PATH_MAX) {
+        len = VIGIL_PATH_MAX;
     }
     if (len > 0) {
         long n = bpf_probe_read_kernel_str(&e->path, len, (void *)ctx + off);
@@ -472,15 +472,15 @@ int handle_sched_exit(struct trace_event_raw_sched_process_template *ctx)
         return 0;
     }
 
-    stat_inc(EDR_STAT_PROCESS_EXIT);
+    stat_inc(VIGIL_STAT_PROCESS_EXIT);
 
-    struct edr_event_process_exit *e =
+    struct vigil_event_process_exit *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        stat_inc(VIGIL_STAT_EVENTS_DROPPED);
         return 0;
     }
-    fill_header_common(&e->header, EDR_EVENT_KIND_PROCESS_EXIT, sizeof(*e));
+    fill_header_common(&e->header, VIGIL_EVENT_KIND_PROCESS_EXIT, sizeof(*e));
 
     bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
@@ -526,14 +526,14 @@ int BPF_PROG(handle_file_open, struct file *file)
     if (!file)
         return 0;
 
-    struct edr_event_file_open *e =
+    struct vigil_event_file_open *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        stat_inc(VIGIL_STAT_EVENTS_DROPPED);
         return 0;
     }
 
-    fill_header_common(&e->header, EDR_EVENT_KIND_FILE_OPEN, sizeof(*e));
+    fill_header_common(&e->header, VIGIL_EVENT_KIND_FILE_OPEN, sizeof(*e));
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task) {
@@ -571,19 +571,19 @@ int BPF_PROG(handle_file_open, struct file *file)
     // and leaves the rest of the (zero-initialized) key untouched — so
     // it perfectly mirrors what the userspace `block_key()` produces.
     int ret = 0;
-    if (e->path_len > 0 && e->path_len <= EDR_BLOCK_KEY_LEN) {
-        struct edr_block_key key = {};
+    if (e->path_len > 0 && e->path_len <= VIGIL_BLOCK_KEY_LEN) {
+        struct vigil_block_key key = {};
         long m = bpf_probe_read_kernel_str(key.path, sizeof(key.path), e->path);
         if (m > 0) {
             __u8 *hit = bpf_map_lookup_elem(&file_block, &key);
             if (hit) {
-                stat_inc(EDR_STAT_FILE_BLOCK_HITS);
+                stat_inc(VIGIL_STAT_FILE_BLOCK_HITS);
                 ret = -1; // -EPERM
             }
         }
     }
 
-    stat_inc(EDR_STAT_FILE_OPEN);
+    stat_inc(VIGIL_STAT_FILE_OPEN);
     bpf_ringbuf_submit(e, 0);
     return ret;
 }
@@ -612,22 +612,22 @@ int BPF_PROG(handle_bprm_check, struct linux_binprm *bprm)
     // per-CPU scratch buffer for the d_path output (declared as a map
     // so it doesn't hit the 512-byte BPF stack limit).
     __u32 zero = 0;
-    struct edr_block_key *scratch = bpf_map_lookup_elem(&block_scratch, &zero);
+    struct vigil_block_key *scratch = bpf_map_lookup_elem(&block_scratch, &zero);
     if (!scratch)
         return 0;
 
     long n = bpf_d_path(&bprm->file->f_path, scratch->path, sizeof(scratch->path));
-    if (n <= 0 || n > EDR_BLOCK_KEY_LEN)
+    if (n <= 0 || n > VIGIL_BLOCK_KEY_LEN)
         return 0;
 
-    struct edr_block_key key = {};
+    struct vigil_block_key key = {};
     long m = bpf_probe_read_kernel_str(key.path, sizeof(key.path), scratch->path);
     if (m <= 0)
         return 0;
 
     __u8 *hit = bpf_map_lookup_elem(&process_block, &key);
     if (hit) {
-        stat_inc(EDR_STAT_PROCESS_BLOCK_HITS);
+        stat_inc(VIGIL_STAT_PROCESS_BLOCK_HITS);
         return -1; // -EPERM
     }
     return 0;
@@ -661,14 +661,14 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
     if (fam != AF_INET && fam != AF_INET6)
         return 0;
 
-    struct edr_event_network_connect *e =
+    struct vigil_event_network_connect *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        stat_inc(VIGIL_STAT_EVENTS_DROPPED);
         return 0;
     }
 
-    fill_header_common(&e->header, EDR_EVENT_KIND_NETWORK_CONNECT, sizeof(*e));
+    fill_header_common(&e->header, VIGIL_EVENT_KIND_NETWORK_CONNECT, sizeof(*e));
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task) {
         struct task_struct *parent = BPF_CORE_READ(task, real_parent);
@@ -707,7 +707,7 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
         }
     }
 
-    stat_inc(EDR_STAT_NETWORK_CONNECT);
+    stat_inc(VIGIL_STAT_NETWORK_CONNECT);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
@@ -724,13 +724,13 @@ int BPF_PROG(handle_socket_connect, struct socket *sock, struct sockaddr *addres
 SEC("tracepoint/module/module_load")
 int handle_module_load(void *ctx)
 {
-    struct edr_event_module_load *e =
+    struct vigil_event_module_load *e =
         bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
-        stat_inc(EDR_STAT_EVENTS_DROPPED);
+        stat_inc(VIGIL_STAT_EVENTS_DROPPED);
         return 0;
     }
-    fill_header_common(&e->header, EDR_EVENT_KIND_MODULE_LOAD, sizeof(*e));
+    fill_header_common(&e->header, VIGIL_EVENT_KIND_MODULE_LOAD, sizeof(*e));
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task) {
         struct task_struct *parent = BPF_CORE_READ(task, real_parent);
@@ -745,15 +745,15 @@ int handle_module_load(void *ctx)
     bpf_probe_read_kernel(&dl, sizeof(dl), (void *)ctx + 12);
     __u32 off = dl & 0xFFFF;
     __u32 len = (dl >> 16) & 0xFFFF;
-    if (len > EDR_MODULE_NAME_MAX)
-        len = EDR_MODULE_NAME_MAX;
+    if (len > VIGIL_MODULE_NAME_MAX)
+        len = VIGIL_MODULE_NAME_MAX;
     if (len > 0) {
         long n = bpf_probe_read_kernel_str(&e->name, len, (void *)ctx + off);
         if (n > 0)
             e->name_len = (__u32)n;
     }
 
-    stat_inc(EDR_STAT_MODULE_LOAD);
+    stat_inc(VIGIL_STAT_MODULE_LOAD);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

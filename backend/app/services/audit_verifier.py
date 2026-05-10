@@ -64,7 +64,7 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
     async for row in (await db.stream(stmt)).scalars():
         rows_examined += 1
         if row.row_hmac is None:
-            # Pre-chain row, or a row written while EDR_AUDIT_HMAC_KEY
+            # Pre-chain row, or a row written while VIGIL_AUDIT_HMAC_KEY
             # was unset. Skip without breaking the chain — the chain
             # resumes at the next non-null row.
             continue
@@ -109,7 +109,7 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
         try:
             expected = compute_row_hmac(row.prev_hmac, canonical)
         except RuntimeError:
-            # EDR_AUDIT_HMAC_KEY unset — can't verify.
+            # VIGIL_AUDIT_HMAC_KEY unset — can't verify.
             return VerifyResult(rows_examined, chain_rows, breaks)
         if expected != row.row_hmac:
             breaks.append(

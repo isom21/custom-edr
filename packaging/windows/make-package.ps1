@@ -1,7 +1,7 @@
 # make-package.ps1 - assemble a versioned ZIP of the Windows installer.
 #
-# Run on a host that has just built edr.sys (kernel-windows) and
-# edr-agent.exe (cargo build -p agent-windows --release). Drops the ZIP
+# Run on a host that has just built vigil.sys (kernel-windows) and
+# vigil-agent.exe (cargo build -p agent-windows --release). Drops the ZIP
 # under target\windows-package\.
 
 [CmdletBinding()]
@@ -21,27 +21,27 @@ if (-not $Repo) {
 $here = Join-Path $Repo 'packaging\windows'
 
 $out = Join-Path $Repo "target\windows-package"
-$staging = Join-Path $out "edr-windows-$Version"
-$zip = Join-Path $out "edr-windows-$Version.zip"
+$staging = Join-Path $out "vigil-windows-$Version"
+$zip = Join-Path $out "vigil-windows-$Version.zip"
 
 if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
 if (Test-Path $zip) { Remove-Item -Force $zip }
 New-Item -Path $staging -ItemType Directory -Force | Out-Null
 
 # Required artefacts.
-$agent  = Join-Path $Repo 'target\release\edr-agent.exe'
-$driver = Join-Path $Repo 'kernel-windows\edr.sys'
+$agent  = Join-Path $Repo 'target\release\vigil-agent.exe'
+$driver = Join-Path $Repo 'kernel-windows\vigil.sys'
 $missing = @()
 if (-not (Test-Path $agent))  { $missing += $agent }
 if (-not (Test-Path $driver)) { $missing += $driver }
 if ($missing.Count) { throw "missing artefacts: $($missing -join ', ')" }
 
-Copy-Item $agent  (Join-Path $staging 'edr-agent.exe')
-Copy-Item $driver (Join-Path $staging 'edr.sys')
+Copy-Item $agent  (Join-Path $staging 'vigil-agent.exe')
+Copy-Item $driver (Join-Path $staging 'vigil.sys')
 
 # PS scripts + docs.
-Copy-Item (Join-Path $here 'install-edr.ps1')   $staging
-Copy-Item (Join-Path $here 'uninstall-edr.ps1') $staging
+Copy-Item (Join-Path $here 'install-vigil.ps1')   $staging
+Copy-Item (Join-Path $here 'uninstall-vigil.ps1') $staging
 Copy-Item (Join-Path $here 'README.md')         $staging
 Copy-Item (Join-Path $here 'agent.env.example') $staging
 

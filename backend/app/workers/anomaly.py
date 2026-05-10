@@ -9,14 +9,14 @@ Run with:
     python -m app.workers.anomaly
 
 Configurable via env:
-    EDR_ANOMALY_KNOWN_LAUNCHERS  comma-separated list of executables
+    VIGIL_ANOMALY_KNOWN_LAUNCHERS  comma-separated list of executables
                                   treated as boring launch sources
                                   (default: systemd, init, cron,
                                   bash, sshd, sh, dbus-daemon, runc,
                                   containerd-shim, docker-shim,
                                   explorer.exe, services.exe,
                                   svchost.exe, taskhostw.exe)
-    EDR_ANOMALY_MIN_FLEET_HOURS  refuse to alert until the fleet has
+    VIGIL_ANOMALY_MIN_FLEET_HOURS  refuse to alert until the fleet has
                                   been observed for this many hours;
                                   prevents bootstrap-time noise
                                   (default 1)
@@ -90,7 +90,7 @@ DEFAULT_KNOWN_LAUNCHERS = (
 
 
 def _known_launchers() -> set[str]:
-    raw = os.environ.get("EDR_ANOMALY_KNOWN_LAUNCHERS")
+    raw = os.environ.get("VIGIL_ANOMALY_KNOWN_LAUNCHERS")
     if raw:
         return {s.strip() for s in raw.split(",") if s.strip()}
     return set(DEFAULT_KNOWN_LAUNCHERS)
@@ -102,7 +102,7 @@ class AnomalyWorker:
         self._stop = asyncio.Event()
         self._known_launchers = _known_launchers()
         self._started_at = datetime.now(UTC)
-        self._min_fleet_hours = int(os.environ.get("EDR_ANOMALY_MIN_FLEET_HOURS", 1))
+        self._min_fleet_hours = int(os.environ.get("VIGIL_ANOMALY_MIN_FLEET_HOURS", 1))
 
     async def start(self) -> None:
         await self._ensure_pseudo_rule()

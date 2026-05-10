@@ -149,7 +149,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     # We never reject the enrollment (legitimate workflows need it
     # to succeed), but we attach an Alert so the recent-enrollment
     # gets flagged for human review.
-    reenrollment_window_seconds = int(os.environ.get("EDR_REENROLLMENT_WINDOW_SECONDS", 3600))
+    reenrollment_window_seconds = int(os.environ.get("VIGIL_REENROLLMENT_WINDOW_SECONDS", 3600))
     reenrollment_cutoff = now - timedelta(seconds=reenrollment_window_seconds)
     prior_host = (
         await db.execute(

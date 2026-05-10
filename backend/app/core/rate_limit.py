@@ -14,12 +14,12 @@ Logged events:
                  payload={"limit": N, "role": "...", "ip": "..."})
 
 Configurable via env (single source of truth; settings.py reads
-these with the EDR_RL_ prefix):
-    EDR_RL_USER_ADMIN_PER_MIN     default 600
-    EDR_RL_USER_ANALYST_PER_MIN   default 300
-    EDR_RL_USER_VIEWER_PER_MIN    default 120
-    EDR_RL_API_TOKEN_PER_MIN      default 600
-    EDR_RL_ANON_PER_MIN           default 10  (per IP for /enroll)
+these with the VIGIL_RL_ prefix):
+    VIGIL_RL_USER_ADMIN_PER_MIN     default 600
+    VIGIL_RL_USER_ANALYST_PER_MIN   default 300
+    VIGIL_RL_USER_VIEWER_PER_MIN    default 120
+    VIGIL_RL_API_TOKEN_PER_MIN      default 600
+    VIGIL_RL_ANON_PER_MIN           default 10  (per IP for /enroll)
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ def _env_int(name: str, default: int) -> int:
 WINDOW_S: Final[int] = 60
 
 LIMITS: Final[dict[str, int]] = {
-    "admin": _env_int("EDR_RL_USER_ADMIN_PER_MIN", 600),
-    "analyst": _env_int("EDR_RL_USER_ANALYST_PER_MIN", 300),
-    "viewer": _env_int("EDR_RL_USER_VIEWER_PER_MIN", 120),
-    "api_token": _env_int("EDR_RL_API_TOKEN_PER_MIN", 600),
-    "anon": _env_int("EDR_RL_ANON_PER_MIN", 10),
+    "admin": _env_int("VIGIL_RL_USER_ADMIN_PER_MIN", 600),
+    "analyst": _env_int("VIGIL_RL_USER_ANALYST_PER_MIN", 300),
+    "viewer": _env_int("VIGIL_RL_USER_VIEWER_PER_MIN", 120),
+    "api_token": _env_int("VIGIL_RL_API_TOKEN_PER_MIN", 600),
+    "anon": _env_int("VIGIL_RL_ANON_PER_MIN", 10),
 }
 
 EXEMPT_PATHS: Final[set[str]] = {

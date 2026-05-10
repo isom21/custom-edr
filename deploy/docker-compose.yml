@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: edr
-      POSTGRES_PASSWORD: edr_dev_password
+      POSTGRES_PASSWORD: vigil_dev_password
       POSTGRES_DB: edr
     ports:
       - "5432:5432"

@@ -36,7 +36,7 @@ class AuditLog(UuidPkMixin, Base):
     # M12.f: monotonic sequence + HMAC chain. seq is server-defaulted
     # via the audit_log_seq sequence and uniquely indexed; prev_hmac
     # and row_hmac are populated by the audit service when
-    # EDR_AUDIT_HMAC_KEY is configured. Nullable for backward compat
+    # VIGIL_AUDIT_HMAC_KEY is configured. Nullable for backward compat
     # with rows written before the chain went live.
     seq: Mapped[int] = mapped_column(
         BigInteger,

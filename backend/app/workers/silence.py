@@ -22,8 +22,8 @@ Run with:
     python -m app.workers.silence
 
 Configurable via env:
-    EDR_SILENCE_THRESHOLD_SECONDS  silence trigger (default 600)
-    EDR_SILENCE_TICK_SECONDS       scan cadence (default 60)
+    VIGIL_SILENCE_THRESHOLD_SECONDS  silence trigger (default 600)
+    VIGIL_SILENCE_TICK_SECONDS       scan cadence (default 60)
 """
 
 from __future__ import annotations
@@ -61,9 +61,9 @@ class SilenceWorker:
     def __init__(self) -> None:
         self._stop = asyncio.Event()
         self._threshold = timedelta(
-            seconds=int(os.environ.get("EDR_SILENCE_THRESHOLD_SECONDS", 600))
+            seconds=int(os.environ.get("VIGIL_SILENCE_THRESHOLD_SECONDS", 600))
         )
-        self._tick = float(os.environ.get("EDR_SILENCE_TICK_SECONDS", 60))
+        self._tick = float(os.environ.get("VIGIL_SILENCE_TICK_SECONDS", 60))
         # In-memory dedup: host_ids that already have an open silence
         # alert. Cleared when we see the host go non-silent again.
         self._open_alerts: set[UUID] = set()

@@ -1,4 +1,4 @@
-# test-kill.ps1 - issue IOCTL_EDR_KILL_PROCESS for a target PID.
+# test-kill.ps1 - issue IOCTL_VIGIL_KILL_PROCESS for a target PID.
 #
 # Usage:
 #   .\test-kill.ps1 -TargetPid 1234   kill PID 1234
@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 
 # CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, function=0x802, METHOD_BUFFERED=0,
 #          FILE_ANY_ACCESS=0).
-$IOCTL_EDR_KILL_PROCESS = 0x222008
+$IOCTL_VIGIL_KILL_PROCESS = 0x222008
 
 if (-not ('Edr.NativeKill' -as [type])) {
     Add-Type -Namespace Edr -Name NativeKill -MemberDefinition @'
@@ -32,24 +32,24 @@ public static extern bool CloseHandle(System.IntPtr hObject);
 '@
 }
 
-function Send-EdrKill {
+function Send-VigilKill {
     param([Parameter(Mandatory)][long]$Target)
 
     $GENERIC_RW = [uint32]3221225472
-    $h = [Edr.NativeKill]::CreateFileW("\\.\edr", $GENERIC_RW, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
+    $h = [Edr.NativeKill]::CreateFileW("\\.\Vigil", $GENERIC_RW, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
     if ($h -eq [IntPtr]::new(-1)) {
         $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw ('CreateFile \\.\edr failed: ' + $err)
+        throw ('CreateFile \\.\Vigil failed: ' + $err)
     }
     try {
         $buf = [System.Runtime.InteropServices.Marshal]::AllocHGlobal(8)
         try {
             [System.Runtime.InteropServices.Marshal]::WriteInt64($buf, $Target)
             $bytesReturned = 0
-            $ok = [Edr.NativeKill]::DeviceIoControl($h, $IOCTL_EDR_KILL_PROCESS, $buf, 8, [IntPtr]::Zero, 0, [ref]$bytesReturned, [IntPtr]::Zero)
+            $ok = [Edr.NativeKill]::DeviceIoControl($h, $IOCTL_VIGIL_KILL_PROCESS, $buf, 8, [IntPtr]::Zero, 0, [ref]$bytesReturned, [IntPtr]::Zero)
             if (-not $ok) {
                 $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-                throw ('DeviceIoControl(IOCTL_EDR_KILL_PROCESS, pid=' + $Target + ') failed: ' + $err)
+                throw ('DeviceIoControl(IOCTL_VIGIL_KILL_PROCESS, pid=' + $Target + ') failed: ' + $err)
             }
         } finally {
             [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buf)
@@ -67,7 +67,7 @@ if ($SpawnTest) {
         throw ('notepad exited before kill could land (pid=' + $proc.Id + ')')
     }
     Write-Host ('notepad pid=' + $proc.Id + ' alive - killing via driver IOCTL...')
-    Send-EdrKill -Target $proc.Id
+    Send-VigilKill -Target $proc.Id
     Start-Sleep -Milliseconds 500
     $still = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
     if ($still) {
@@ -79,7 +79,7 @@ if ($SpawnTest) {
 }
 
 if ($TargetPid) {
-    Send-EdrKill -Target $TargetPid
+    Send-VigilKill -Target $TargetPid
     Write-Host ('kill IOCTL delivered for pid=' + $TargetPid)
     exit 0
 }

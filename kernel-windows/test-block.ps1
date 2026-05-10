@@ -43,12 +43,12 @@ public static extern bool CloseHandle(System.IntPtr hObject);
 '@
 }
 
-function Open-EdrDevice {
+function Open-VigilDevice {
     $GENERIC_RW = [uint32]3221225472
-    $h = [Edr.NativeBlock]::CreateFileW("\\.\edr", $GENERIC_RW, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
+    $h = [Edr.NativeBlock]::CreateFileW("\\.\Vigil", $GENERIC_RW, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
     if ($h -eq [IntPtr]::new(-1)) {
         $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw ('CreateFile \\.\edr failed: ' + $err)
+        throw ('CreateFile \\.\Vigil failed: ' + $err)
     }
     return $h
 }
@@ -73,14 +73,14 @@ function Send-Ioctl {
 function Block-Add {
     param([int]$KindNum, [string]$Pattern)
     $patternBytes = [System.Text.Encoding]::Unicode.GetBytes($Pattern)
-    # EDR_BLOCK_REQ: UINT32 Kind, UINT32 PatternBytes, then pattern.
+    # VIGIL_BLOCK_REQ: UINT32 Kind, UINT32 PatternBytes, then pattern.
     $hdr = New-Object byte[] 8
     [BitConverter]::GetBytes([uint32]$KindNum).CopyTo($hdr, 0)
     [BitConverter]::GetBytes([uint32]$patternBytes.Length).CopyTo($hdr, 4)
     $body = New-Object byte[] ($hdr.Length + $patternBytes.Length)
     $hdr.CopyTo($body, 0)
     $patternBytes.CopyTo($body, $hdr.Length)
-    $h = Open-EdrDevice
+    $h = Open-VigilDevice
     try { Send-Ioctl -Handle $h -Code $IOCTL_BLOCK_ADD -InBytes $body } finally { [void][Edr.NativeBlock]::CloseHandle($h) }
 }
 
@@ -93,7 +93,7 @@ function Block-Remove {
     $body = New-Object byte[] ($hdr.Length + $patternBytes.Length)
     $hdr.CopyTo($body, 0)
     $patternBytes.CopyTo($body, $hdr.Length)
-    $h = Open-EdrDevice
+    $h = Open-VigilDevice
     try { Send-Ioctl -Handle $h -Code $IOCTL_BLOCK_REMOVE -InBytes $body } finally { [void][Edr.NativeBlock]::CloseHandle($h) }
 }
 
@@ -101,7 +101,7 @@ function Block-Clear {
     param([int]$KindNum)
     $body = New-Object byte[] 4
     [BitConverter]::GetBytes([uint32]$KindNum).CopyTo($body, 0)
-    $h = Open-EdrDevice
+    $h = Open-VigilDevice
     try { Send-Ioctl -Handle $h -Code $IOCTL_BLOCK_CLEAR -InBytes $body } finally { [void][Edr.NativeBlock]::CloseHandle($h) }
 }
 

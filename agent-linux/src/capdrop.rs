@@ -30,7 +30,7 @@
 //! so even a child process the agent forks (none in normal operation,
 //! but defensive) can't regain dropped capabilities via setuid-root.
 //!
-//! Disable with `EDR_DISABLE_CAPDROP=1` for debug runs where you
+//! Disable with `VIGIL_DISABLE_CAPDROP=1` for debug runs where you
 //! need full root powers (e.g. running strace against the agent).
 
 #![cfg(target_os = "linux")]

@@ -2,7 +2,7 @@
 
 Adds tamper-evidence to the existing append-only audit log: every
 new row carries an HMAC of (prev_row_hmac || canonical_payload),
-keyed off EDR_AUDIT_HMAC_KEY. A periodic verifier walks the chain
+keyed off VIGIL_AUDIT_HMAC_KEY. A periodic verifier walks the chain
 and reports breaks — the only ways a chain breaks are:
 
   * A row was UPDATEd (which the M16.a INSERT-only privileges

@@ -43,7 +43,7 @@ use windows_service::service_control_handler::{self, ServiceControlHandlerResult
 use windows_service::service_dispatcher;
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
-pub const SERVICE_NAME: &str = "EDRAgent";
+pub const SERVICE_NAME: &str = "VigilAgent";
 pub const SERVICE_DISPLAY: &str = "EDR Endpoint Agent";
 pub const SERVICE_DESCRIPTION: &str =
     "Endpoint detection and response agent. Runs as SYSTEM and talks to the EDR manager via gRPC.";

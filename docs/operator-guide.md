@@ -15,12 +15,12 @@ Companion docs:
 | Term | Meaning |
 |---|---|
 | Manager | The FastAPI backend + UI + workers running centrally. |
-| Agent | The endpoint binary (`edr-agent`) running on each protected host. |
-| Driver | Windows-only kernel component (`edr.sys`) the agent talks to via IOCTL. |
+| Agent | The endpoint binary (`vigil-agent`) running on each protected host. |
+| Driver | Windows-only kernel component (`vigil.sys`) the agent talks to via IOCTL. |
 | Host | A single endpoint enrolled with the manager (one row in PG `hosts`). |
 | Host group | A label-bucket of hosts used for RBAC scoping (M7.5). |
 | Enrollment token | One-time secret minted by an admin, consumed by the agent on first run. |
-| Pin path | bpffs directory (`/sys/fs/bpf/edr/`) where the Linux agent's BPF programs/links/maps are kept alive across crashes. |
+| Pin path | bpffs directory (`/sys/fs/bpf/vigil/`) where the Linux agent's BPF programs/links/maps are kept alive across crashes. |
 
 ## Provisioning a new endpoint
 
@@ -83,12 +83,12 @@ curl -s "$MANAGER_REST/api/hosts/$HOST_ID/commands" -X POST \
 ```bash
 # Build the new deb, copy to endpoint:
 make agent-linux-deb
-scp target/debian/edr-agent_*.deb endpoint:/tmp/
+scp target/debian/vigil-agent_*.deb endpoint:/tmp/
 
 # On endpoint:
-apt-get install -y /tmp/edr-agent_*.deb     # postinst handles daemon-reload
-systemctl restart edr-agent
-journalctl -u edr-agent -f                  # watch takeover + reload
+apt-get install -y /tmp/vigil-agent_*.deb     # postinst handles daemon-reload
+systemctl restart vigil-agent
+journalctl -u vigil-agent -f                  # watch takeover + reload
 ```
 
 The takeover protocol claims any pinned BPF objects from the running
@@ -98,9 +98,9 @@ restart; documented in `threat-model.md`.
 ### Windows
 
 ```powershell
-.\edr-windows-0.1.0\install-edr.ps1   # idempotent; reuses identity material
+.\vigil-windows-0.1.0\install-vigil.ps1   # idempotent; reuses identity material
 sc.exe stop edr; sc.exe start edr
-Stop-ScheduledTask -TaskName EDRAgent; Start-ScheduledTask -TaskName EDRAgent
+Stop-ScheduledTask -TaskName VigilAgent; Start-ScheduledTask -TaskName VigilAgent
 ```
 
 The driver may need a reboot if the `.sys` is in use; the installer
@@ -112,11 +112,11 @@ will print a warning if `Copy-Item` fails on `system32\drivers\`.
 
 ```bash
 # Linux:
-systemctl stop edr-agent
-systemctl disable edr-agent
+systemctl stop vigil-agent
+systemctl disable vigil-agent
 
 # Windows:
-Stop-ScheduledTask -TaskName EDRAgent
+Stop-ScheduledTask -TaskName VigilAgent
 sc.exe stop edr
 ```
 
@@ -124,12 +124,12 @@ sc.exe stop edr
 
 ```bash
 # Linux:
-apt-get remove -y edr-agent      # keeps state
-apt-get purge -y edr-agent       # removes /var/lib/edr + /etc/edr
+apt-get remove -y vigil-agent      # keeps state
+apt-get purge -y vigil-agent       # removes /var/lib/vigil + /etc/vigil
 
 # Windows:
-.\edr-windows-0.1.0\uninstall-edr.ps1            # keeps state + cert
-.\edr-windows-0.1.0\uninstall-edr.ps1 -Purge -RemoveCert
+.\vigil-windows-0.1.0\uninstall-vigil.ps1            # keeps state + cert
+.\vigil-windows-0.1.0\uninstall-vigil.ps1 -Purge -RemoveCert
 ```
 
 ### Mark the host as decommissioned in the manager
@@ -151,19 +151,19 @@ is rejected.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `systemctl status edr-agent` fails with "agent.identity.using_existing" missing | Identity dir wiped; need new token | Mint enrollment token, set `EDR_ENROLLMENT_TOKEN` in `/etc/edr/agent.env`, restart. |
-| `self_protection.takeover.failed` on startup | Old pins exist but agent_self map name changed across versions | `edr-agent --unpin` then start. |
+| `systemctl status vigil-agent` fails with "agent.identity.using_existing" missing | Identity dir wiped; need new token | Mint enrollment token, set `VIGIL_ENROLLMENT_TOKEN` in `/etc/vigil/agent.env`, restart. |
+| `self_protection.takeover.failed` on startup | Old pins exist but agent_self map name changed across versions | `vigil-agent --unpin` then start. |
 | `ebpf load failed; falling back to /proc poller` | `CONFIG_BPF_LSM=y` not enabled, kernel <5.7, missing CAP_BPF | Confirm `cat /sys/kernel/security/lsm` contains `bpf`; ensure systemd unit's `AmbientCapabilities` line has `CAP_BPF`. |
 | File-open events stop flowing under load | Backpressure (pre-M7.7) | Confirm normalizer is current; `make backend-normalizer` should pick up M7.7 batched-send. |
-| `kill -9` from root succeeds | `EDR_DISABLE_SELF_PROTECTION=1` set, or `lsm/task_kill` failed to attach | Inspect journal for `lsm_task_kill.skipped`. |
+| `kill -9` from root succeeds | `VIGIL_DISABLE_SELF_PROTECTION=1` set, or `lsm/task_kill` failed to attach | Inspect journal for `lsm_task_kill.skipped`. |
 
 ### Windows
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Driver fails to load with "signature invalid" | testsigning off or cert not in TrustedPublisher | `bcdedit /set testsigning on` + reboot; verify `certutil -store -enterprise Root` shows the cert. |
-| `EDRKernelSession AlreadyExist` | Stale ETW session from a previous crash (pre-M7.7) | Upgrade to current; `ControlTraceA(STOP)` runs on startup. |
-| Agent task starts but exits immediately | Bad `agent.env` format | Check `C:\Windows\Temp\edr-agent.err.log`. |
+| `VigilKernelSession AlreadyExist` | Stale ETW session from a previous crash (pre-M7.7) | Upgrade to current; `ControlTraceA(STOP)` runs on startup. |
+| Agent task starts but exits immediately | Bad `agent.env` format | Check `C:\Windows\Temp\vigil-agent.err.log`. |
 | `taskkill /F` succeeds against agent | Driver not loaded, or `g_ProtectedPid == 0` | `sc.exe query edr` (RUNNING) and verify the agent logged `driver.self_protection.registered`. |
 | Defender races and wins our kill IOCTL | Built-in signature on the target name (e.g. `mimikatz.exe`) | Lab-only: `Set-MpPreference -DisableRealtimeMonitoring $true`. Block-path is unaffected. |
 

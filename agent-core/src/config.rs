@@ -56,9 +56,9 @@ impl AgentConfig {
             PathBuf::from(
                 std::env::var("ProgramData").unwrap_or_else(|_| "C:\\ProgramData".to_string()),
             )
-            .join("EDR")
+            .join("Vigil")
         } else {
-            PathBuf::from("/var/lib/edr")
+            PathBuf::from("/var/lib/vigil")
         }
     }
 

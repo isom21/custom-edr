@@ -2,10 +2,10 @@
 
 M12.f tamper-evidence: every row written through `record()` carries
 an HMAC of (`prev_row_hmac` || `canonical_payload`), keyed off
-`EDR_AUDIT_HMAC_KEY`. The chain is verifiable via the verifier in
+`VIGIL_AUDIT_HMAC_KEY`. The chain is verifiable via the verifier in
 `app.services.audit_verifier`.
 
-If `EDR_AUDIT_HMAC_KEY` is unset the chain stays dormant — rows
+If `VIGIL_AUDIT_HMAC_KEY` is unset the chain stays dormant — rows
 write with NULL hmac fields, and the verifier treats them as the
 pre-chain era. This keeps dev environments simple while production
 deployments turn on tamper-evidence by setting the key.
@@ -27,7 +27,7 @@ from app.models import AuditLog
 
 
 def _load_hmac_key() -> bytes | None:
-    raw = os.environ.get("EDR_AUDIT_HMAC_KEY")
+    raw = os.environ.get("VIGIL_AUDIT_HMAC_KEY")
     if not raw:
         return None
     # Accept hex (preferred — easy to rotate as a string), otherwise
@@ -89,7 +89,7 @@ def compute_row_hmac(prev_hmac: bytes | None, canonical: bytes) -> bytes:
     """HMAC-SHA256 of `prev_hmac || canonical`. Empty prev for the
     chain root."""
     if _HMAC_KEY is None:
-        raise RuntimeError("EDR_AUDIT_HMAC_KEY not set")
+        raise RuntimeError("VIGIL_AUDIT_HMAC_KEY not set")
     h = hmac.new(_HMAC_KEY, digestmod=hashlib.sha256)
     h.update(prev_hmac if prev_hmac is not None else b"")
     h.update(canonical)

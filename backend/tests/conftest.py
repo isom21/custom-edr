@@ -10,10 +10,10 @@ a nested transaction that rolls back at teardown, so tests can share the
 session-scoped schema without bleeding state.
 
 Environment expected (CI sets these via the service container env block):
-    EDR_DATABASE_URL  postgresql+psycopg://...        (sync url for alembic)
-    EDR_PG_DSN        postgresql+asyncpg://...        (async url for the app)
-    EDR_KAFKA_BROKERS localhost:9092                  (only if kafka tests run)
-    EDR_OPENSEARCH_URL http://localhost:9200          (only if OS tests run)
+    VIGIL_DATABASE_URL  postgresql+psycopg://...        (sync url for alembic)
+    VIGIL_PG_DSN        postgresql+asyncpg://...        (async url for the app)
+    VIGIL_KAFKA_BROKERS localhost:9092                  (only if kafka tests run)
+    VIGIL_OPENSEARCH_URL http://localhost:9200          (only if OS tests run)
 
 When run locally without those, tests are skipped with a clear message.
 """
@@ -29,12 +29,12 @@ import pytest_asyncio
 
 def _pg_dsn() -> str | None:
     """Return the async PG DSN for tests, or None if not configured."""
-    # Prefer EDR_TEST_PG_DSN, then EDR_PG_DSN, then derive from EDR_DATABASE_URL.
-    if v := os.environ.get("EDR_TEST_PG_DSN"):
+    # Prefer VIGIL_TEST_PG_DSN, then VIGIL_PG_DSN, then derive from VIGIL_DATABASE_URL.
+    if v := os.environ.get("VIGIL_TEST_PG_DSN"):
         return v
-    if v := os.environ.get("EDR_PG_DSN"):
+    if v := os.environ.get("VIGIL_PG_DSN"):
         return v
-    if v := os.environ.get("EDR_DATABASE_URL"):
+    if v := os.environ.get("VIGIL_DATABASE_URL"):
         # Convert sync to async driver if the user gave us a sync URL.
         if v.startswith("postgresql+psycopg://"):
             return v.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
@@ -52,13 +52,13 @@ async def db_engine() -> AsyncIterator[Any]:
     dsn = _pg_dsn()
     if dsn is None:
         pytest.skip(
-            "No PG DSN configured. Set EDR_TEST_PG_DSN or EDR_DATABASE_URL "
+            "No PG DSN configured. Set VIGIL_TEST_PG_DSN or VIGIL_DATABASE_URL "
             "to run integration tests."
         )
 
     # Importing app.core.db here so Settings can pick up the env vars set
     # by the test harness rather than the dev defaults.
-    os.environ.setdefault("EDR_PG_DSN", dsn)
+    os.environ.setdefault("VIGIL_PG_DSN", dsn)
     from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine(dsn, pool_pre_ping=True, echo=False)

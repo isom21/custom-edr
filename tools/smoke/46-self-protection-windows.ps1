@@ -1,6 +1,6 @@
 # 46-self-protection-windows.ps1 - verifies M7.2 driver self-protection.
 #
-# Run on a Windows host with edr.sys installed and the agent running.
+# Run on a Windows host with vigil.sys installed and the agent running.
 # Reports PASS/FAIL and exits non-zero on failure.
 #
 # Usage:
@@ -10,13 +10,13 @@
 # would otherwise be turned into terminating errors and abort the test.
 $ErrorActionPreference = "Continue"
 
-$proc = Get-Process edr-agent -EA SilentlyContinue
+$proc = Get-Process vigil-agent -EA SilentlyContinue
 if (-not $proc) {
-    Write-Output "FAIL: edr-agent not running"
+    Write-Output "FAIL: vigil-agent not running"
     exit 1
 }
 $pid_agent = $proc.Id
-Write-Output "edr-agent pid=$pid_agent"
+Write-Output "vigil-agent pid=$pid_agent"
 
 $src = 'using System; using System.Runtime.InteropServices;
 public class K {
@@ -77,7 +77,7 @@ if ($h -eq [IntPtr]::Zero) {
 
 # 5. Agent still alive
 Start-Sleep 1
-$still = Get-Process edr-agent -EA SilentlyContinue
+$still = Get-Process vigil-agent -EA SilentlyContinue
 if ($still) {
     Pass "agent alive after attacks"
 } else {

@@ -50,7 +50,7 @@ app.add_middleware(
 )
 
 # M13.a — per-identity rate limiting. Defaults are documented in
-# app/core/rate_limit.py; production overrides via EDR_RL_* env vars.
+# app/core/rate_limit.py; production overrides via VIGIL_RL_* env vars.
 from app.core.rate_limit import RateLimitMiddleware  # noqa: E402
 
 app.add_middleware(RateLimitMiddleware)

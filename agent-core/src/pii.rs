@@ -14,7 +14,7 @@
 //! quick-check returns the original string untouched. On match, a
 //! new String is built with `[REDACTED]` substitutions.
 //!
-//! Configurable via `EDR_DISABLE_PII_SCRUB=1` to disable globally
+//! Configurable via `VIGIL_DISABLE_PII_SCRUB=1` to disable globally
 //! (dev only — operators must understand they're shipping plaintext
 //! credentials to OpenSearch when they flip this).
 
@@ -68,12 +68,12 @@ fn patterns() -> &'static Patterns {
 
 /// Scrub `input` of recognised secret patterns. Returns the original
 /// string untouched if no patterns matched. Disabled at runtime via
-/// `EDR_DISABLE_PII_SCRUB=1`.
+/// `VIGIL_DISABLE_PII_SCRUB=1`.
 pub fn scrub(input: &str) -> String {
     if input.is_empty() {
         return String::new();
     }
-    if std::env::var_os("EDR_DISABLE_PII_SCRUB").is_some() {
+    if std::env::var_os("VIGIL_DISABLE_PII_SCRUB").is_some() {
         return input.to_string();
     }
 
@@ -173,7 +173,7 @@ mod tests {
         assert!(!r.contains("signature123"));
     }
 
-    // EDR_DISABLE_PII_SCRUB is intentionally NOT covered by a unit test —
+    // VIGIL_DISABLE_PII_SCRUB is intentionally NOT covered by a unit test —
     // it would race against the rest of the test suite under cargo's
     // default parallel runner. The env var path is operator-only; its
     // behaviour is "early-return without modifying the string" which is

@@ -37,7 +37,7 @@ ECS mapping (in `app.services.normalizer`):
 **Goal**: zero-copy DNS observability, works on every Linux endpoint
 regardless of which resolver is configured.
 
-**Sketch** (`agent-linux/ebpf/edr.bpf.c` extension):
+**Sketch** (`agent-linux/ebpf/vigil.bpf.c` extension):
 
 ```c
 SEC("kprobe/udp_sendmsg")

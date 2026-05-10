@@ -21,8 +21,8 @@ run_if_present() {
 }
 
 # Linux agent binary + .deb / .rpm artefacts.
-if [ -f "$REPO/target/release/edr-agent" ]; then
-    run_if_present syft "$REPO/target/release/edr-agent" -o cyclonedx-json --file "$OUT/agent-linux.cdx.json"
+if [ -f "$REPO/target/release/vigil-agent" ]; then
+    run_if_present syft "$REPO/target/release/vigil-agent" -o cyclonedx-json --file "$OUT/agent-linux.cdx.json"
 fi
 for deb in "$REPO"/target/debian/*.deb; do
     [ -f "$deb" ] && run_if_present syft "$deb" -o cyclonedx-json --file "$OUT/$(basename "$deb").cdx.json"
@@ -32,8 +32,8 @@ for rpm in "$REPO"/target/generate-rpm/*.rpm; do
 done
 
 # Windows driver (only present if cross-built).
-if [ -f "$REPO/kernel-windows/edr.sys" ]; then
-    run_if_present syft "$REPO/kernel-windows/edr.sys" -o cyclonedx-json --file "$OUT/edr-driver.cdx.json"
+if [ -f "$REPO/kernel-windows/vigil.sys" ]; then
+    run_if_present syft "$REPO/kernel-windows/vigil.sys" -o cyclonedx-json --file "$OUT/edr-driver.cdx.json"
 fi
 
 # Backend Python deps.

@@ -32,7 +32,7 @@ Enrollment flow:
 ### Internal CA
 
 - Single root CA per manager instance, generated on first run if absent.
-- CA private key encrypted at rest in PG using a master key from `EDR_CA_MASTER_KEY` env (development default; deployments must override).
+- CA private key encrypted at rest in PG using a master key from `VIGIL_CA_MASTER_KEY` env (development default; deployments must override).
 - Issued client certs: 90 day validity, rotated by agent before expiry via a `RenewCert` RPC (out of scope for ADR; will be added in M1).
 - No intermediates in v1.
 

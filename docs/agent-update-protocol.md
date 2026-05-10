@@ -28,7 +28,7 @@ agent binary so updates are verifiable without a trust dance.
   "min_protocol_version": 1,
   "platforms": {
     "linux-x86_64": {
-      "url": "https://updates.edr.example/0.2.0/edr-agent_0.2.0-1_amd64.deb",
+      "url": "https://updates.edr.example/0.2.0/vigil-agent_0.2.0-1_amd64.deb",
       "sha256": "abc...",
       "size": 6800000,
       "format": "deb"
@@ -142,7 +142,7 @@ or pause it.
    (`<install_dir>/v<version>/`). Don't touch the running binary yet.
 6. **A/B switch**:
    * Linux: update a `current` symlink → new dir. systemctl restart
-     edr-agent.
+     vigil-agent.
    * Windows: stop service, rename `agent.exe` → `agent.exe.old`, copy
      new in, start service. (The MSI install path is the alternate;
      the MSI itself runs the symlink-equivalent via `MsiInstallProduct`.)

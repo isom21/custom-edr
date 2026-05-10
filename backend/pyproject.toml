@@ -1,7 +1,7 @@
 [project]
-name = "edr-backend"
+name = "vigil-backend"
 version = "0.1.0"
-description = "EDR manager: REST API, gRPC ingest, rules/alerts/host management."
+description = "Vigil manager: REST API, gRPC ingest, rules/alerts/host management."
 requires-python = ">=3.12"
 license = { text = "Proprietary" }
 dependencies = [

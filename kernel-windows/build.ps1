@@ -5,7 +5,7 @@
 # .vcxproj when the manual switches outgrow this script (M4.5+).
 #
 # Usage:
-#   .\build.ps1                  build edr.sys + sign
+#   .\build.ps1                  build vigil.sys + sign
 #   .\build.ps1 -Clean           remove artifacts
 #
 # Prerequisites on the build host:
@@ -54,7 +54,7 @@ Write-Host "INCLUDE=$env:INCLUDE"
 Write-Host "LIB=$env:LIB"
 
 if ($Clean) {
-    foreach ($f in @('edr.obj','edr.sys','edr.pdb','edr.exp','edr.lib','vc140.pdb')) {
+    foreach ($f in @('edr.obj','vigil.sys','edr.pdb','edr.exp','edr.lib','vc140.pdb')) {
         if (Test-Path $f) { Remove-Item -Force $f; Write-Host "removed $f" }
     }
     return
@@ -90,9 +90,9 @@ $clArgs = @(
 & $cl @clArgs
 if ($LASTEXITCODE -ne 0) { throw "cl failed (exit $LASTEXITCODE)" }
 
-Write-Host '--- linking edr.sys ---'
+Write-Host '--- linking vigil.sys ---'
 $linkArgs = @(
-    '/nologo','/OUT:edr.sys','/MACHINE:X64','/SUBSYSTEM:NATIVE,10.0'
+    '/nologo','/OUT:vigil.sys','/MACHINE:X64','/SUBSYSTEM:NATIVE,10.0'
     '/DRIVER','/ENTRY:DriverEntry','/NODEFAULTLIB'
     # /INTEGRITYCHECK sets IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY in the
     # PE header, which is required for any driver that calls
@@ -111,20 +111,20 @@ $linkArgs = @(
 & $linkExe @linkArgs
 if ($LASTEXITCODE -ne 0) { throw "link failed (exit $LASTEXITCODE)" }
 
-Write-Host '--- signing edr.sys ---'
+Write-Host '--- signing vigil.sys ---'
 $thumbprint = (Get-Content 'C:\toolchain\edr-cert-thumbprint.txt' -ErrorAction Stop).Trim()
 $signtool   = (Get-ChildItem (Join-Path $winKits 'bin') -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
                Where-Object { $_.FullName -match '\\x64\\signtool.exe$' } |
                Select-Object -First 1).FullName
 if (-not $signtool) { throw "signtool.exe not found under $winKits\bin" }
-& $signtool sign /v /sm /fd sha256 /sha1 $thumbprint /tr 'http://timestamp.digicert.com' /td sha256 edr.sys
+& $signtool sign /v /sm /fd sha256 /sha1 $thumbprint /tr 'http://timestamp.digicert.com' /td sha256 vigil.sys
 if ($LASTEXITCODE -ne 0) { throw "signtool failed (exit $LASTEXITCODE)" }
 
 Write-Host '--- verifying signature ---'
-& $signtool verify /v /pa edr.sys
+& $signtool verify /v /pa vigil.sys
 if ($LASTEXITCODE -ne 0) { Write-Warning "signtool verify reported issues (exit $LASTEXITCODE)" }
 
 Write-Host '--- artifacts ---'
-Get-Item 'edr.sys','edr.obj','edr.pdb' -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime -AutoSize | Out-Host
+Get-Item 'vigil.sys','edr.obj','edr.pdb' -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime -AutoSize | Out-Host
 
 Write-Host 'BUILD OK'

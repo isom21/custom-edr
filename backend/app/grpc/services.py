@@ -58,8 +58,8 @@ MIN_AGENT_PROTOCOL_VERSION = 1
 # saturate Kafka. Configurable via env.
 import os as _os  # noqa: E402
 
-GRPC_RL_MAX_EVENTS_PER_SEC = int(_os.environ.get("EDR_GRPC_RL_EVENTS_PER_SEC", 1000))
-GRPC_RL_BURST = int(_os.environ.get("EDR_GRPC_RL_BURST", 5000))
+GRPC_RL_MAX_EVENTS_PER_SEC = int(_os.environ.get("VIGIL_GRPC_RL_EVENTS_PER_SEC", 1000))
+GRPC_RL_BURST = int(_os.environ.get("VIGIL_GRPC_RL_BURST", 5000))
 
 
 class _HostBucket:

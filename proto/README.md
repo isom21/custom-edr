@@ -1,6 +1,6 @@
 # Protobuf — schema source of truth
 
-The contents of `edr/v1/` are the canonical schema for every wire format in the EDR system. Bindings for Rust and Python are generated from these files; never edit generated code, never define event shapes outside this directory.
+The contents of `edr/v1/` are the canonical schema for every wire format in the Vigil system. Bindings for Rust and Python are generated from these files; never edit generated code, never define event shapes outside this directory.
 
 See [ADR 0003](../docs/adr/0003-event-schema-ecs.md) for the rationale and compatibility rules.
 

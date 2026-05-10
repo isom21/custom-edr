@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the eBPF object for the EDR Linux agent.
+# Build the eBPF object for the Vigil Linux agent.
 #
-# Output: agent-linux/ebpf/edr.bpf.o (BTF-relocatable, loaded at runtime
+# Output: agent-linux/ebpf/vigil.bpf.o (BTF-relocatable, loaded at runtime
 # by aya in agent-linux). The user-mode crate's build.rs invokes this.
 #
 # Prerequisites:
@@ -42,7 +42,7 @@ case "$ARCH" in
     *) echo "unsupported arch: $ARCH" >&2; exit 1 ;;
 esac
 
-echo "[ebpf] compiling edr.bpf.c (target=bpf, __TARGET_ARCH_${TARGET_ARCH})"
+echo "[ebpf] compiling vigil.bpf.c (target=bpf, __TARGET_ARCH_${TARGET_ARCH})"
 clang \
     -target bpf \
     -O2 -g \
@@ -50,8 +50,8 @@ clang \
     -Wno-unused-parameter \
     -D__TARGET_ARCH_${TARGET_ARCH} \
     -I. \
-    -c edr.bpf.c \
-    -o edr.bpf.o
+    -c vigil.bpf.c \
+    -o vigil.bpf.o
 
 # Strip DWARF debug sections; keep BTF (required for CO-RE relocations).
 # Only `llvm-strip` understands the BPF ELF format reliably; GNU strip
@@ -59,8 +59,8 @@ clang \
 # neither is available — DWARF in .bpf.o doesn't break aya, just bloats
 # the binary.
 if command -v llvm-strip >/dev/null 2>&1; then
-    llvm-strip --strip-debug edr.bpf.o
+    llvm-strip --strip-debug vigil.bpf.o
 fi
 
-echo "[ebpf] OK -> $DIR/edr.bpf.o"
-ls -la edr.bpf.o
+echo "[ebpf] OK -> $DIR/vigil.bpf.o"
+ls -la vigil.bpf.o

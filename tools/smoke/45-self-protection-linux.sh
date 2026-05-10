@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # 40-self-protection-linux.sh — verifies the M7.1 BPF LSM
-# self-protection on a Linux host running the edr-agent.
+# self-protection on a Linux host running the vigil-agent.
 #
 # Run from anywhere; expects systemctl, sudo, and the agent already
 # installed and running. Emits a one-line PASS/FAIL summary at the end
 # and a non-zero exit code on any failure.
 #
 # Usage:
-#   tools/smoke/40-self-protection-linux.sh [--state-dir /var/lib/edr]
+#   tools/smoke/40-self-protection-linux.sh [--state-dir /var/lib/vigil]
 set -uo pipefail
 
-STATE_DIR="${EDR_STATE_DIR:-/var/lib/edr}"
-PIN_DIR="${EDR_PIN_DIR:-/sys/fs/bpf/edr}"
+STATE_DIR="${VIGIL_STATE_DIR:-/var/lib/vigil}"
+PIN_DIR="${VIGIL_PIN_DIR:-/sys/fs/bpf/vigil}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --state-dir) STATE_DIR="$2"; shift 2 ;;
@@ -20,12 +20,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-PID=$(pgrep -x edr-agent | head -n1 || true)
+PID=$(pgrep -x vigil-agent | head -n1 || true)
 if [ -z "$PID" ]; then
-    echo "FAIL: edr-agent not running"
+    echo "FAIL: vigil-agent not running"
     exit 1
 fi
-echo "edr-agent pid=$PID  state=$STATE_DIR  pins=$PIN_DIR"
+echo "vigil-agent pid=$PID  state=$STATE_DIR  pins=$PIN_DIR"
 
 fails=0
 pass() { echo "  ok   - $1"; }
@@ -99,9 +99,9 @@ else
 fi
 
 # 6. systemctl stop succeeds (init carve-out).
-if sudo systemctl stop edr-agent 2>/dev/null; then
+if sudo systemctl stop vigil-agent 2>/dev/null; then
     pass "systemctl stop succeeds"
-    sudo systemctl start edr-agent
+    sudo systemctl start vigil-agent
     sleep 3
 else
     fail "systemctl stop failed (init carve-out broken?)"

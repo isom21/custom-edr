@@ -15,23 +15,23 @@ PnpLockdown     = 1
 
 [DestinationDirs]
 DefaultDestDir          = 12   ; %windir%\system32\drivers
-EdrDriver.DriverFiles   = 12
+VigilDriver.DriverFiles   = 12
 
 [DefaultInstall.NTamd64]
 OptionDesc      = %ServiceDescription%
-CopyFiles       = EdrDriver.DriverFiles
+CopyFiles       = VigilDriver.DriverFiles
 
 [DefaultInstall.NTamd64.Services]
-AddService      = %ServiceName%,,EdrDriver.Service
+AddService      = %ServiceName%,,VigilDriver.Service
 
 [DefaultUninstall.NTamd64]
 LegacyUninstall = 1
-DelFiles        = EdrDriver.DriverFiles
+DelFiles        = VigilDriver.DriverFiles
 
 [DefaultUninstall.NTamd64.Services]
 DelService      = %ServiceName%,0x200   ; SPSVCINST_STOPSERVICE
 
-[EdrDriver.Service]
+[VigilDriver.Service]
 DisplayName     = %ServiceName%
 Description     = %ServiceDescription%
 ServiceBinary   = %12%\edr.sys
@@ -40,14 +40,14 @@ ServiceType     = 2          ; SERVICE_FILE_SYSTEM_DRIVER
 StartType       = 3          ; SERVICE_DEMAND_START
 ErrorControl    = 1          ; SERVICE_ERROR_NORMAL
 LoadOrderGroup  = "FSFilter Activity Monitor"
-AddReg          = EdrDriver.AddRegistry
+AddReg          = VigilDriver.AddRegistry
 
-[EdrDriver.AddRegistry]
+[VigilDriver.AddRegistry]
 HKR,"Instances","DefaultInstance",0x00000000,%DefaultInstance%
 HKR,"Instances\"%Instance1.Name%,"Altitude",0x00000000,%Instance1.Altitude%
 HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
 
-[EdrDriver.DriverFiles]
+[VigilDriver.DriverFiles]
 edr.sys
 
 [SourceDisksFiles]

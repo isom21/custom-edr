@@ -1,4 +1,4 @@
-# test-drain.ps1 — drain events from the kernel ring via IOCTL_EDR_DRAIN_EVENTS
+# test-drain.ps1 — drain events from the kernel ring via IOCTL_VIGIL_DRAIN_EVENTS
 # and pretty-print each one. Used during M4.5 to verify the ring buffer +
 # event format end-to-end.
 #
@@ -13,10 +13,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$IOCTL_EDR_DRAIN_EVENTS = 0x222004   # CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, 0x801, METHOD_BUFFERED=0, FILE_ANY_ACCESS=0)
+$IOCTL_VIGIL_DRAIN_EVENTS = 0x222004   # CTL_CODE(FILE_DEVICE_UNKNOWN=0x22, 0x801, METHOD_BUFFERED=0, FILE_ANY_ACCESS=0)
 $BUF_SIZE = 256 * 1024               # 256 KB drain buffer
 
-# EDR_EVENT_KIND_* values (must match edr.h)
+# VIGIL_EVENT_KIND_* values (must match edr.h)
 $EVENT_KIND = @{
     1 = 'process.start'
     2 = 'process.exit'
@@ -49,13 +49,13 @@ public static extern bool CloseHandle(System.IntPtr hObject);
 
 function Drain-Events {
     $GENERIC_READ = [uint32]2147483648  # 0x80000000
-    $h = [Edr.NativeDrain]::CreateFileW("\\.\edr", $GENERIC_READ, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
-    if ($h -eq [IntPtr]::new(-1)) { throw "CreateFile \\.\edr failed: $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+    $h = [Edr.NativeDrain]::CreateFileW("\\.\Vigil", $GENERIC_READ, [uint32]3, [IntPtr]::Zero, [uint32]3, 0, [IntPtr]::Zero)
+    if ($h -eq [IntPtr]::new(-1)) { throw "CreateFile \\.\Vigil failed: $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
     try {
         $buf = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($BUF_SIZE)
         try {
             $bytesReturned = 0
-            $ok = [Edr.NativeDrain]::DeviceIoControl($h, $IOCTL_EDR_DRAIN_EVENTS, [IntPtr]::Zero, 0, $buf, $BUF_SIZE, [ref]$bytesReturned, [IntPtr]::Zero)
+            $ok = [Edr.NativeDrain]::DeviceIoControl($h, $IOCTL_VIGIL_DRAIN_EVENTS, [IntPtr]::Zero, 0, $buf, $BUF_SIZE, [ref]$bytesReturned, [IntPtr]::Zero)
             if (-not $ok) { throw "DeviceIoControl failed: $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
             $bytes = New-Object byte[] $bytesReturned
             [System.Runtime.InteropServices.Marshal]::Copy($buf, $bytes, 0, [int]$bytesReturned)
