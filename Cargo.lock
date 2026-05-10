@@ -21,6 +21,7 @@ dependencies = [
  "prost-types",
  "protoc-bin-vendored",
  "rcgen",
+ "regex",
  "reqwest",
  "rustls",
  "rustls-pemfile",

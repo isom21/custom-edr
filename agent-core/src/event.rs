@@ -192,7 +192,10 @@ pub fn process_started(
             }),
             executable: executable.into(),
             name: name.into(),
-            command_line: command_line.into(),
+            // M16.g: scrub command_line for credentials before emit.
+            // executable / name are filesystem paths and not generally
+            // a secret-leak vector.
+            command_line: crate::pii::scrub(command_line),
             args: vec![],
             hash: None,
             user: Some(p::User {
