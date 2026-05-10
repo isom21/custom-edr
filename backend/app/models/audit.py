@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, JSON, DateTime, ForeignKey, LargeBinary, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UuidPkMixin
@@ -33,3 +33,17 @@ class AuditLog(UuidPkMixin, Base):
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()", index=True
     )
+    # M12.f: monotonic sequence + HMAC chain. seq is server-defaulted
+    # via the audit_log_seq sequence and uniquely indexed; prev_hmac
+    # and row_hmac are populated by the audit service when
+    # EDR_AUDIT_HMAC_KEY is configured. Nullable for backward compat
+    # with rows written before the chain went live.
+    seq: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        unique=True,
+        index=True,
+        server_default=text("nextval('audit_log_seq')"),
+    )
+    prev_hmac: Mapped[bytes | None] = mapped_column(LargeBinary(32))
+    row_hmac: Mapped[bytes | None] = mapped_column(LargeBinary(32))

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api import (
     alerts,
     api_tokens,
+    audit,
     auth,
     commands,
     enrollment,
@@ -30,6 +31,7 @@ for module in (
     alerts,
     enrollment,
     api_tokens,
+    audit,
     sigma,
     commands,
     metrics,
