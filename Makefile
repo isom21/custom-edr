@@ -123,6 +123,10 @@ backend-anomaly: ## M11.b — first-time-process anomaly detector.
 backend-tamper: ## M12 — agent self-protection tamper alert worker.
 	cd backend && python -m app.workers.tamper
 
+.PHONY: backend-silence
+backend-silence: ## M12.d — agent silence alert worker.
+	cd backend && python -m app.workers.silence
+
 .PHONY: backend-sigma
 backend-sigma: ## Run the Sigma realtime worker (OpenSearch percolator). Recommended.
 	cd backend && python -m app.workers.sigma_realtime
