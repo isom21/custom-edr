@@ -25,6 +25,16 @@ use tracing_subscriber::EnvFilter;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// M9.5: agent ↔ manager wire-protocol version. Manager rejects
+/// connections with a clear error when this is below its
+/// minimum-supported version.
+const PROTOCOL_VERSION: u32 = 1;
+
+/// M9.5: capability flags the agent advertises in Hello so the manager
+/// can surface fleet rollout state and tailor RuleSync to match. Stable
+/// short tokens, comma-separated.
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1";
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -136,6 +146,8 @@ async fn main() -> Result<()> {
             }),
             boot_time_iso: chrono_now_iso(),
             last_event_id_seen: 0,
+            protocol_version: PROTOCOL_VERSION,
+            capabilities: CAPABILITIES.into(),
         })),
     };
     let _ = send_tx.send(hello).await;
@@ -156,6 +168,15 @@ async fn main() -> Result<()> {
                         events_emitted: 0,
                         events_dropped: 0,
                         spool_bytes: 0,
+                        // M9.4 self-diagnostics — populated from kernel
+                        // counters in a follow-up; zeros here are the
+                        // schema-stable default that older managers also
+                        // accept (proto3 zero-default semantics).
+                        spool_entries: 0,
+                        ringbuf_drops: 0,
+                        self_protection_active: 0,
+                        last_event_age_seconds: 0,
+                        collector_mode: 0,
                     }),
                 })),
             };

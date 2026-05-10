@@ -42,3 +42,6 @@ class Host(UuidPkMixin, TimestampMixin, Base):
         pg_enum(HostStatus, name="host_status"), nullable=False, default=HostStatus.PENDING
     )
     policy_id: Mapped[UUID | None] = mapped_column(ForeignKey("policies.id", ondelete="SET NULL"))
+    # M9.5: comma-separated capability flags from the agent's Hello.
+    # NULL until the agent reconnects post-upgrade. Cap at 1024 chars.
+    capabilities: Mapped[str | None] = mapped_column(String(1024))

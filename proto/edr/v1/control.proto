@@ -35,6 +35,11 @@ message Hello {
   Host host = 1;
   string boot_time_iso = 2;
   uint64 last_event_id_seen = 3;   // for resume semantics if backend-side journal exists
+  // M9.5 compatibility matrix. Manager rejects the connection with a
+  // clear error if the agent's protocol_version is older than the
+  // manager's minimum supported version. Both sides bump together.
+  uint32 protocol_version = 4;
+  string capabilities = 5;          // comma-separated feature flags ("self_protect_v1,spool_v1,...")
 }
 
 message EventBatch {
@@ -55,6 +60,15 @@ message AgentMetrics {
   uint64 events_emitted = 3;
   uint64 events_dropped = 4;
   uint64 spool_bytes = 5;          // disk-backed event spool size
+
+  // M9.4 self-diagnostics. Agent populates these from kernel-side
+  // counters so the manager can render fleet health without polling
+  // each host individually.
+  uint64 spool_entries = 6;
+  uint64 ringbuf_drops = 7;        // events lost at the kernel ring (BPF EVENTS_DROPPED)
+  uint32 self_protection_active = 8;  // 1 if M7.1/M7.2 self-protection hooks attached
+  uint64 last_event_age_seconds = 9;  // wall-clock since last event emission (idle hosts -> high)
+  uint32 collector_mode = 10;      // 0=unknown, 1=ebpf, 2=proc-poll, 3=driver, 4=etw
 }
 
 message CommandResult {

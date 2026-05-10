@@ -49,6 +49,10 @@ log = structlog.get_logger()
 
 PB_OS_FAMILY: dict[str, str] = {"windows": "windows", "linux": "linux", "macos": "macos"}
 
+# M9.5: minimum agent wire-protocol version this manager accepts.
+# Bump together with any breaking change to the protobuf schema.
+MIN_AGENT_PROTOCOL_VERSION = 1
+
 
 def _now_pb() -> timestamp_pb2.Timestamp:
     ts = timestamp_pb2.Timestamp()
@@ -374,11 +378,38 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                             await db.commit()
                     last_seen_update = now
             elif kind == "hello":
+                # M9.5: enforce minimum protocol_version + record
+                # capabilities. Manager bumps MIN_AGENT_PROTOCOL_VERSION
+                # together with breaking schema changes.
+                pv = msg.hello.protocol_version or 0
+                caps = msg.hello.capabilities or ""
                 log.info(
                     "grpc.host_stream.hello",
                     host_id=str(host_id),
                     agent_version=msg.hello.host.agent_version,
+                    protocol_version=pv,
+                    capabilities=caps,
                 )
+                if pv != 0 and pv < MIN_AGENT_PROTOCOL_VERSION:
+                    log.warning(
+                        "grpc.host_stream.protocol_too_old",
+                        host_id=str(host_id),
+                        agent_pv=pv,
+                        minimum=MIN_AGENT_PROTOCOL_VERSION,
+                    )
+                    await context.abort(
+                        grpc.StatusCode.FAILED_PRECONDITION,
+                        f"agent protocol_version={pv} below minimum supported "
+                        f"{MIN_AGENT_PROTOCOL_VERSION}; please upgrade the agent",
+                    )
+                    return
+                # Persist the agent's advertised capabilities on the Host
+                # row. Useful for fleet-wide rollout dashboards (M14).
+                async with SessionLocal() as db:
+                    h = await db.get(Host, host_id)
+                    if h is not None:
+                        h.capabilities = caps
+                        await db.commit()
             elif kind == "command_result":
                 log.info(
                     "grpc.host_stream.command_result",

@@ -33,6 +33,10 @@ use tracing_subscriber::EnvFilter;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// M9.5: agent ↔ manager wire-protocol version.
+const PROTOCOL_VERSION: u32 = 1;
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1";
+
 fn main() -> Result<()> {
     init_tracing();
 
@@ -73,6 +77,7 @@ fn main() -> Result<()> {
     // No-flag default + `--console`: try service mode unless --console
     // was explicit. Service mode auto-detects (returns Ok(false) when
     // not started by SCM) and falls back to console.
+    #[cfg_attr(not(windows), allow(unused_variables))]
     let force_console = args.iter().any(|a| a == "--console");
 
     #[cfg(windows)]
@@ -171,6 +176,7 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
         "agent.starting"
     );
 
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
     let send_tx = client.send_tx.clone();
     #[cfg(windows)]
@@ -192,6 +198,8 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
             }),
             boot_time_iso: now_iso(),
             last_event_id_seen: 0,
+            protocol_version: PROTOCOL_VERSION,
+            capabilities: CAPABILITIES.into(),
         })),
     };
     let _ = send_tx.send(hello).await;
