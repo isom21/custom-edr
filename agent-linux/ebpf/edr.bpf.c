@@ -40,6 +40,11 @@ enum edr_stat {
     EDR_STAT_NETWORK_BLOCK_HITS,
     EDR_STAT_KILL_REQUESTS,
     EDR_STAT_EVENTS_DROPPED,
+    // M7.1 self-protection counters.
+    EDR_STAT_SELF_KILL_BLOCKED,
+    EDR_STAT_SELF_PTRACE_BLOCKED,
+    EDR_STAT_SELF_BPF_BLOCKED,
+    EDR_STAT_SELF_UNLINK_BLOCKED,
     EDR_STAT_MAX,
 };
 
@@ -167,6 +172,207 @@ struct {
     __type(value, struct edr_block_key);
     __uint(max_entries, 1);
 } block_scratch SEC(".maps");
+
+// ---------------------------------------------------------------------------
+// Self-protection (M7.1)
+//
+// Three pieces:
+//   * `agent_self`: a one-entry array holding the agent's tgid. LSM hooks
+//     read this to know who they're protecting; userspace writes it on
+//     load (and on takeover during agent restart).
+//   * `protected_inodes`: hash of (dev, ino) tuples for the bpffs pin
+//     directory and the agent's state directory. lsm/inode_unlink &c.
+//     refuse to remove anything whose parent inode is in this set when
+//     the caller isn't the agent.
+//   * LSM hooks: task_kill, ptrace_access_check, bpf, inode_unlink,
+//     inode_rmdir, inode_rename. All read agent_self; if the operation
+//     targets the agent (or a protected inode) and the caller isn't the
+//     agent, return -EPERM.
+//
+// Carve-outs:
+//   * task_kill allows pid 1 (init/systemd) so `systemctl stop` works.
+//   * lsm/bpf only intercepts BPF_PROG_DETACH and BPF_LINK_DETACH; other
+//     bpf() commands are not affected. BPF_MAP_UPDATE_ELEM is not in the
+//     block list, which is what lets a fresh agent take over the
+//     `agent_self` value during restart-after-crash.
+// ---------------------------------------------------------------------------
+
+#define EDR_SELF_KEY 0  // index in agent_self
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, __u32);
+    __uint(max_entries, 1);
+} agent_self SEC(".maps");
+
+struct edr_inode_key {
+    __u32 dev;
+    __u32 _pad;
+    __u64 ino;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct edr_inode_key);
+    __type(value, __u8);
+    __uint(max_entries, 32);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} protected_inodes SEC(".maps");
+
+static __always_inline __u32 self_tgid(void)
+{
+    __u32 zero = EDR_SELF_KEY;
+    __u32 *p = bpf_map_lookup_elem(&agent_self, &zero);
+    return p ? *p : 0;  // 0 = not set yet -> all hooks no-op
+}
+
+static __always_inline __u32 caller_tgid(void)
+{
+    __u64 pt = bpf_get_current_pid_tgid();
+    return (__u32)(pt >> 32);
+}
+
+static __always_inline int is_protected_dir_inode(struct inode *dir)
+{
+    if (!dir)
+        return 0;
+    struct edr_inode_key key = {};
+    key.dev = (__u32)BPF_CORE_READ(dir, i_sb, s_dev);
+    key.ino = BPF_CORE_READ(dir, i_ino);
+    __u8 *hit = bpf_map_lookup_elem(&protected_inodes, &key);
+    return hit != NULL;
+}
+
+// kill / signal delivery to the agent. We allow pid 1 (init) so the
+// systemd unit can SIGTERM us during graceful shutdown; everyone else
+// gets EPERM if they target our tgid.
+SEC("lsm/task_kill")
+int BPF_PROG(handle_task_kill, struct task_struct *p,
+             struct kernel_siginfo *info, int sig, const struct cred *cred)
+{
+    (void)info;
+    (void)sig;
+    (void)cred;
+    if (!p)
+        return 0;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 target_tgid = BPF_CORE_READ(p, tgid);
+    if (target_tgid != self)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self || caller == 1)
+        return 0;
+    stat_inc(EDR_STAT_SELF_KILL_BLOCKED);
+    return -1; // -EPERM
+}
+
+// ptrace attach + /proc/<pid>/mem read both route through this hook.
+SEC("lsm/ptrace_access_check")
+int BPF_PROG(handle_ptrace_access_check, struct task_struct *child, unsigned int mode)
+{
+    (void)mode;
+    if (!child)
+        return 0;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 target_tgid = BPF_CORE_READ(child, tgid);
+    if (target_tgid != self)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self)
+        return 0;
+    stat_inc(EDR_STAT_SELF_PTRACE_BLOCKED);
+    return -1;
+}
+
+// `bpftool prog detach` / `bpftool link detach` invocations route here.
+// bpf_attr command numbers are part of the stable uapi.
+#ifndef BPF_PROG_DETACH
+#define BPF_PROG_DETACH 8
+#endif
+#ifndef BPF_LINK_DETACH
+#define BPF_LINK_DETACH 34
+#endif
+
+SEC("lsm/bpf")
+int BPF_PROG(handle_bpf_lsm, int cmd, union bpf_attr *attr, unsigned int size)
+{
+    (void)attr;
+    (void)size;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self)
+        return 0;
+    if (cmd == BPF_PROG_DETACH || cmd == BPF_LINK_DETACH) {
+        stat_inc(EDR_STAT_SELF_BPF_BLOCKED);
+        return -1;
+    }
+    return 0;
+}
+
+// inode_unlink / rmdir: refuse to remove anything whose parent dir is
+// in `protected_inodes` (the bpffs pin dir and the state dir).
+SEC("lsm/inode_unlink")
+int BPF_PROG(handle_inode_unlink, struct inode *dir, struct dentry *dentry)
+{
+    (void)dentry;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self)
+        return 0;
+    if (is_protected_dir_inode(dir)) {
+        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        return -1;
+    }
+    return 0;
+}
+
+SEC("lsm/inode_rmdir")
+int BPF_PROG(handle_inode_rmdir, struct inode *dir, struct dentry *dentry)
+{
+    (void)dentry;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self)
+        return 0;
+    if (is_protected_dir_inode(dir)) {
+        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        return -1;
+    }
+    return 0;
+}
+
+// Rename can move a child OUT of a protected dir (effectively unlinking
+// it from there) or move something INTO one (which would mask a
+// protected child). Block if either side is a protected dir.
+SEC("lsm/inode_rename")
+int BPF_PROG(handle_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
+             struct inode *new_dir, struct dentry *new_dentry)
+{
+    (void)old_dentry;
+    (void)new_dentry;
+    __u32 self = self_tgid();
+    if (self == 0)
+        return 0;
+    __u32 caller = caller_tgid();
+    if (caller == self)
+        return 0;
+    if (is_protected_dir_inode(old_dir) || is_protected_dir_inode(new_dir)) {
+        stat_inc(EDR_STAT_SELF_UNLINK_BLOCKED);
+        return -1;
+    }
+    return 0;
+}
 
 static __always_inline void fill_header_common(struct edr_event_header *h, __u32 kind, __u32 size)
 {

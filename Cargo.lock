@@ -53,6 +53,8 @@ dependencies = [
  "procfs",
  "prost",
  "rustls",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

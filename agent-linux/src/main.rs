@@ -32,8 +32,60 @@ async fn main() -> Result<()> {
         .json()
         .init();
 
+    // CLI: `edr-agent --unpin` removes any pinned BPF objects from a
+    // previous run and exits. Useful when the operator wants to
+    // permanently stop the agent and clean up bpffs (the LSM hooks
+    // would otherwise refuse rm under /sys/fs/bpf/edr/* even after
+    // graceful stop, since the pinned hooks survive process exit).
+    let mut args = env::args().skip(1);
+    if let Some(arg) = args.next() {
+        if arg == "--unpin" {
+            let pin_dir = env::var("EDR_PIN_DIR")
+                .unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+            let pin_dir = PathBuf::from(pin_dir);
+            ebpf::Loader::cleanup_or_takeover(&pin_dir)
+                .context("cleanup_or_takeover for --unpin")?;
+            ebpf::unpin_all(&pin_dir).context("unpin_all")?;
+            // Best-effort remove the empty subdirs.
+            for sub in ["links", "progs", "maps"] {
+                let _ = std::fs::remove_dir(pin_dir.join(sub));
+            }
+            let _ = std::fs::remove_dir(&pin_dir);
+            tracing::info!(pin_dir = %pin_dir.display(), "unpin.complete");
+            return Ok(());
+        } else if arg == "--version" {
+            println!("edr-agent {AGENT_VERSION}");
+            return Ok(());
+        } else if arg == "--help" {
+            println!("edr-agent — EDR endpoint agent\n\nUsage:\n  edr-agent              run the agent (config from EDR_AGENT_CONFIG / env)\n  edr-agent --unpin      remove pinned BPF objects from a previous run\n  edr-agent --version    print version and exit\n  edr-agent --help       this message\n\nKey environment variables:\n  EDR_AGENT_CONFIG       path to TOML config file\n  EDR_MANAGER_ENDPOINT   gRPC URL of the manager (https://host:50051)\n  EDR_MANAGER_REST       REST URL of the manager (http://host:8000)\n  EDR_ENROLLMENT_TOKEN   one-time enrollment token (first run only)\n  EDR_STATE_DIR          state directory (default /var/lib/edr)\n  EDR_HOSTNAME           override registered hostname\n  EDR_DISABLE_EBPF=1     skip eBPF, use /proc-poll fallback\n  EDR_DISABLE_SELF_PROTECTION=1   skip M7.1 self-protection hooks\n  EDR_PIN_DIR            override bpffs pin dir (default /sys/fs/bpf/edr)\n");
+            return Ok(());
+        } else {
+            anyhow::bail!("unknown argument: {arg} (try --help)");
+        }
+    }
+
     // Required since rustls 0.23 stopped auto-selecting a default provider.
     let _ = rustls::crypto::ring::default_provider().install_default();
+
+    // M7.1 self-protection: tighten ptrace/dump surface before anything
+    // sensitive runs. Belt-and-braces with the lsm/ptrace_access_check
+    // BPF hook installed below — this one works even when BPF LSM is
+    // unavailable (older kernel, lockdown) and prevents the kernel from
+    // generating core dumps that could leak our keys.
+    if env::var_os("EDR_DISABLE_SELF_PROTECTION").is_none() {
+        // SAFETY: prctl(PR_SET_DUMPABLE, ...) takes one int arg; the
+        // remaining four longs are documented as ignored. libc::prctl is
+        // variadic on Linux glibc, so we still pass placeholders.
+        let r = unsafe {
+            libc::prctl(libc::PR_SET_DUMPABLE, 0u64, 0u64, 0u64, 0u64)
+        };
+        if r != 0 {
+            tracing::warn!(
+                errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1),
+                "self_protection.prctl_set_dumpable.failed"
+            );
+        }
+    }
 
     let cfg = load_config()?;
     let id_paths = IdentityPaths::new(&cfg.identity_dir());
@@ -124,6 +176,21 @@ async fn main() -> Result<()> {
     // poller so the agent still produces telemetry. EDR_DISABLE_EBPF=1
     // forces the fallback for testing the legacy path on a kernel that
     // would otherwise load the BPF object.
+    let self_protect_enabled = env::var_os("EDR_DISABLE_SELF_PROTECTION").is_none();
+    let pin_dir_str = env::var("EDR_PIN_DIR")
+        .unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+    let pin_dir = PathBuf::from(&pin_dir_str);
+
+    // Take over (or clean up) any pinned objects from a previous run
+    // *before* we Ebpf::load — otherwise stale lsm/bpf hooks can refuse
+    // operations we do during normal load. cleanup_or_takeover is a
+    // no-op when no pins exist.
+    if self_protect_enabled && env::var_os("EDR_DISABLE_EBPF").is_none() {
+        if let Err(e) = ebpf::Loader::cleanup_or_takeover(&pin_dir) {
+            tracing::warn!(error = %e, "self_protection.takeover.failed");
+        }
+    }
+
     let mut ebpf_loader = if env::var_os("EDR_DISABLE_EBPF").is_some() {
         tracing::info!("ebpf disabled by EDR_DISABLE_EBPF; using /proc poller");
         None
@@ -157,12 +224,30 @@ async fn main() -> Result<()> {
                     .unwrap_or_default();
                 if let Some(rx) = commands_rx.take() {
                     let send_tx2 = send_tx.clone();
+                    let state_dir_for_worker = state_dir.clone();
                     tokio::spawn(async move {
-                        command_worker::run(state_dir, blocks, restored, rx, send_tx2).await;
+                        command_worker::run(state_dir_for_worker, blocks, restored, rx, send_tx2).await;
                     });
                 }
             }
             Err(e) => tracing::error!(error = %e, "ebpf.block_lists.unavailable"),
+        }
+
+        // M7.1: enable self-protection AFTER block lists are taken so
+        // their MapData ownership has moved to the command worker. Other
+        // maps (agent_self, protected_inodes, stats, events) are still
+        // available via map_mut/map.
+        if self_protect_enabled {
+            match loader.enable_self_protection(&state_dir, &pin_dir) {
+                Ok(paths) => {
+                    tracing::info!(pin_count = paths.len(), pin_dir = %pin_dir.display(), "self_protection.ready");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "self_protection.enable_failed (degraded mode)");
+                }
+            }
+        } else {
+            tracing::warn!("self_protection.disabled by EDR_DISABLE_SELF_PROTECTION");
         }
     }
     if ebpf_loader.is_none() {

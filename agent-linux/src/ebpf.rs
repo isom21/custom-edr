@@ -16,8 +16,10 @@ use anyhow::{anyhow, Context, Result};
 use aya::maps::{Array, HashMap as AyaHashMap, MapData, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf};
-use std::sync::{Arc, Mutex};
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::mpsc;
 
@@ -53,8 +55,17 @@ pub enum Stat {
     NetworkBlockHits = 7,
     KillRequests = 8,
     EventsDropped = 9,
+    SelfKillBlocked = 10,
+    SelfPtraceBlocked = 11,
+    SelfBpfBlocked = 12,
+    SelfUnlinkBlocked = 13,
 }
-const STAT_COUNT: usize = 10;
+const STAT_COUNT: usize = 14;
+
+/// Default location for pinned BPF objects. The agent owns this directory;
+/// installer must mount bpffs at `/sys/fs/bpf` (default on systemd) and
+/// give the parent dir to root.
+pub const DEFAULT_PIN_DIR: &str = "/sys/fs/bpf/edr";
 
 #[derive(Clone)]
 pub struct LoaderCtx {
@@ -133,12 +144,63 @@ impl BlockListHandle {
     }
 }
 
-/// Owns the loaded eBPF object. Drop unloads everything attached.
+/// Owns the loaded eBPF object. Drop unloads everything attached
+/// **except** programs and links that have been pinned to bpffs via
+/// [`Loader::enable_self_protection`].
 pub struct Loader {
     ebpf: Ebpf,
 }
 
 impl Loader {
+    /// Best-effort takeover of stale pins from a previous (crashed) agent.
+    ///
+    /// If `pin_dir/maps/agent_self` exists, open it and update [0] to our
+    /// tgid. This is permitted by the old agent's `lsm/bpf` hook because
+    /// `BPF_MAP_UPDATE_ELEM` is not in the block list — only
+    /// `BPF_PROG_DETACH` / `BPF_LINK_DETACH` are. Once the old programs
+    /// see us as `self`, we can unlink the bpffs pins (`lsm/inode_unlink`
+    /// allows it since caller == self), which lets the kernel garbage-
+    /// collect the orphaned programs and links.
+    ///
+    /// Called from `main.rs` *before* `load_and_attach()`. On any error
+    /// (no old pins, kernel disallows, etc.) this is a no-op — a fresh
+    /// load+attach will simply add new entries to the LSM stack.
+    pub fn cleanup_or_takeover(pin_dir: &Path) -> Result<()> {
+        if !pin_dir.exists() {
+            return Ok(());
+        }
+        let self_pin = pin_dir.join("maps/agent_self");
+        if self_pin.exists() {
+            match MapData::from_pin(&self_pin) {
+                Ok(map_data) => {
+                    let map = aya::maps::Map::Array(map_data);
+                    let mut arr: Array<MapData, u32> = Array::try_from(map)
+                        .context("Array::try_from(old agent_self)")?;
+                    let our_tgid = std::process::id();
+                    arr.set(0u32, our_tgid, 0)
+                        .context("update old agent_self[0]")?;
+                    tracing::info!(our_tgid, "self_protection.takeover.claimed_old_self_map");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "self_protection.takeover.open_self_failed");
+                }
+            }
+        }
+        for sub in ["links", "progs", "maps"] {
+            let dir = pin_dir.join(sub);
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if let Err(e) = std::fs::remove_file(&p) {
+                        tracing::warn!(path = %p.display(), error = %e, "self_protection.takeover.unpin_failed");
+                    }
+                }
+            }
+        }
+        tracing::info!(pin_dir = %pin_dir.display(), "self_protection.takeover.complete");
+        Ok(())
+    }
+
     /// Load the bundled object and attach the M6.x programs:
     /// - `tracepoint/sched/sched_process_exec` — process exec (M6.2)
     /// - `tracepoint/sched/sched_process_exit` — process exit (M6.2)
@@ -219,6 +281,133 @@ impl Loader {
         Ok(())
     }
 
+    /// Attach the M7.1 self-protection LSM hooks, populate the
+    /// `agent_self` and `protected_inodes` maps, and pin programs +
+    /// links to `pin_dir` so they survive an agent crash.
+    ///
+    /// Runs after [`load_and_attach`]. Failures are logged but don't
+    /// fail the whole agent — telemetry collection remains the priority.
+    /// Returns the list of bpffs paths created (programs + links + maps)
+    /// so the caller can record them for an optional unpin-on-exit.
+    pub fn enable_self_protection(
+        &mut self,
+        state_dir: &Path,
+        pin_dir: &Path,
+    ) -> Result<Vec<PathBuf>> {
+        let progs_dir = pin_dir.join("progs");
+        let links_dir = pin_dir.join("links");
+        let maps_dir = pin_dir.join("maps");
+        for d in [pin_dir, &progs_dir, &links_dir, &maps_dir] {
+            std::fs::create_dir_all(d)
+                .with_context(|| format!("create_dir_all {}", d.display()))?;
+        }
+
+        // 1. agent_self[0] = our tgid. Programs key off this; until
+        //    populated, every self-protection check no-ops.
+        {
+            let map = self
+                .ebpf
+                .map_mut("agent_self")
+                .ok_or_else(|| anyhow!("agent_self map missing"))?;
+            let mut arr: Array<&mut MapData, u32> = Array::try_from(map)?;
+            arr.set(0u32, std::process::id(), 0)
+                .context("agent_self.set(0, tgid)")?;
+        }
+
+        // 2. protected_inodes: state_dir + identity_dir + spool_dir +
+        //    pin_dir. Used by lsm/inode_unlink/rmdir/rename to refuse
+        //    operations on entries directly under these dirs.
+        {
+            let map = self
+                .ebpf
+                .map_mut("protected_inodes")
+                .ok_or_else(|| anyhow!("protected_inodes map missing"))?;
+            let mut hm: AyaHashMap<&mut MapData, [u8; 16], u8> = AyaHashMap::try_from(map)?;
+            let candidates = [
+                state_dir.to_path_buf(),
+                state_dir.join("identity"),
+                state_dir.join("spool"),
+                pin_dir.to_path_buf(),
+                progs_dir.clone(),
+                links_dir.clone(),
+                maps_dir.clone(),
+            ];
+            let mut count = 0usize;
+            for p in &candidates {
+                match std::fs::metadata(p) {
+                    Ok(meta) => {
+                        let key = inode_key(meta.dev(), meta.ino());
+                        if let Err(e) = hm.insert(key, 1u8, 0) {
+                            tracing::warn!(path = %p.display(), error = %e, "self_protection.protected_inode.insert_failed");
+                        } else {
+                            count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        // state_dir may not exist on first run — best
+                        // effort, agent will create it later.
+                        tracing::debug!(path = %p.display(), error = %e, "self_protection.protected_inode.stat_failed");
+                    }
+                }
+            }
+            tracing::info!(count, "self_protection.protected_inodes.populated");
+        }
+
+        // 3. Attach + pin each LSM hook. We only pin links (not programs)
+        //    because pinning the link is sufficient to keep the kernel
+        //    attachment alive after we exit; pinning the program too is
+        //    strictly redundant because the link holds a refcount on it.
+        let pinned_lsm = [
+            ("handle_task_kill", "task_kill"),
+            ("handle_ptrace_access_check", "ptrace_access_check"),
+            ("handle_bpf_lsm", "bpf"),
+            ("handle_inode_unlink", "inode_unlink"),
+            ("handle_inode_rmdir", "inode_rmdir"),
+            ("handle_inode_rename", "inode_rename"),
+        ];
+        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut attached = Vec::new();
+        for (prog_name, hook) in pinned_lsm {
+            match attach_and_pin_lsm(&mut self.ebpf, prog_name, hook, &links_dir) {
+                Ok(p) => {
+                    paths.push(p);
+                    attached.push(hook);
+                }
+                Err(e) => {
+                    tracing::warn!(prog = %prog_name, hook = %hook, error = %e, "self_protection.lsm_attach.failed");
+                }
+            }
+        }
+
+        // 4. Pin agent_self + protected_inodes so a takeover from a
+        //    future crashed-then-restarted agent can find them.
+        for name in ["agent_self", "protected_inodes"] {
+            let pin_path = maps_dir.join(name);
+            if pin_path.exists() {
+                // Should have been removed by cleanup_or_takeover, but
+                // if not (e.g. operator put an unrelated file there),
+                // skip so the pin syscall doesn't error.
+                tracing::debug!(path = %pin_path.display(), "self_protection.map_pin.path_exists_skipping");
+                continue;
+            }
+            if let Some(map) = self.ebpf.map(name) {
+                if let Err(e) = map.pin(&pin_path) {
+                    tracing::warn!(map = %name, error = %e, "self_protection.map_pin.failed");
+                } else {
+                    paths.push(pin_path);
+                }
+            }
+        }
+
+        tracing::info!(
+            tgid = std::process::id(),
+            attached = ?attached,
+            pinned = paths.len(),
+            "self_protection.enabled"
+        );
+        Ok(paths)
+    }
+
     /// Read all stat counters into an array. Indices match [`Stat`].
     pub fn read_stats(&mut self) -> Result<[u64; STAT_COUNT]> {
         let map = self
@@ -251,11 +440,88 @@ fn attach_lsm(ebpf: &mut Ebpf, prog_name: &str, hook_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Variant of [`attach_lsm`] that pins the resulting link to bpffs so
+/// the kernel attachment survives the agent's exit. Returns the
+/// resulting bpffs path on success.
+fn attach_and_pin_lsm(
+    ebpf: &mut Ebpf,
+    prog_name: &str,
+    hook_name: &str,
+    links_dir: &Path,
+) -> Result<PathBuf> {
+    let btf = Btf::from_sys_fs().context("Btf::from_sys_fs")?;
+    let prog: &mut Lsm = ebpf
+        .program_mut(prog_name)
+        .ok_or_else(|| anyhow!("{prog_name} program missing"))?
+        .try_into()?;
+    prog.load(hook_name, &btf)
+        .with_context(|| format!("load lsm/{hook_name}"))?;
+    let link_id = prog
+        .attach()
+        .with_context(|| format!("attach lsm/{hook_name}"))?;
+    let owned = prog
+        .take_link(link_id)
+        .with_context(|| format!("take_link lsm/{hook_name}"))?;
+    let fd_link: aya::programs::links::FdLink = owned.into();
+    let pin_path = links_dir.join(prog_name);
+    let _pinned = fd_link
+        .pin(&pin_path)
+        .with_context(|| format!("pin link to {}", pin_path.display()))?;
+    // _pinned is dropped here; that closes our local fd but the bpffs
+    // file holds the link alive.
+    Ok(pin_path)
+}
+
+/// Pack `(dev, ino)` into the 16-byte little-endian layout that matches
+/// `struct edr_inode_key` in `edr.bpf.c`: `[u32 dev | u32 _pad | u64 ino]`.
+/// `userspace_dev` is the value from [`std::os::unix::fs::MetadataExt::dev`]
+/// (glibc encoding); we translate to the kernel `s_dev` encoding before
+/// packing so the BPF lookup matches what `BPF_CORE_READ(dir, i_sb, s_dev)`
+/// produces inside the kernel.
+fn inode_key(userspace_dev: u64, ino: u64) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    let kernel_dev = userspace_dev_to_kernel(userspace_dev);
+    k[0..4].copy_from_slice(&kernel_dev.to_le_bytes());
+    // bytes 4..8 are padding (zero)
+    k[8..16].copy_from_slice(&ino.to_le_bytes());
+    k
+}
+
+/// Translate a glibc `dev_t` (the value returned by stat(2) via
+/// `MetadataExt::dev`) into the kernel's `s_dev` encoding.
+///
+/// glibc `dev_t` (64-bit): major in bits 8..20 + 32..64; minor in
+/// bits 0..8 + 12..32. Kernel `dev_t` (32-bit): `(major << 20) | minor`,
+/// with `MINORBITS = 20`.
+fn userspace_dev_to_kernel(dev: u64) -> u32 {
+    let major = (((dev >> 8) & 0xfff) as u32) | (((dev >> 32) & !0xfff) as u32);
+    let minor = ((dev & 0xff) as u32) | (((dev >> 12) & !0xff) as u32);
+    (major << 20) | (minor & 0xf_ffff)
+}
+
+/// Walk `pin_dir` and `remove_file` every entry. Used by the optional
+/// unpin-on-exit path; idempotent.
+pub fn unpin_all(pin_dir: &Path) -> std::io::Result<()> {
+    if !pin_dir.exists() {
+        return Ok(());
+    }
+    for sub in ["links", "progs", "maps"] {
+        let dir = pin_dir.join(sub);
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Best-effort one-line summary of all stat counters.
 pub fn format_stats(stats: &[u64; STAT_COUNT]) -> String {
     format!(
         "exec={} exit={} file_open={} net_connect={} module_load={} \
-         block_hits=p:{}/f:{}/n:{} kill_requests={} events_dropped={}",
+         block_hits=p:{}/f:{}/n:{} kill_requests={} events_dropped={} \
+         self_blocked=k:{}/t:{}/b:{}/u:{}",
         stats[Stat::ProcessExec as usize],
         stats[Stat::ProcessExit as usize],
         stats[Stat::FileOpen as usize],
@@ -266,6 +532,10 @@ pub fn format_stats(stats: &[u64; STAT_COUNT]) -> String {
         stats[Stat::NetworkBlockHits as usize],
         stats[Stat::KillRequests as usize],
         stats[Stat::EventsDropped as usize],
+        stats[Stat::SelfKillBlocked as usize],
+        stats[Stat::SelfPtraceBlocked as usize],
+        stats[Stat::SelfBpfBlocked as usize],
+        stats[Stat::SelfUnlinkBlocked as usize],
     )
 }
 

@@ -11,6 +11,7 @@ visible at the API surface.
 | `20-agent-ioc-e2e.sh` | Agent → Kafka → indexer → IOC detector → alert in PG. Spawns `/tmp/mimikatz.exe`. |
 | `30-sigma-realtime-e2e.sh` | Realtime (percolator) Sigma engine. Reports wall-clock latency from process spawn → alert visible. |
 | `40-sigma-scheduled-e2e.sh` | Legacy 30s-tick scheduled Sigma engine — only used to validate aggregation rules later. |
+| `45-self-protection-linux.sh` | M7.1 BPF LSM self-protection on a Linux endpoint: kill, ptrace, /proc/&lt;pid&gt;/mem, bpffs unlink, state-dir unlink, bpftool detach all blocked from non-self callers; `systemctl stop` still works. Runs against a host with the agent already installed and active; pass `--state-dir` if not the default `/var/lib/edr`. |
 
 ## Run order
 

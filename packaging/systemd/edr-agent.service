@@ -1,0 +1,49 @@
+[Unit]
+Description=EDR endpoint agent
+Documentation=https://github.com/example/custom-edr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/edr-agent
+EnvironmentFile=-/etc/edr/agent.env
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+KillMode=process
+User=root
+
+# State + bpffs are the only writable surfaces the agent needs. Everything
+# else is read-only or covered by a private namespace. ProtectSystem=strict
+# turns the rest of /usr, /etc, /boot read-only.
+# A leading dash makes the path optional — if the operator overrides
+# EDR_STATE_DIR to a different location, they should add it here too.
+ReadWritePaths=-/var/lib/edr -/var/lib/edr-state /sys/fs/bpf
+# StateDirectory implies ReadWritePaths and creates the dir if missing,
+# but only relative to /var/lib. Keep it for the default state path.
+StateDirectory=edr
+
+# Hardening — minimum surface for an agent that needs CAP_BPF + CAP_KILL.
+# Capabilities chosen for: BPF (CAP_BPF, CAP_PERFMON), CO-RE BTF reads
+# (CAP_DAC_READ_SEARCH for /sys/kernel/btf/vmlinux when stricter modes
+# kick in), kill response action (CAP_KILL), reading /proc for the poll
+# fallback (CAP_SYS_PTRACE — needed for /proc/<pid>/stat on processes
+# we don't own).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelLogs=false
+ProtectKernelTunables=false
+ProtectKernelModules=false
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_KILL CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_KILL CAP_NET_ADMIN CAP_SYS_ADMIN
+
+[Install]
+WantedBy=multi-user.target
