@@ -1,0 +1,162 @@
+"""Pytest fixtures for the backend test suite.
+
+The default fixture wires the FastAPI app to an isolated test database
+created per session. We rely on a real Postgres (the CI service container
+or a local instance) rather than SQLite-mocking because the schema uses
+PG-specific types (uuid, jsonb, enum, citext-like patterns).
+
+Test isolation uses a SAVEPOINT-per-test pattern — each test runs inside
+a nested transaction that rolls back at teardown, so tests can share the
+session-scoped schema without bleeding state.
+
+Environment expected (CI sets these via the service container env block):
+    EDR_DATABASE_URL  postgresql+psycopg://...        (sync url for alembic)
+    EDR_PG_DSN        postgresql+asyncpg://...        (async url for the app)
+    EDR_KAFKA_BROKERS localhost:9092                  (only if kafka tests run)
+    EDR_OPENSEARCH_URL http://localhost:9200          (only if OS tests run)
+
+When run locally without those, tests are skipped with a clear message.
+"""
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from typing import Any
+
+import pytest
+import pytest_asyncio
+
+
+def _pg_dsn() -> str | None:
+    """Return the async PG DSN for tests, or None if not configured."""
+    # Prefer EDR_TEST_PG_DSN, then EDR_PG_DSN, then derive from EDR_DATABASE_URL.
+    if v := os.environ.get("EDR_TEST_PG_DSN"):
+        return v
+    if v := os.environ.get("EDR_PG_DSN"):
+        return v
+    if v := os.environ.get("EDR_DATABASE_URL"):
+        # Convert sync to async driver if the user gave us a sync URL.
+        if v.startswith("postgresql+psycopg://"):
+            return v.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+    return None
+
+
+@pytest_asyncio.fixture
+async def db_engine() -> AsyncIterator[Any]:
+    """Per-test async engine. Connection pool overhead is small for the
+    suite we run; session-scoping the engine clashes with pytest-asyncio's
+    default function-scoped event loop."""
+    dsn = _pg_dsn()
+    if dsn is None:
+        pytest.skip(
+            "No PG DSN configured. Set EDR_TEST_PG_DSN or EDR_DATABASE_URL "
+            "to run integration tests."
+        )
+
+    # Importing app.core.db here so Settings can pick up the env vars set
+    # by the test harness rather than the dev defaults.
+    os.environ.setdefault("EDR_PG_DSN", dsn)
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(dsn, pool_pre_ping=True, echo=False)
+    yield engine
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(db_engine: Any) -> AsyncIterator[Any]:
+    """Per-test session inside a SAVEPOINT that rolls back at teardown."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async with db_engine.connect() as conn:
+        trans = await conn.begin()
+        session = AsyncSession(bind=conn, expire_on_commit=False)
+        try:
+            yield session
+        finally:
+            await session.close()
+            await trans.rollback()
+
+
+@pytest_asyncio.fixture
+async def http_client(db_engine: Any) -> AsyncIterator[Any]:
+    """ASGI client bound to the FastAPI app, sharing the test engine.
+
+    Override `get_session` so every request inside a test uses our
+    transactional connection. Uses httpx ASGITransport (no real network).
+    """
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.core.deps import get_session
+    from app.main import app
+
+    async def _override_session() -> AsyncIterator[AsyncSession]:
+        async with db_engine.connect() as conn:
+            trans = await conn.begin()
+            session = AsyncSession(bind=conn, expire_on_commit=False)
+            try:
+                yield session
+            finally:
+                await session.close()
+                await trans.rollback()
+
+    app.dependency_overrides[get_session] = _override_session
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.pop(get_session, None)
+
+
+@pytest_asyncio.fixture
+async def admin_user(db_session: Any) -> Any:
+    """A fresh admin user, scoped to the test transaction."""
+    from app.core.security import hash_password
+    from app.models import User, UserRole
+
+    user = User(
+        email=f"admin-{os.urandom(4).hex()}@test.local",
+        password_hash=hash_password("test-password-123"),
+        role=UserRole.ADMIN,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+@pytest_asyncio.fixture
+async def analyst_user(db_session: Any) -> Any:
+    """A fresh analyst user."""
+    from app.core.security import hash_password
+    from app.models import User, UserRole
+
+    user = User(
+        email=f"analyst-{os.urandom(4).hex()}@test.local",
+        password_hash=hash_password("test-password-123"),
+        role=UserRole.ANALYST,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    return user
+
+
+def make_jwt(user_id: str, role: str = "admin") -> str:
+    """Mint an access JWT for the given user, mirroring app.core.security."""
+    from uuid import UUID
+
+    from app.core.security import issue_jwt
+
+    return issue_jwt(sub=UUID(user_id), role=role, token_type="access")
+
+
+@pytest.fixture
+def admin_headers(admin_user: Any) -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_jwt(str(admin_user.id), 'admin')}"}
+
+
+@pytest.fixture
+def analyst_headers(analyst_user: Any) -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_jwt(str(analyst_user.id), 'analyst')}"}

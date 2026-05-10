@@ -1,4 +1,5 @@
 """Append-only audit log helper."""
+
 from __future__ import annotations
 
 from typing import Any

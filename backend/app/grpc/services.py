@@ -5,12 +5,13 @@ Handles two RPCs:
 - HostStream: long-lived bidi over mTLS. Inbound events are forwarded to the
   Kafka raw topic. Outbound: rule sync at start + periodic pongs.
 """
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from datetime import datetime, timezone
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from uuid import UUID
 
 import grpc
@@ -173,11 +174,11 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         token = (
             await db.execute(select(EnrollmentToken).where(EnrollmentToken.token_hash == th))
         ).scalar_one_or_none()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if token is None or token.used_at is not None or token.expires_at < now:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "invalid or expired token")
 
-        os_family = PB_OS_FAMILY.get(request.os.family.lower(), None)
+        os_family = PB_OS_FAMILY.get(request.os.family.lower())
         if os_family is None:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unknown os.family")
 
@@ -195,9 +196,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         await db.flush()
 
         ca = CaService(db)
-        issued = await ca.sign_csr(
-            request.csr_pem, host_id=str(host.id), hostname=request.hostname
-        )
+        issued = await ca.sign_csr(request.csr_pem, host_id=str(host.id), hostname=request.hostname)
         host.cert_fingerprint = issued.fingerprint_sha256
 
         token.used_at = now
@@ -247,7 +246,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, "unknown host")
                 return
             host.status = HostStatus.ONLINE
-            host.last_seen_at = datetime.now(timezone.utc)
+            host.last_seen_at = datetime.now(UTC)
             await db.commit()
 
             # Push initial rule sync to the agent.
@@ -288,10 +287,10 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                                 if pb is None:
                                     cmd.status = CommandStatus.FAILED
                                     cmd.error = "unsupported command kind"
-                                    cmd.completed_at = datetime.now(timezone.utc)
+                                    cmd.completed_at = datetime.now(UTC)
                                     continue
                                 cmd.status = CommandStatus.DISPATCHED
-                                cmd.dispatched_at = datetime.now(timezone.utc)
+                                cmd.dispatched_at = datetime.now(UTC)
                                 await out.put(control_pb2.ServerMessage(command=pb))
                             if pending:
                                 await cdb.commit()
@@ -313,7 +312,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 while not context.cancelled() and not consume_task.done():
                     try:
                         msg = await asyncio.wait_for(out_queue.get(), timeout=1.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
                     yield msg
             finally:
@@ -340,7 +339,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         request_iterator: AsyncIterator[control_pb2.ClientMessage],
         context: grpc.aio.ServicerContext,
     ) -> None:
-        last_seen_update = datetime.now(timezone.utc)
+        last_seen_update = datetime.now(UTC)
         async for msg in request_iterator:
             kind = msg.WhichOneof("payload")
             if kind == "events":
@@ -366,7 +365,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                     await asyncio.gather(*sends)
             elif kind == "heartbeat":
                 # Throttle DB writes — once per ~30s.
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if (now - last_seen_update).total_seconds() >= 30:
                     async with SessionLocal() as db:
                         h = await db.get(Host, host_id)
@@ -398,12 +397,15 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                                 if msg.command_result.success
                                 else CommandStatus.FAILED
                             )
-                            cmd.completed_at = datetime.now(timezone.utc)
+                            cmd.completed_at = datetime.now(UTC)
                             if msg.command_result.error:
                                 cmd.error = msg.command_result.error[:512]
                             await db.commit()
                 except (ValueError, Exception):
-                    log.exception("grpc.command_result.persist_failed", command_id=msg.command_result.command_id)
+                    log.exception(
+                        "grpc.command_result.persist_failed",
+                        command_id=msg.command_result.command_id,
+                    )
             else:
                 log.debug("grpc.host_stream.unknown_payload", host_id=str(host_id), kind=kind)
 
@@ -412,14 +414,10 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
 
         Sigma rules are evaluated server-side; agents don't receive them.
         """
-        stmt = (
-            select(Rule)
-            .where(Rule.enabled.is_(True))
-            .options(selectinload(Rule.iocs))
-        )
+        stmt = select(Rule).where(Rule.enabled.is_(True)).options(selectinload(Rule.iocs))
         rows = (await db.execute(stmt)).scalars().all()
 
-        sync = control_pb2.RuleSync(rules_version=int(datetime.now(timezone.utc).timestamp()))
+        sync = control_pb2.RuleSync(rules_version=int(datetime.now(UTC).timestamp()))
         for r in rows:
             if r.kind is RuleKind.YARA and r.body:
                 sync.yara.append(

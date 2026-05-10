@@ -4,9 +4,10 @@ Per ADR 0002 the agent's full lifecycle is gRPC over mTLS; the Enroll RPC will l
 the same gRPC service in M2. The REST endpoint here is the dev-friendly equivalent and
 is the path the agent will use during M1/M2 thin-slice work.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Request, status
@@ -35,16 +36,18 @@ router = APIRouter(prefix="/api/enrollment", tags=["enrollment"])
 @router.get("/tokens", response_model=list[EnrollmentTokenOut])
 async def list_tokens(db: DbSession, actor: RequireAdmin) -> list[EnrollmentTokenOut]:
     rows = (
-        await db.execute(
-            select(EnrollmentToken).order_by(EnrollmentToken.created_at.desc()).limit(200)
+        (
+            await db.execute(
+                select(EnrollmentToken).order_by(EnrollmentToken.created_at.desc()).limit(200)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [EnrollmentTokenOut.model_validate(t) for t in rows]
 
 
-@router.post(
-    "/tokens", response_model=EnrollmentTokenCreated, status_code=status.HTTP_201_CREATED
-)
+@router.post("/tokens", response_model=EnrollmentTokenCreated, status_code=status.HTTP_201_CREATED)
 async def create_token(
     payload: EnrollmentTokenCreate, db: DbSession, actor: RequireAdmin
 ) -> EnrollmentTokenCreated:
@@ -52,7 +55,7 @@ async def create_token(
     token = EnrollmentToken(
         token_hash=hash_enrollment_token(plaintext),
         label=payload.label,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=payload.ttl_hours),
+        expires_at=datetime.now(UTC) + timedelta(hours=payload.ttl_hours),
         created_by=actor.user.id,
     )
     db.add(token)
@@ -96,7 +99,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     ).scalar_one_or_none()
     if token is None:
         raise bad_request("invalid enrollment token")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if token.used_at is not None:
         raise bad_request("token already used")
     if token.expires_at < now:

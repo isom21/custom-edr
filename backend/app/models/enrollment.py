@@ -1,4 +1,5 @@
 """Enrollment token (one-time agent install secret)."""
+
 from __future__ import annotations
 
 from datetime import datetime

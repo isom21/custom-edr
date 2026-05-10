@@ -1,4 +1,5 @@
 """Policy CRUD."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -69,9 +70,7 @@ async def get_policy(policy_id: UUID, db: DbSession, actor: RequireAnalyst) -> P
 
 
 @router.post("", response_model=PolicyOut, status_code=status.HTTP_201_CREATED)
-async def create_policy(
-    payload: PolicyCreate, db: DbSession, actor: RequireAdmin
-) -> PolicyOut:
+async def create_policy(payload: PolicyCreate, db: DbSession, actor: RequireAdmin) -> PolicyOut:
     existing = (
         await db.execute(select(Policy).where(Policy.name == payload.name))
     ).scalar_one_or_none()

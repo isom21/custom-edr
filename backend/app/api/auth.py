@@ -1,4 +1,5 @@
 """Login, refresh, logout."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -8,10 +9,11 @@ from fastapi import APIRouter
 
 from app.core.deps import DbSession
 from app.core.errors import unauthorized
-from app.core.security import decode_jwt, issue_jwt
+from app.core.security import decode_jwt
 from app.models import User
 from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
-from app.services import audit, auth as auth_service
+from app.services import audit
+from app.services import auth as auth_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

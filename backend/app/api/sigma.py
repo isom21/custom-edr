@@ -3,9 +3,10 @@
 Used by the rule editor to validate Sigma YAML and to dry-run a rule
 against historical telemetry before saving.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -57,9 +58,7 @@ async def test_saved_rule(
     db: DbSession,
     _actor: RequireAnalyst,
 ) -> SigmaTestResponse:
-    rule = (
-        await db.execute(select(Rule).where(Rule.id == rule_id))
-    ).scalar_one_or_none()
+    rule = (await db.execute(select(Rule).where(Rule.id == rule_id))).scalar_one_or_none()
     if rule is None:
         raise not_found("rule", str(rule_id))
     if rule.kind is not RuleKind.SIGMA:
@@ -76,7 +75,7 @@ async def _run_test(body: str, lookback_hours: int) -> SigmaTestResponse:
     except SigmaCompileError as exc:
         raise bad_request(f"compile failed: {exc}") from exc
 
-    upper = datetime.now(timezone.utc)
+    upper = datetime.now(UTC)
     lower = upper - timedelta(hours=lookback_hours)
 
     client = os_svc._client()

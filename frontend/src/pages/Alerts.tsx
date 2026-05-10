@@ -15,7 +15,10 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import type { AlertState, Severity } from "@/types/api";
 
-const SEVERITY_VARIANT: Record<Severity, "default" | "secondary" | "destructive" | "outline" | "success" | "warning"> = {
+const SEVERITY_VARIANT: Record<
+  Severity,
+  "default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
   info: "outline",
   low: "secondary",
   medium: "default",
@@ -23,7 +26,10 @@ const SEVERITY_VARIANT: Record<Severity, "default" | "secondary" | "destructive"
   critical: "destructive",
 };
 
-const STATE_VARIANT: Record<AlertState, "default" | "secondary" | "destructive" | "outline" | "success" | "warning"> = {
+const STATE_VARIANT: Record<
+  AlertState,
+  "default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
   new: "warning",
   investigating: "default",
   false_positive: "secondary",

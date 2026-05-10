@@ -175,15 +175,13 @@ export function RuleEdit() {
                   rows={20}
                   placeholder={
                     kind === "yara"
-                      ? "rule example_rule { strings: $a = \"bad\" condition: $a }"
+                      ? 'rule example_rule { strings: $a = "bad" condition: $a }'
                       : "title: Suspicious thing\nlogsource:\n    category: process_creation\n    product: linux\ndetection:\n  selection:\n    process.name|contains: 'bad'\n  condition: selection"
                   }
                 />
               </CardContent>
             </Card>
-            {kind === "sigma" && (
-              <SigmaPanel body={body} ruleId={id} isNew={isNew} />
-            )}
+            {kind === "sigma" && <SigmaPanel body={body} ruleId={id} isNew={isNew} />}
           </>
         ) : (
           <Card>

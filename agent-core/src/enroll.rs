@@ -56,7 +56,10 @@ pub async fn enroll(ctx: &EnrollContext<'_>, paths: &IdentityPaths) -> Result<Id
         csr_pem,
     };
 
-    let url = format!("{}/api/enrollment/enroll", ctx.rest_endpoint.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/enrollment/enroll",
+        ctx.rest_endpoint.trim_end_matches('/')
+    );
     let client = Client::builder()
         .danger_accept_invalid_certs(true) // dev: manager TLS may use a self-signed root
         .build()?;

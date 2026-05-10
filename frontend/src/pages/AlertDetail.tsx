@@ -95,7 +95,10 @@ export function AlertDetail() {
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">
               Queue a response action against this alert's host. Status lands on{" "}
-              <a className="underline" href="/commands">/commands</a> once the agent confirms.
+              <a className="underline" href="/commands">
+                /commands
+              </a>{" "}
+              once the agent confirms.
             </p>
             <div className="flex flex-wrap gap-2">
               <CommandDialog
@@ -164,17 +167,14 @@ export function AlertDetail() {
                   <li key={h.id} className="rounded-md border p-3">
                     <div className="flex items-center justify-between">
                       <span>
-                        <Badge variant="outline">{h.from_state ?? "—"}</Badge>{" "}
-                        →{" "}
+                        <Badge variant="outline">{h.from_state ?? "—"}</Badge> →{" "}
                         <Badge>{h.to_state}</Badge>
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {new Date(h.ts).toLocaleString()}
                       </span>
                     </div>
-                    {h.comment && (
-                      <div className="mt-1 text-muted-foreground">{h.comment}</div>
-                    )}
+                    {h.comment && <div className="mt-1 text-muted-foreground">{h.comment}</div>}
                   </li>
                 ))}
               </ul>

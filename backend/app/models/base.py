@@ -1,9 +1,10 @@
 """SQLAlchemy declarative base + shared mixins."""
+
 from __future__ import annotations
 
 import enum as _enum
-from datetime import datetime, timezone
-from typing import Type, TypeVar
+from datetime import UTC, datetime
+from typing import TypeVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, Enum, MetaData
@@ -12,7 +13,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 E = TypeVar("E", bound=_enum.Enum)
 
 
-def pg_enum(enum_cls: Type[E], *, name: str, create_type: bool = False) -> Enum:
+def pg_enum(enum_cls: type[E], *, name: str, create_type: bool = False) -> Enum:
     """SQLAlchemy Enum type that sends enum *values* to Postgres, not member names.
 
     Required because Postgres enum labels are lowercase (`admin`, not `ADMIN`),
@@ -24,6 +25,7 @@ def pg_enum(enum_cls: Type[E], *, name: str, create_type: bool = False) -> Enum:
         create_type=create_type,
         values_callable=lambda c: [m.value for m in c],
     )
+
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -39,7 +41,7 @@ class Base(DeclarativeBase):
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class UuidPkMixin:

@@ -7,6 +7,7 @@ consumers (indexer, detector, sigma-scheduler) read JSON from there.
 Run with:
     python -m app.workers.normalizer
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -68,7 +69,7 @@ class Normalizer:
         while not self._stop.is_set():
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             try:
                 ev = events_pb2.EndpointEvent()
@@ -88,6 +89,7 @@ class Normalizer:
             # event burst.
             try:
                 from uuid import UUID as _UUID
+
                 hid_str = ecs.get("host", {}).get("id")
                 if hid_str:
                     hn, osf = await hostname_for(_UUID(hid_str))

@@ -1,4 +1,5 @@
 """Endpoint / host model."""
+
 from __future__ import annotations
 
 import enum
@@ -12,7 +13,7 @@ from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
 
 
 class HostStatus(str, enum.Enum):
-    PENDING = "pending"        # enrolled but not yet connected
+    PENDING = "pending"  # enrolled but not yet connected
     ONLINE = "online"
     OFFLINE = "offline"
     ISOLATED = "isolated"

@@ -1,4 +1,5 @@
 """FastAPI entry point for the EDR manager."""
+
 from __future__ import annotations
 
 import logging

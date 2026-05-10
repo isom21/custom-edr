@@ -10,9 +10,10 @@ Plus a single non-date index used by the realtime Sigma engine:
                         type percolator. Telemetry events are percolated
                         against this index for sub-second Sigma matching.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -167,11 +168,11 @@ async def ensure_sigma_index(client: AsyncOpenSearch) -> None:
 
 
 def telemetry_index_for(ts: datetime) -> str:
-    return f"telemetry-{ts.astimezone(timezone.utc):%Y%m%d}"
+    return f"telemetry-{ts.astimezone(UTC):%Y%m%d}"
 
 
 def alerts_index_for(ts: datetime) -> str:
-    return f"alerts-{ts.astimezone(timezone.utc):%Y%m%d}"
+    return f"alerts-{ts.astimezone(UTC):%Y%m%d}"
 
 
 # ----- Sigma percolator helpers -----
@@ -197,28 +198,22 @@ async def register_sigma_rule(
         "rule_name": rule_name,
         "severity": severity,
         "enabled": True,
-        "registered_at": datetime.now(timezone.utc).isoformat(),
+        "registered_at": datetime.now(UTC).isoformat(),
     }
-    await client.index(
-        index=SIGMA_RULES_INDEX, id=str(rule_id), body=body, refresh="wait_for"
-    )
+    await client.index(index=SIGMA_RULES_INDEX, id=str(rule_id), body=body, refresh="wait_for")
 
 
 async def unregister_sigma_rule(client: AsyncOpenSearch, rule_id: UUID) -> None:
     """Remove a rule's percolator doc. Idempotent — 404 is swallowed."""
     try:
-        await client.delete(
-            index=SIGMA_RULES_INDEX, id=str(rule_id), refresh="wait_for"
-        )
+        await client.delete(index=SIGMA_RULES_INDEX, id=str(rule_id), refresh="wait_for")
     except Exception as exc:
         status = getattr(exc, "status_code", None)
         if status not in (404, "404"):
             raise
 
 
-async def percolate(
-    client: AsyncOpenSearch, ecs_doc: dict[str, Any]
-) -> list[dict[str, Any]]:
+async def percolate(client: AsyncOpenSearch, ecs_doc: dict[str, Any]) -> list[dict[str, Any]]:
     """Run an ECS event against every registered Sigma rule. Returns the
     matching docs' _source (rule_id, rule_name, severity).
     """

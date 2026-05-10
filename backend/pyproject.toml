@@ -33,8 +33,12 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.115",
     "ruff>=0.8",
     "mypy>=1.13",
+    "pyright>=1.1.390",
+    "pip-audit>=2.7",
     "types-protobuf>=5.28",
 ]
 
@@ -51,7 +55,47 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ASYNC"]
+# Stylistic rules we deliberately ignore:
+#   UP042 - prefer enum.StrEnum over `str, enum.Enum` mixin. The mixin form
+#           gives slightly different equality semantics that pysigma + the
+#           SQLAlchemy enum wrapper depend on; switching is a breaking
+#           change for consumers and not worth it for cosmetic gain.
+#   UP047 - generic functions should use PEP 695 type parameters. Cosmetic;
+#           our legacy TypeVar form works on every Python 3.12 we target.
+ignore = [
+    "UP042",  # prefer enum.StrEnum (mixin form is intentional, see above)
+    "UP046",  # Generic class via Generic[] subclass is fine on 3.12
+    "UP047",  # PEP 695 type params (cosmetic)
+    "ASYNC240",  # we use sync pathlib in async fns deliberately for short ops
+    "B905",   # zip(strict=...) noise where the iterables are statically same-len
+    "SIM105", # try/except/pass is occasionally clearer than contextlib.suppress
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:google.*",
+    "ignore::DeprecationWarning:grpc.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/proto_gen/*",
+    "app/grpc/*_pb2*.py",
+]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 0  # ratchet up after the test corpus stabilises (M14 follow-up)
+
+[tool.pyright]
+include = ["app"]
+exclude = ["app/proto_gen", "**/__pycache__"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingImports = "error"
+reportMissingTypeStubs = "none"

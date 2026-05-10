@@ -8,13 +8,14 @@ telemetry.normalized in their own consumer groups.
 Run with:
     python -m app.workers.indexer
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -87,7 +88,7 @@ class Indexer:
         while not self._stop.is_set():
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=BATCH_LINGER_S)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if buffered:
                     await flush()
                 continue
@@ -98,7 +99,7 @@ class Indexer:
                 log.exception("indexer.decode_failed", offset=msg.offset)
                 continue
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             buffered.append((os_svc.telemetry_index_for(now), ecs))
 
             if (

@@ -1,4 +1,5 @@
 """Policy + policy-rule association."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -19,7 +20,7 @@ class Policy(UuidPkMixin, TimestampMixin, Base):
     # Agents sync when their cached version < this.
     version: Mapped[int] = mapped_column(default=1, nullable=False)
 
-    rule_links: Mapped[list["PolicyRule"]] = relationship(
+    rule_links: Mapped[list[PolicyRule]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"
     )
 

@@ -174,8 +174,8 @@ impl Loader {
             match MapData::from_pin(&self_pin) {
                 Ok(map_data) => {
                     let map = aya::maps::Map::Array(map_data);
-                    let mut arr: Array<MapData, u32> = Array::try_from(map)
-                        .context("Array::try_from(old agent_self)")?;
+                    let mut arr: Array<MapData, u32> =
+                        Array::try_from(map).context("Array::try_from(old agent_self)")?;
                     let our_tgid = std::process::id();
                     arr.set(0u32, our_tgid, 0)
                         .context("update old agent_self[0]")?;
@@ -226,8 +226,7 @@ impl Loader {
                 .with_context(|| format!("attach {category}/{event}"))?;
         }
 
-        let mut attached =
-            String::from("sched_process_exec,sched_process_exit,module_load");
+        let mut attached = String::from("sched_process_exec,sched_process_exit,module_load");
         match attach_lsm(&mut ebpf, "handle_file_open", "file_open") {
             Ok(()) => attached.push_str(",lsm:file_open"),
             Err(e) => tracing::warn!(error = %e, "ebpf.lsm_file_open.skipped"),
@@ -266,7 +265,11 @@ impl Loader {
 
     /// Take ownership of the ring-buffer map and spawn an async drainer
     /// that translates events to protobuf and pushes them onto `send_tx`.
-    pub fn spawn_drainer(&mut self, ctx: LoaderCtx, send_tx: mpsc::Sender<p::ClientMessage>) -> Result<()> {
+    pub fn spawn_drainer(
+        &mut self,
+        ctx: LoaderCtx,
+        send_tx: mpsc::Sender<p::ClientMessage>,
+    ) -> Result<()> {
         let map = self
             .ebpf
             .take_map("events")
@@ -546,8 +549,7 @@ async fn drain_loop(
 ) -> Result<()> {
     // RingBuf is edge-triggered via epoll; AsyncFd lets tokio await on it.
     // We follow aya's documented loop shape: wait, drain, clear_ready.
-    let async_fd = AsyncFd::new(RingFd(ring.as_raw_fd()))
-        .context("AsyncFd::new(RingBuf)")?;
+    let async_fd = AsyncFd::new(RingFd(ring.as_raw_fd())).context("AsyncFd::new(RingBuf)")?;
 
     // Cap per-batch so a single ClientMessage stays under typical gRPC
     // limits (4 MiB default). 256 events × ~600 bytes each ≈ 150 KiB.
@@ -613,11 +615,11 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 return None;
             }
             let comm = read_cstr(&buf[32..32 + COMM_LEN]);
-            let path_len = u32::from_ne_bytes(
-                buf[32 + COMM_LEN..32 + COMM_LEN + 4].try_into().ok()?,
-            ) as usize;
+            let path_len =
+                u32::from_ne_bytes(buf[32 + COMM_LEN..32 + COMM_LEN + 4].try_into().ok()?) as usize;
             let path_start = 32 + COMM_LEN + 4;
-            let path = if path_len > 0 && path_start + path_len <= buf.len() && path_len <= PATH_MAX {
+            let path = if path_len > 0 && path_start + path_len <= buf.len() && path_len <= PATH_MAX
+            {
                 String::from_utf8_lossy(&buf[path_start..path_start + path_len])
                     .trim_end_matches('\0')
                     .to_string()
@@ -658,9 +660,9 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 return None;
             }
             let _comm = read_cstr(&buf[HDR..HDR + COMM_LEN]);
-            let name_len = u32::from_ne_bytes(
-                buf[HDR + COMM_LEN..HDR + COMM_LEN + 4].try_into().ok()?,
-            ) as usize;
+            let name_len =
+                u32::from_ne_bytes(buf[HDR + COMM_LEN..HDR + COMM_LEN + 4].try_into().ok()?)
+                    as usize;
             let name_start = HDR + COMM_LEN + 4;
             if name_len == 0 || name_len > NAME_MAX || name_start + name_len > buf.len() {
                 return None;
@@ -744,14 +746,16 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
                 return None;
             }
             let comm = read_cstr(&buf[HDR..HDR + COMM_LEN]);
-            let open_flags = u32::from_ne_bytes(
-                buf[HDR + COMM_LEN..HDR + COMM_LEN + 4].try_into().ok()?,
-            );
+            let open_flags =
+                u32::from_ne_bytes(buf[HDR + COMM_LEN..HDR + COMM_LEN + 4].try_into().ok()?);
             let path_len = u32::from_ne_bytes(
-                buf[HDR + COMM_LEN + 4..HDR + COMM_LEN + 8].try_into().ok()?,
+                buf[HDR + COMM_LEN + 4..HDR + COMM_LEN + 8]
+                    .try_into()
+                    .ok()?,
             ) as usize;
             let path_start = HDR + COMM_LEN + 8;
-            let path = if path_len > 0 && path_start + path_len <= buf.len() && path_len <= PATH_MAX {
+            let path = if path_len > 0 && path_start + path_len <= buf.len() && path_len <= PATH_MAX
+            {
                 String::from_utf8_lossy(&buf[path_start..path_start + path_len])
                     .trim_end_matches('\0')
                     .to_string()

@@ -1,4 +1,5 @@
 """Application-specific exceptions translated to HTTP responses."""
+
 from __future__ import annotations
 
 from fastapi import HTTPException, status

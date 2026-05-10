@@ -1,7 +1,8 @@
 """Login flow: validate credentials, issue JWTs, update last_login_at."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,7 @@ async def authenticate(db: AsyncSession, *, email: str, password: str) -> User:
         raise unauthorized("invalid credentials")
     if password_needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(UTC)
     return user
 
 

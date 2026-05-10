@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
 
     tracing::info!(host_id = %identity.host_id, endpoint = %cfg.manager_endpoint, "agent.starting");
 
-    let mut client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
+    let client = ManagerClient::new(identity.clone(), cfg.manager_endpoint.clone());
     let send_tx = client.send_tx.clone();
     // Take the command receiver before client.run() consumes self. The
     // worker dispatches kill / block / unblock commands via driver IOCTLs.
@@ -162,8 +162,8 @@ fn load_config() -> Result<AgentConfig> {
     if let Ok(path) = env::var("EDR_AGENT_CONFIG") {
         return AgentConfig::load(&PathBuf::from(path));
     }
-    let manager_endpoint = env::var("EDR_MANAGER_ENDPOINT")
-        .unwrap_or_else(|_| "https://localhost:50051".to_string());
+    let manager_endpoint =
+        env::var("EDR_MANAGER_ENDPOINT").unwrap_or_else(|_| "https://localhost:50051".to_string());
     let manager_rest_endpoint = env::var("EDR_MANAGER_REST").ok();
     let enrollment_token = env::var("EDR_ENROLLMENT_TOKEN").ok();
     let state_dir = env::var("EDR_STATE_DIR").ok().map(PathBuf::from);
@@ -207,6 +207,8 @@ fn os_info() -> OsDetails {
 
 fn now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     format!("unix:{}.{:09}", dur.as_secs(), dur.subsec_nanos())
 }

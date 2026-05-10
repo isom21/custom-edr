@@ -1,4 +1,5 @@
 """Audit log entry."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,7 +15,9 @@ class AuditLog(UuidPkMixin, Base):
     __tablename__ = "audit_log"
 
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    actor_kind: Mapped[str] = mapped_column(String(32), nullable=False)  # "user"|"api_token"|"system"
+    actor_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )  # "user"|"api_token"|"system"
     action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     resource_type: Mapped[str | None] = mapped_column(String(64), index=True)
     resource_id: Mapped[str | None] = mapped_column(String(64), index=True)

@@ -5,7 +5,9 @@ use prost_types::Timestamp;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_pb() -> Timestamp {
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     Timestamp {
         seconds: dur.as_secs() as i64,
         nanos: dur.subsec_nanos() as i32,
@@ -37,7 +39,7 @@ pub fn network_connect(
     let now = now_pb();
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
-        event_created: Some(now.clone()),
+        event_created: Some(now),
         event_observed: Some(now),
         kind: p::EventKind::Event as i32,
         category: vec![p::EventCategory::Network as i32],
@@ -78,7 +80,7 @@ pub fn file_opened(
     let now = now_pb();
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
-        event_created: Some(now.clone()),
+        event_created: Some(now),
         event_observed: Some(now),
         kind: p::EventKind::Event as i32,
         category: vec![p::EventCategory::File as i32],
@@ -90,13 +92,20 @@ pub fn file_opened(
             p::FileAction::Blocked => "file_blocked".into(),
             _ => "file_opened".into(),
         },
-        outcome: if action == p::FileAction::Blocked { "failure".into() } else { "success".into() },
+        outcome: if action == p::FileAction::Blocked {
+            "failure".into()
+        } else {
+            "success".into()
+        },
         host_id: host_id.into(),
         agent_id: agent_id.into(),
         agent_version: agent_version.into(),
         labels: Default::default(),
         payload: Some(p::endpoint_event::Payload::File(p::FileEvent {
-            process: Some(p::ProcessKey { pid, start_time_ns: 0 }),
+            process: Some(p::ProcessKey {
+                pid,
+                start_time_ns: 0,
+            }),
             path: path.into(),
             name: name.into(),
             size: 0,
@@ -122,7 +131,7 @@ pub fn kernel_module_loaded(
     let now = now_pb();
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
-        event_created: Some(now.clone()),
+        event_created: Some(now),
         event_observed: Some(now),
         kind: p::EventKind::Event as i32,
         category: vec![p::EventCategory::Process as i32],
@@ -133,7 +142,10 @@ pub fn kernel_module_loaded(
         agent_version: agent_version.into(),
         labels: Default::default(),
         payload: Some(p::endpoint_event::Payload::ImageLoad(p::ImageLoadEvent {
-            process: Some(p::ProcessKey { pid, start_time_ns: 0 }),
+            process: Some(p::ProcessKey {
+                pid,
+                start_time_ns: 0,
+            }),
             path: module_name.into(),
             hash: None,
             base_address: 0,
@@ -162,7 +174,7 @@ pub fn process_started(
     let now = now_pb();
     p::EndpointEvent {
         event_id: ulid::Ulid::new().to_string(),
-        event_created: Some(now.clone()),
+        event_created: Some(now),
         event_observed: Some(now),
         kind: p::EventKind::Event as i32,
         category: vec![p::EventCategory::Process as i32],
@@ -173,10 +185,7 @@ pub fn process_started(
         agent_version: agent_version.into(),
         labels: Default::default(),
         payload: Some(p::endpoint_event::Payload::Process(p::ProcessEvent {
-            process: Some(p::ProcessKey {
-                pid,
-                start_time_ns,
-            }),
+            process: Some(p::ProcessKey { pid, start_time_ns }),
             parent: Some(p::ProcessKey {
                 pid: parent_pid,
                 start_time_ns: parent_start_time_ns,

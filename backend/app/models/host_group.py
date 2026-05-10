@@ -7,15 +7,13 @@ alerts / commands. Admins implicitly see all groups.
 The two many-to-many association tables are plain SQL (no models) since
 their only purpose is to express membership.
 """
-from __future__ import annotations
 
-from uuid import UUID
+from __future__ import annotations
 
 from sqlalchemy import Column, ForeignKey, String, Table
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin
-
 
 # user <-> host group: M:N
 user_host_group = Table(

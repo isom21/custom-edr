@@ -8,7 +8,10 @@
 import { tokenStore } from "./tokens";
 
 export class ApiError extends Error {
-  constructor(public status: number, public detail: string) {
+  constructor(
+    public status: number,
+    public detail: string,
+  ) {
     super(`${status}: ${detail}`);
   }
 }

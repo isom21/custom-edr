@@ -15,7 +15,10 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import type { CommandKind, CommandStatus } from "@/types/api";
 
-const STATUS_VARIANT: Record<CommandStatus, "default" | "secondary" | "destructive" | "outline" | "success" | "warning"> = {
+const STATUS_VARIANT: Record<
+  CommandStatus,
+  "default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
   pending: "warning",
   dispatched: "default",
   succeeded: "success",

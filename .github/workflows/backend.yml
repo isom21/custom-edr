@@ -1,0 +1,87 @@
+# Backend integration test job.
+#
+# Starts ephemeral Postgres + Kafka (Redpanda) + OpenSearch via service
+# containers; runs alembic upgrade head; runs pytest. Coverage is reported
+# but not yet failing the build (we ratchet up after the test corpus
+# stabilises).
+
+name: backend-integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  pytest:
+    name: pytest (with PG + Kafka + OS)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: edr
+          POSTGRES_PASSWORD: edr
+          POSTGRES_DB: edr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U edr"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redpanda:
+        image: redpandadata/redpanda:latest
+        ports:
+          - 9092:9092
+        options: >-
+          --health-cmd "rpk cluster health --exit-when-healthy"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+      opensearch:
+        image: opensearchproject/opensearch:2
+        env:
+          discovery.type: single-node
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: ChangeMe!12345
+          DISABLE_SECURITY_PLUGIN: "true"
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      EDR_DATABASE_URL: postgresql+psycopg://edr:edr@localhost:5432/edr_test
+      EDR_KAFKA_BROKERS: localhost:9092
+      EDR_OPENSEARCH_URL: http://localhost:9200
+      EDR_TEST_ENV: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: install deps
+        run: pip install -e '.[dev]'
+      - name: alembic upgrade head
+        run: alembic upgrade head
+      - name: run pytest
+        run: pytest -v --cov=app --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: backend/coverage.xml

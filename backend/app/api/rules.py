@@ -1,4 +1,5 @@
 """Rule CRUD: YARA, Sigma, IOC."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -107,11 +108,7 @@ async def _sync_sigma_rule_to_percolator(rule: Rule) -> None:
     client = os_svc._client()
     try:
         await os_svc.ensure_sigma_index(client)
-        if (
-            rule.kind is RuleKind.SIGMA
-            and rule.enabled
-            and rule.sigma_compiled
-        ):
+        if rule.kind is RuleKind.SIGMA and rule.enabled and rule.sigma_compiled:
             await os_svc.register_sigma_rule(
                 client,
                 rule_id=rule.id,

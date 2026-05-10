@@ -1,4 +1,5 @@
 """Rule and IOC entry models."""
+
 from __future__ import annotations
 
 import enum
@@ -59,9 +60,7 @@ class Rule(UuidPkMixin, TimestampMixin, Base):
     # Monotonic per-rule version; bumped on every body change. Sent to agent for cache invalidation.
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
-    iocs: Mapped[list["IocEntry"]] = relationship(
-        back_populates="rule", cascade="all, delete-orphan"
-    )
+    iocs: Mapped[list[IocEntry]] = relationship(back_populates="rule", cascade="all, delete-orphan")
 
 
 class IocEntry(UuidPkMixin, Base):

@@ -2,6 +2,7 @@
 
 Subsystems should depend on `settings` from here, never read os.environ directly.
 """
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

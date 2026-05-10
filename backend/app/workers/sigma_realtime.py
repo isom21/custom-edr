@@ -23,23 +23,23 @@ sigma_scheduler when we add count support back.
 Run with:
     python -m app.workers.sigma_realtime
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import structlog
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleAction, RuleKind
+from app.models import Alert, AlertState, AlertStateHistory, Rule, RuleKind
 from app.services import opensearch as os_svc
 
 log = structlog.get_logger()
@@ -90,10 +90,7 @@ class SigmaRealtime:
         Also populates self._rule_cache for fast lookup on hits.
         """
         async with SessionLocal() as db:
-            stmt = (
-                select(Rule)
-                .where(Rule.kind == RuleKind.SIGMA, Rule.enabled.is_(True))
-            )
+            stmt = select(Rule).where(Rule.kind == RuleKind.SIGMA, Rule.enabled.is_(True))
             enabled = list((await db.execute(stmt)).scalars().all())
 
         # Read what's currently in the percolator index.
@@ -150,7 +147,7 @@ class SigmaRealtime:
         while not self._stop.is_set():
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             try:
@@ -182,7 +179,7 @@ class SigmaRealtime:
         except ValueError:
             return
 
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         async with SessionLocal() as db:
             new_alerts: list[tuple[Alert, dict]] = []
             for hit in hits:
@@ -225,6 +222,7 @@ class SigmaRealtime:
                 # Auto-trigger response action if the rule's action is
                 # kill or block (M5.5).
                 from app.services.response import queue_command_for_match
+
                 await queue_command_for_match(
                     db,
                     host_id=host_id,
@@ -264,9 +262,7 @@ class SigmaRealtime:
                         body=alert_doc,
                     )
                 except Exception:
-                    log.exception(
-                        "sigma.realtime.alert_index_failed", alert_id=str(alert.id)
-                    )
+                    log.exception("sigma.realtime.alert_index_failed", alert_id=str(alert.id))
 
             if new_alerts:
                 log.info(

@@ -1,4 +1,5 @@
 """Host CRUD (read for analyst+, write for admin)."""
+
 from __future__ import annotations
 
 from uuid import UUID

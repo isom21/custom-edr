@@ -5,6 +5,5 @@ export const enrollmentApi = {
   listTokens: () => api<EnrollmentToken[]>("/api/enrollment/tokens"),
   createToken: (body: { label?: string; ttl_hours?: number }) =>
     api<EnrollmentTokenCreated>("/api/enrollment/tokens", { method: "POST", body }),
-  revokeToken: (id: string) =>
-    api<void>(`/api/enrollment/tokens/${id}`, { method: "DELETE" }),
+  revokeToken: (id: string) => api<void>(`/api/enrollment/tokens/${id}`, { method: "DELETE" }),
 };

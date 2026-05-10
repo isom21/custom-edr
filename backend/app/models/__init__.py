@@ -1,4 +1,5 @@
 """SQLAlchemy ORM models. Importing this package registers all tables on Base.metadata."""
+
 from app.models.alert import ALERT_STATE_TRANSITIONS, Alert, AlertState, AlertStateHistory
 from app.models.api_token import ApiToken
 from app.models.audit import AuditLog

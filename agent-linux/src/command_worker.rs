@@ -20,7 +20,7 @@ use crate::ebpf::BlockListHandle;
 use agent_core::proto as p;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -34,11 +34,11 @@ pub struct PersistedBlockLists {
 /// Load block lists from `{state_dir}/blocklist.json` (if present), push
 /// every entry into the kernel maps, and return the in-memory state for
 /// future updates.
-pub fn restore(state_dir: &PathBuf, blocks: &BlockListHandle) -> Result<PersistedBlockLists> {
+pub fn restore(state_dir: &Path, blocks: &BlockListHandle) -> Result<PersistedBlockLists> {
     let path = state_dir.join("blocklist.json");
     let state: PersistedBlockLists = if path.exists() {
-        let s = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let s =
+            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&s).with_context(|| format!("parse {}", path.display()))?
     } else {
         PersistedBlockLists::default()
@@ -61,7 +61,7 @@ pub fn restore(state_dir: &PathBuf, blocks: &BlockListHandle) -> Result<Persiste
     Ok(state)
 }
 
-fn persist(state_dir: &PathBuf, state: &PersistedBlockLists) -> Result<()> {
+fn persist(state_dir: &Path, state: &PersistedBlockLists) -> Result<()> {
     std::fs::create_dir_all(state_dir)
         .with_context(|| format!("mkdir -p {}", state_dir.display()))?;
     let path = state_dir.join("blocklist.json");
@@ -105,12 +105,15 @@ pub async fn run(
 
 async fn dispatch(
     cmd: &p::Command,
-    state_dir: &PathBuf,
+    state_dir: &Path,
     blocks: &BlockListHandle,
     state: &mut PersistedBlockLists,
 ) -> Result<()> {
     use p::command::Body;
-    let body = cmd.body.as_ref().ok_or_else(|| anyhow!("command.body missing"))?;
+    let body = cmd
+        .body
+        .as_ref()
+        .ok_or_else(|| anyhow!("command.body missing"))?;
     match body {
         Body::Kill(k) => {
             let pid = k.target.as_ref().map(|t| t.pid).unwrap_or(0);

@@ -1,7 +1,8 @@
 """Programmatic API tokens. Each user manages their own; admins see all."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, status
@@ -35,11 +36,7 @@ async def create_token(
     payload: ApiTokenCreate, db: DbSession, actor: CurrentActor
 ) -> ApiTokenCreated:
     secret = generate_api_token_secret()
-    expires_at = (
-        datetime.now(timezone.utc) + timedelta(days=payload.ttl_days)
-        if payload.ttl_days
-        else None
-    )
+    expires_at = datetime.now(UTC) + timedelta(days=payload.ttl_days) if payload.ttl_days else None
     token = ApiToken(
         user_id=actor.user.id,
         name=payload.name,
@@ -68,7 +65,7 @@ async def revoke_token(token_id: UUID, db: DbSession, actor: CurrentActor) -> No
         raise not_found("api_token", str(token_id))
     if token.user_id != actor.user.id and actor.user.role is not UserRole.ADMIN:
         raise forbidden()
-    token.revoked_at = datetime.now(timezone.utc)
+    token.revoked_at = datetime.now(UTC)
     await audit.record(
         db,
         actor=actor,

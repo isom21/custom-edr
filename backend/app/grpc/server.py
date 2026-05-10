@@ -3,6 +3,7 @@
 Run with:
     python -m app.grpc.server
 """
+
 from __future__ import annotations
 
 import asyncio

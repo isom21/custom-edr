@@ -6,12 +6,12 @@ filename / filepath / sha256 lookups.
 
 Sigma/YARA streaming detection lands in M3.
 """
+
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -25,7 +25,6 @@ from app.models import (
     Alert,
     AlertState,
     AlertStateHistory,
-    IocEntry,
     IocKind,
     Rule,
     RuleAction,
@@ -50,7 +49,7 @@ class IocSnapshot:
     by_filepath: dict[str, tuple[UUID, str, Severity, RuleAction]] = field(default_factory=dict)
 
     @classmethod
-    async def load(cls, db: AsyncSession) -> "IocSnapshot":
+    async def load(cls, db: AsyncSession) -> IocSnapshot:
         snap = cls()
         stmt = (
             select(Rule)
@@ -202,10 +201,9 @@ class DetectorState:
         self._last_load: datetime | None = None
 
     async def get(self) -> IocSnapshot:
-        now = datetime.now(timezone.utc)
-        if (
-            self._last_load is None
-            or (now - self._last_load) > timedelta(seconds=self.REFRESH_SECONDS)
+        now = datetime.now(UTC)
+        if self._last_load is None or (now - self._last_load) > timedelta(
+            seconds=self.REFRESH_SECONDS
         ):
             async with SessionLocal() as db:
                 self.snapshot = await IocSnapshot.load(db)

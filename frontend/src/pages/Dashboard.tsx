@@ -7,8 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
 
 export function Dashboard() {
-  const hosts = useQuery({ queryKey: ["hosts", "count"], queryFn: () => hostsApi.list({ limit: 1 }) });
-  const rules = useQuery({ queryKey: ["rules", "count"], queryFn: () => rulesApi.list({ limit: 1 }) });
+  const hosts = useQuery({
+    queryKey: ["hosts", "count"],
+    queryFn: () => hostsApi.list({ limit: 1 }),
+  });
+  const rules = useQuery({
+    queryKey: ["rules", "count"],
+    queryFn: () => rulesApi.list({ limit: 1 }),
+  });
   const newAlerts = useQuery({
     queryKey: ["alerts", "new"],
     queryFn: () => alertsApi.list({ state: "new", limit: 1 }),

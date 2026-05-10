@@ -3,6 +3,7 @@
 Used by the gRPC ingest service (M2) to publish telemetry batches to
 `telemetry.raw`. Single shared producer per process.
 """
+
 from __future__ import annotations
 
 import asyncio

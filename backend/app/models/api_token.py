@@ -1,4 +1,5 @@
 """Programmatic API tokens (machine-to-manager auth)."""
+
 from __future__ import annotations
 
 from datetime import datetime

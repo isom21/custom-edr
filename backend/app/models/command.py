@@ -5,6 +5,7 @@ auto-action path in detector/sigma_realtime (rule action_taken=kill|block).
 The gRPC HostStream polls for pending commands per host and pushes them
 down the bidi stream as ServerMessage(command=...).
 """
+
 from __future__ import annotations
 
 import enum

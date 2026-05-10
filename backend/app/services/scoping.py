@@ -9,6 +9,7 @@ resources should call `apply_host_scope()` (for queries that already
 join Host) or `host_visible_to(actor, host_id, db)` (for single-resource
 checks like GET /hosts/{id} or POST /hosts/{id}/commands).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -48,11 +49,10 @@ async def host_visible_to(actor: Actor, host_id: UUID, db: AsyncSession) -> bool
     if _is_admin(actor):
         # Just verify the host exists; don't apply scope.
         return (await db.execute(select(exists().where(Host.id == host_id)))).scalar_one()
-    q = (
-        select(exists()
-            .where(host_in_group.c.host_id == host_id)
-            .where(host_in_group.c.host_group_id == user_host_group.c.host_group_id)
-            .where(user_host_group.c.user_id == actor.user.id)
-        )
+    q = select(
+        exists()
+        .where(host_in_group.c.host_id == host_id)
+        .where(host_in_group.c.host_group_id == user_host_group.c.host_group_id)
+        .where(user_host_group.c.user_id == actor.user.id)
     )
     return (await db.execute(q)).scalar_one()

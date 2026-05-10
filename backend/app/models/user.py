@@ -1,9 +1,9 @@
 """User account model."""
+
 from __future__ import annotations
 
 import enum
 from datetime import datetime
-from uuid import UUID
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column

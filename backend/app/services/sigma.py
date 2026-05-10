@@ -8,6 +8,7 @@ against the live telemetry-* indices to find matches and emit alerts.
 Field-mapping pipelines (sysmon → ECS, windows → ECS) are out of scope for
 M3; rule writers target ECS directly.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -43,9 +44,7 @@ def compile_yaml(body: str) -> CompiledSigma:
     except SigmaError as exc:
         raise SigmaCompileError(f"sigma parse error: {exc}") from exc
     if len(collection.rules) != 1:
-        raise SigmaCompileError(
-            f"expected exactly one rule per body, got {len(collection.rules)}"
-        )
+        raise SigmaCompileError(f"expected exactly one rule per body, got {len(collection.rules)}")
     rule = collection.rules[0]
     backend = OpensearchLuceneBackend()
     try:

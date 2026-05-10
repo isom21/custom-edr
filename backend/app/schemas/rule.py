@@ -1,4 +1,5 @@
 """Rule + IOC payloads."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -47,7 +48,7 @@ class RuleCreate(BaseModel):
     iocs: list[IocEntryIn] | None = None
 
     @model_validator(mode="after")
-    def _validate_kind_payload(self) -> "RuleCreate":
+    def _validate_kind_payload(self) -> RuleCreate:
         if self.kind in (RuleKind.YARA, RuleKind.SIGMA):
             if not self.body:
                 raise ValueError(f"{self.kind.value} rules require a body")

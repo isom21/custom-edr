@@ -11,13 +11,14 @@ Each match becomes:
 Run with:
     python -m app.workers.detector
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -62,7 +63,7 @@ class Detector:
         while not self._stop.is_set():
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             try:
@@ -84,12 +85,10 @@ class Detector:
                 if host_id_str:
                     host_id = UUID(host_id_str)
                     async with SessionLocal() as db:
-                        alert_ids = await emit_alerts(
-                            db, host_id=host_id, matches=matches, ecs=ecs
-                        )
+                        alert_ids = await emit_alerts(db, host_id=host_id, matches=matches, ecs=ecs)
                         await db.commit()
 
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     for alert_id, m in zip(alert_ids, matches):
                         alert_doc = {
                             "@timestamp": now.isoformat(),

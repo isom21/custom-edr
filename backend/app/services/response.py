@@ -5,6 +5,7 @@ create an Alert row, before commit. Builds the corresponding Command row
 keyed to the host that produced the event so the gRPC dispatcher (M5.3)
 can ship it to the agent (M5.4).
 """
+
 from __future__ import annotations
 
 from typing import Any

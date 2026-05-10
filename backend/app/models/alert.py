@@ -1,4 +1,5 @@
 """Alert + alert state history."""
+
 from __future__ import annotations
 
 import enum
@@ -61,7 +62,7 @@ class Alert(UuidPkMixin, TimestampMixin, Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assignee_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
-    history: Mapped[list["AlertStateHistory"]] = relationship(
+    history: Mapped[list[AlertStateHistory]] = relationship(
         back_populates="alert", cascade="all, delete-orphan", order_by="AlertStateHistory.ts"
     )
 
@@ -72,9 +73,7 @@ class AlertStateHistory(UuidPkMixin, Base):
     alert_id: Mapped[UUID] = mapped_column(
         ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    from_state: Mapped[AlertState | None] = mapped_column(
-        pg_enum(AlertState, name="alert_state")
-    )
+    from_state: Mapped[AlertState | None] = mapped_column(pg_enum(AlertState, name="alert_state"))
     to_state: Mapped[AlertState] = mapped_column(
         pg_enum(AlertState, name="alert_state"), nullable=False
     )

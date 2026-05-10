@@ -1,14 +1,14 @@
 """FastAPI dependencies: current actor (user via JWT or API token), DB session, role guards."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 import jwt
 from fastapi import Depends, Header, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -60,14 +60,14 @@ async def _resolve_api_token(token: str, db: AsyncSession) -> Actor:
     api_token = await db.get(ApiToken, token_id)
     if api_token is None or api_token.revoked_at is not None:
         raise unauthorized("revoked or unknown api token")
-    if api_token.expires_at and api_token.expires_at < datetime.now(timezone.utc):
+    if api_token.expires_at and api_token.expires_at < datetime.now(UTC):
         raise unauthorized("api token expired")
     if not constant_time_eq(hash_api_token_secret(secret), api_token.secret_hash):
         raise unauthorized("invalid api token")
     user = await db.get(User, api_token.user_id)
     if user is None or user.disabled:
         raise unauthorized("token owner inactive")
-    api_token.last_used_at = datetime.now(timezone.utc)
+    api_token.last_used_at = datetime.now(UTC)
     return Actor(
         user=user,
         kind="api_token",

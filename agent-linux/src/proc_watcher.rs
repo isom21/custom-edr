@@ -25,16 +25,14 @@ pub async fn run(ctx: WatcherCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<
 
     // Bootstrap: snapshot current /proc so we don't fire alerts for everything
     // that was running before the agent started.
-    for p in procfs::process::all_processes()? {
-        if let Ok(p) = p {
-            if let Ok(stat) = p.stat() {
-                seen.insert(
-                    p.pid,
-                    ProcKey {
-                        start_time_ticks: stat.starttime,
-                    },
-                );
-            }
+    for p in procfs::process::all_processes()?.flatten() {
+        if let Ok(stat) = p.stat() {
+            seen.insert(
+                p.pid,
+                ProcKey {
+                    start_time_ticks: stat.starttime,
+                },
+            );
         }
     }
     tracing::info!(initial = seen.len(), "proc_watcher.snapshot_done");
@@ -87,7 +85,11 @@ async fn scan(
         // New process if we haven't seen the (pid, start_time) tuple before.
         if seen.get(&pid).map(|k| k.start_time_ticks) != Some(stat.starttime) {
             // Build the event before inserting.
-            let exe = proc.exe().ok().map(|p| p.display().to_string()).unwrap_or_default();
+            let exe = proc
+                .exe()
+                .ok()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
             let cmdline = proc.cmdline().ok().unwrap_or_default().join(" ");
             let name = stat.comm.clone();
             let user = uid_to_name(proc.status().ok().map(|s| s.ruid)).unwrap_or_default();

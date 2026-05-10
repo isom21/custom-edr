@@ -1,0 +1,58 @@
+# Python gates: backend (FastAPI manager + workers).
+#
+# Lints with ruff, types with pyright, vulnerabilities with pip-audit.
+# Tests run via pytest with testcontainers for Postgres + Kafka + OpenSearch
+# in `backend.yml` (separated because the test job needs Docker).
+
+name: python
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  lint:
+    name: ruff + format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check app
+      - run: ruff format --check app
+
+  typecheck:
+    name: pyright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: pip install pyright
+      - run: pyright app
+
+  audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      # Install our project so pip-audit sees our deps via the resolved env;
+      # `--strict` would fail on any vuln; for now we report.
+      - run: pip install -e '.[dev]'
+      - run: pip-audit --skip-editable

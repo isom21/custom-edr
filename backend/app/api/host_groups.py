@@ -3,12 +3,13 @@
 All endpoints require ADMIN. Operators / viewers consume groups
 implicitly via host scoping — they don't manage them.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
 
 from fastapi import APIRouter, status
-from sqlalchemy import delete, exists, func, insert, select
+from sqlalchemy import delete, func, insert, select
 
 from app.core.deps import DbSession, RequireAdmin
 from app.core.errors import bad_request, not_found
@@ -26,12 +27,20 @@ router = APIRouter(prefix="/api/host-groups", tags=["host-groups"])
 
 
 async def _hydrate_counts(db, group: HostGroup) -> HostGroupOut:
-    h = (await db.execute(
-        select(func.count()).select_from(host_in_group).where(host_in_group.c.host_group_id == group.id)
-    )).scalar_one()
-    u = (await db.execute(
-        select(func.count()).select_from(user_host_group).where(user_host_group.c.host_group_id == group.id)
-    )).scalar_one()
+    h = (
+        await db.execute(
+            select(func.count())
+            .select_from(host_in_group)
+            .where(host_in_group.c.host_group_id == group.id)
+        )
+    ).scalar_one()
+    u = (
+        await db.execute(
+            select(func.count())
+            .select_from(user_host_group)
+            .where(user_host_group.c.host_group_id == group.id)
+        )
+    ).scalar_one()
     out = HostGroupOut.model_validate(group)
     out.host_count = h
     out.user_count = u
@@ -60,16 +69,23 @@ async def list_groups(
 
 
 @router.post("", response_model=HostGroupOut, status_code=status.HTTP_201_CREATED)
-async def create_group(payload: HostGroupCreate, db: DbSession, actor: RequireAdmin) -> HostGroupOut:
-    dup = (await db.execute(select(HostGroup).where(HostGroup.name == payload.name))).scalar_one_or_none()
+async def create_group(
+    payload: HostGroupCreate, db: DbSession, actor: RequireAdmin
+) -> HostGroupOut:
+    dup = (
+        await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
+    ).scalar_one_or_none()
     if dup is not None:
         bad_request(f"host group '{payload.name}' already exists")
     g = HostGroup(name=payload.name, description=payload.description)
     db.add(g)
     await db.flush()
     await audit.record(
-        db, actor=actor, action="host_group.create",
-        resource_type="host_group", resource_id=str(g.id),
+        db,
+        actor=actor,
+        action="host_group.create",
+        resource_type="host_group",
+        resource_id=str(g.id),
         payload=payload.model_dump(exclude_none=True),
     )
     await db.commit()
@@ -92,15 +108,20 @@ async def update_group(
     if g is None:
         raise not_found("host_group", str(group_id))
     if payload.name is not None and payload.name != g.name:
-        dup = (await db.execute(select(HostGroup).where(HostGroup.name == payload.name))).scalar_one_or_none()
+        dup = (
+            await db.execute(select(HostGroup).where(HostGroup.name == payload.name))
+        ).scalar_one_or_none()
         if dup is not None:
             bad_request(f"host group '{payload.name}' already exists")
         g.name = payload.name
     if payload.description is not None:
         g.description = payload.description
     await audit.record(
-        db, actor=actor, action="host_group.update",
-        resource_type="host_group", resource_id=str(group_id),
+        db,
+        actor=actor,
+        action="host_group.update",
+        resource_type="host_group",
+        resource_id=str(group_id),
         payload=payload.model_dump(exclude_none=True),
     )
     await db.commit()
@@ -114,8 +135,11 @@ async def delete_group(group_id: UUID, db: DbSession, actor: RequireAdmin) -> No
         raise not_found("host_group", str(group_id))
     await db.delete(g)
     await audit.record(
-        db, actor=actor, action="host_group.delete",
-        resource_type="host_group", resource_id=str(group_id),
+        db,
+        actor=actor,
+        action="host_group.delete",
+        resource_type="host_group",
+        resource_id=str(group_id),
     )
     await db.commit()
 
@@ -138,15 +162,15 @@ async def replace_membership(
 
     # Validate ids.
     if body.host_ids:
-        valid_hosts = (await db.execute(
-            select(Host.id).where(Host.id.in_(body.host_ids))
-        )).scalars().all()
+        valid_hosts = (
+            (await db.execute(select(Host.id).where(Host.id.in_(body.host_ids)))).scalars().all()
+        )
     else:
         valid_hosts = []
     if body.user_ids:
-        valid_users = (await db.execute(
-            select(User.id).where(User.id.in_(body.user_ids))
-        )).scalars().all()
+        valid_users = (
+            (await db.execute(select(User.id).where(User.id.in_(body.user_ids)))).scalars().all()
+        )
     else:
         valid_users = []
 
@@ -159,8 +183,11 @@ async def replace_membership(
         await db.execute(insert(user_host_group).values(user_id=uid, host_group_id=group_id))
 
     await audit.record(
-        db, actor=actor, action="host_group.members.replace",
-        resource_type="host_group", resource_id=str(group_id),
+        db,
+        actor=actor,
+        action="host_group.members.replace",
+        resource_type="host_group",
+        resource_id=str(group_id),
         payload={"hosts": [str(h) for h in valid_hosts], "users": [str(u) for u in valid_users]},
     )
     await db.commit()
@@ -172,10 +199,22 @@ async def get_membership(group_id: UUID, db: DbSession, actor: RequireAdmin) -> 
     g = await db.get(HostGroup, group_id)
     if g is None:
         raise not_found("host_group", str(group_id))
-    hosts = (await db.execute(
-        select(host_in_group.c.host_id).where(host_in_group.c.host_group_id == group_id)
-    )).scalars().all()
-    users = (await db.execute(
-        select(user_host_group.c.user_id).where(user_host_group.c.host_group_id == group_id)
-    )).scalars().all()
+    hosts = (
+        (
+            await db.execute(
+                select(host_in_group.c.host_id).where(host_in_group.c.host_group_id == group_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    users = (
+        (
+            await db.execute(
+                select(user_host_group.c.user_id).where(user_host_group.c.host_group_id == group_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return HostGroupMembership(host_ids=list(hosts), user_ids=list(users))

@@ -1,4 +1,5 @@
 """User CRUD (admin-only)."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -25,9 +26,7 @@ async def list_users(db: DbSession, actor: RequireAdmin) -> list[UserOut]:
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserCreate, db: DbSession, actor: RequireAdmin) -> UserOut:
     email = payload.email.lower()
-    existing = (
-        await db.execute(select(User).where(User.email == email))
-    ).scalar_one_or_none()
+    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if existing:
         raise conflict("email already in use")
     user = User(

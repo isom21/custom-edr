@@ -3,15 +3,15 @@
 Only the payloads we care about for M2 are populated; others pass through
 with their oneof name as `event.action` so we can still index them.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from app.proto_gen.edr.v1 import common_pb2, events_pb2
-
 
 _EVENT_KIND_BY_NUM = {
     events_pb2.EVENT_KIND_UNSPECIFIED: "unspecified",
@@ -33,7 +33,7 @@ _CATEGORY_BY_NUM = {
 def _ts_to_iso(ts: Timestamp | None) -> str | None:
     if ts is None or (ts.seconds == 0 and ts.nanos == 0):
         return None
-    dt = datetime.fromtimestamp(ts.seconds + ts.nanos / 1e9, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts.seconds + ts.nanos / 1e9, tz=UTC)
     return dt.isoformat()
 
 
@@ -50,8 +50,9 @@ def _hash_dict(h: common_pb2.Hash) -> dict[str, str]:
 
 def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
     doc: dict[str, Any] = {
-        "@timestamp": _ts_to_iso(ev.event_observed) or _ts_to_iso(ev.event_created)
-        or datetime.now(timezone.utc).isoformat(),
+        "@timestamp": _ts_to_iso(ev.event_observed)
+        or _ts_to_iso(ev.event_created)
+        or datetime.now(UTC).isoformat(),
         "event": {
             "id": ev.event_id,
             "kind": _EVENT_KIND_BY_NUM.get(ev.kind, "event"),

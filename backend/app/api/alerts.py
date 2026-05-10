@@ -1,16 +1,16 @@
 """Alerts: list, detail, state transitions, assignment."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, RequireAnalyst
 from app.core.errors import bad_request, forbidden, not_found
-from app.services.scoping import apply_host_scope, host_visible_to
 from app.models import (
     ALERT_STATE_TRANSITIONS,
     Alert,
@@ -27,6 +27,7 @@ from app.schemas.alert import (
 )
 from app.schemas.common import Page
 from app.services import audit
+from app.services.scoping import apply_host_scope, host_visible_to
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -96,9 +97,7 @@ async def change_state(
         raise not_found("alert", str(alert_id))
     allowed = ALERT_STATE_TRANSITIONS.get(alert.state, set())
     if payload.to_state not in allowed:
-        raise bad_request(
-            f"transition {alert.state.value} -> {payload.to_state.value} not allowed"
-        )
+        raise bad_request(f"transition {alert.state.value} -> {payload.to_state.value} not allowed")
 
     alert.history.append(
         AlertStateHistory(
@@ -110,7 +109,7 @@ async def change_state(
     )
     alert.state = payload.to_state
     if payload.to_state in (AlertState.FALSE_POSITIVE, AlertState.TRUE_POSITIVE):
-        alert.closed_at = datetime.now(timezone.utc)
+        alert.closed_at = datetime.now(UTC)
 
     await audit.record(
         db,

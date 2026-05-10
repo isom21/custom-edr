@@ -13,24 +13,21 @@ Cache miss has zero impact on doc shape — we just emit the doc without
 the hostname field. The indexer mapping treats host.hostname as
 nullable, so unenriched docs continue to flow.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Optional
 from uuid import UUID
-
-from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models import Host
 
-
 # Single in-process cache. Each entry is (hostname, os_family, expires_at).
-_CACHE: dict[UUID, tuple[Optional[str], Optional[str], float]] = {}
+_CACHE: dict[UUID, tuple[str | None, str | None, float]] = {}
 _TTL_S = 60.0
 
 
-async def hostname_for(host_id: UUID) -> tuple[Optional[str], Optional[str]]:
+async def hostname_for(host_id: UUID) -> tuple[str | None, str | None]:
     """Return (hostname, os_family) for a host_id; (None, None) if unknown.
 
     Cached for ~60s. On miss, opens a fresh AsyncSession for one query.

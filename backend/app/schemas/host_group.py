@@ -1,4 +1,5 @@
 """Pydantic schemas for the host-groups API (M7.5)."""
+
 from __future__ import annotations
 
 from datetime import datetime

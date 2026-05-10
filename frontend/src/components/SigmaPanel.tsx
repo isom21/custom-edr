@@ -31,9 +31,7 @@ export function SigmaPanel({
 
   const runTest = useMutation({
     mutationFn: () =>
-      ruleId && !isNew
-        ? sigmaApi.testSavedRule(ruleId, body || null)
-        : sigmaApi.testAdhoc(body),
+      ruleId && !isNew ? sigmaApi.testSavedRule(ruleId, body || null) : sigmaApi.testAdhoc(body),
     onSuccess: (r) => {
       setTestResult(r);
       setError(null);
@@ -87,9 +85,7 @@ export function SigmaPanel({
                 {compileResult.ok ? "Compiles cleanly" : "Compile error"}
               </span>
             </div>
-            {compileResult.error && (
-              <div className="text-destructive">{compileResult.error}</div>
-            )}
+            {compileResult.error && <div className="text-destructive">{compileResult.error}</div>}
             {compileResult.query && (
               <div>
                 <span className="text-muted-foreground">Lucene query: </span>
@@ -126,8 +122,7 @@ export function SigmaPanel({
                     <div className="text-muted-foreground">{s.timestamp ?? "—"}</div>
                     <div>
                       host=
-                      <span className="text-foreground">{s.host_id ?? "—"}</span>{" "}
-                      proc=
+                      <span className="text-foreground">{s.host_id ?? "—"}</span> proc=
                       <span className="text-foreground">
                         {(s.process as { name?: string } | null)?.name ?? "—"}
                       </span>{" "}

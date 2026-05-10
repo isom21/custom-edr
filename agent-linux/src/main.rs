@@ -28,7 +28,9 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .json()
         .init();
 
@@ -40,8 +42,8 @@ async fn main() -> Result<()> {
     let mut args = env::args().skip(1);
     if let Some(arg) = args.next() {
         if arg == "--unpin" {
-            let pin_dir = env::var("EDR_PIN_DIR")
-                .unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+            let pin_dir =
+                env::var("EDR_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
             let pin_dir = PathBuf::from(pin_dir);
             ebpf::Loader::cleanup_or_takeover(&pin_dir)
                 .context("cleanup_or_takeover for --unpin")?;
@@ -76,9 +78,7 @@ async fn main() -> Result<()> {
         // SAFETY: prctl(PR_SET_DUMPABLE, ...) takes one int arg; the
         // remaining four longs are documented as ignored. libc::prctl is
         // variadic on Linux glibc, so we still pass placeholders.
-        let r = unsafe {
-            libc::prctl(libc::PR_SET_DUMPABLE, 0u64, 0u64, 0u64, 0u64)
-        };
+        let r = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0u64, 0u64, 0u64, 0u64) };
         if r != 0 {
             tracing::warn!(
                 errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(-1),
@@ -98,10 +98,7 @@ async fn main() -> Result<()> {
             .enrollment_token
             .as_ref()
             .context("not enrolled and EDR_ENROLLMENT_TOKEN / config.enrollment_token unset")?;
-        let hostname = cfg
-            .hostname_override
-            .clone()
-            .unwrap_or_else(|| hostname());
+        let hostname = cfg.hostname_override.clone().unwrap_or_else(hostname);
         let os = os_info();
         tracing::info!(hostname = %hostname, "agent.enrolling");
         let ctx = EnrollContext {
@@ -128,10 +125,7 @@ async fn main() -> Result<()> {
         payload: Some(p::client_message::Payload::Hello(p::Hello {
             host: Some(p::Host {
                 id: identity.host_id.clone(),
-                hostname: cfg
-                    .hostname_override
-                    .clone()
-                    .unwrap_or_else(|| hostname()),
+                hostname: cfg.hostname_override.clone().unwrap_or_else(hostname),
                 os: Some(p::OsInfo {
                     family: "linux".into(),
                     version: os_info().version,
@@ -177,8 +171,7 @@ async fn main() -> Result<()> {
     // forces the fallback for testing the legacy path on a kernel that
     // would otherwise load the BPF object.
     let self_protect_enabled = env::var_os("EDR_DISABLE_SELF_PROTECTION").is_none();
-    let pin_dir_str = env::var("EDR_PIN_DIR")
-        .unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
+    let pin_dir_str = env::var("EDR_PIN_DIR").unwrap_or_else(|_| ebpf::DEFAULT_PIN_DIR.to_string());
     let pin_dir = PathBuf::from(&pin_dir_str);
 
     // Take over (or clean up) any pinned objects from a previous run
@@ -220,13 +213,13 @@ async fn main() -> Result<()> {
         let state_dir = cfg.resolved_state_dir();
         match loader.take_block_lists() {
             Ok(blocks) => {
-                let restored = command_worker::restore(&state_dir, &blocks)
-                    .unwrap_or_default();
+                let restored = command_worker::restore(&state_dir, &blocks).unwrap_or_default();
                 if let Some(rx) = commands_rx.take() {
                     let send_tx2 = send_tx.clone();
                     let state_dir_for_worker = state_dir.clone();
                     tokio::spawn(async move {
-                        command_worker::run(state_dir_for_worker, blocks, restored, rx, send_tx2).await;
+                        command_worker::run(state_dir_for_worker, blocks, restored, rx, send_tx2)
+                            .await;
                     });
                 }
             }
@@ -296,8 +289,8 @@ fn load_config() -> Result<AgentConfig> {
         return AgentConfig::load(&PathBuf::from(path));
     }
     // Otherwise build from env vars (convenient for dev runs).
-    let manager_endpoint = env::var("EDR_MANAGER_ENDPOINT")
-        .unwrap_or_else(|_| "https://localhost:50051".to_string());
+    let manager_endpoint =
+        env::var("EDR_MANAGER_ENDPOINT").unwrap_or_else(|_| "https://localhost:50051".to_string());
     let manager_rest_endpoint = env::var("EDR_MANAGER_REST").ok();
     let enrollment_token = env::var("EDR_ENROLLMENT_TOKEN").ok();
     let state_dir = env::var("EDR_STATE_DIR").ok().map(PathBuf::from);
@@ -352,6 +345,8 @@ fn read_release() -> Option<String> {
 
 fn chrono_now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     format!("unix:{}.{:09}", dur.as_secs(), dur.subsec_nanos())
 }

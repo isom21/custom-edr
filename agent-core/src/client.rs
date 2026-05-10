@@ -83,7 +83,8 @@ impl ManagerClient {
 
         let mut backoff_ms: u64 = 500;
         loop {
-            match Self::run_once(&endpoint_url, &identity, &mut send_rx, &rules, &commands_tx).await {
+            match Self::run_once(&endpoint_url, &identity, &mut send_rx, &rules, &commands_tx).await
+            {
                 Ok(()) => {
                     tracing::warn!("grpc.stream.closed_clean — reconnecting");
                     backoff_ms = 500;
@@ -132,7 +133,6 @@ impl ManagerClient {
         // Forward send_rx to out_tx (so the caller's send_tx outlives the
         // stream and reconnect cycles preserve buffered events).
         let forward = {
-            let send_rx = send_rx;
             async move {
                 while let Some(msg) = send_rx.recv().await {
                     if out_tx.send(msg).await.is_err() {

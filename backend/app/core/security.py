@@ -1,10 +1,11 @@
 """Password hashing, JWT issuance, API token hashing."""
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -40,7 +41,7 @@ TokenType = Literal["access", "refresh"]
 
 
 def issue_jwt(*, sub: UUID, role: str, token_type: TokenType) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if token_type == "access":
         exp = now + timedelta(minutes=settings.jwt_access_ttl_minutes)
     else:

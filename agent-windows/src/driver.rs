@@ -81,7 +81,10 @@ pub fn start(ctx: DriverCtx, tx: mpsc::Sender<p::ClientMessage>) -> Result<()> {
     if let Err(e) = register_protected_pid(handle) {
         tracing::warn!(error = %e, "driver.self_protection.register_failed");
     } else {
-        tracing::info!(pid = std::process::id(), "driver.self_protection.registered");
+        tracing::info!(
+            pid = std::process::id(),
+            "driver.self_protection.registered"
+        );
     }
     // HANDLE wraps *mut c_void which isn't Send. Windows HANDLE values are
     // safe to use across threads — pass via usize (Send) and reconstruct
@@ -170,7 +173,12 @@ fn parse_event(buf: &[u8], ctx: &DriverCtx) -> Option<(usize, Option<p::ClientMe
     Some((size, msg))
 }
 
-fn build_process_start(buf: &[u8], pid: u64, ts_nt: u64, ctx: &DriverCtx) -> Option<p::ClientMessage> {
+fn build_process_start(
+    buf: &[u8],
+    pid: u64,
+    ts_nt: u64,
+    ctx: &DriverCtx,
+) -> Option<p::ClientMessage> {
     if buf.len() < HEADER_BYTES + 8 + 2 + 2 {
         return None;
     }
@@ -359,7 +367,9 @@ pub fn dispatch_kill_process(pid: u32) -> Result<()> {
         let buf = (pid as u64).to_le_bytes();
         ioctl(handle, IOCTL_EDR_KILL_PROCESS, &buf)
     })();
-    unsafe { let _ = CloseHandle(handle); }
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
     result
 }
 
@@ -387,9 +397,15 @@ pub fn dispatch_block(kind_str: &str, pattern: &str, add: bool) -> Result<()> {
     }
     let buf = block_request_buffer(kind, pattern);
     let handle = open_edr_for_ioctl()?;
-    let code = if add { IOCTL_EDR_BLOCK_ADD } else { IOCTL_EDR_BLOCK_REMOVE };
+    let code = if add {
+        IOCTL_EDR_BLOCK_ADD
+    } else {
+        IOCTL_EDR_BLOCK_REMOVE
+    };
     let result = ioctl(handle, code, &buf);
-    unsafe { let _ = CloseHandle(handle); }
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
     result
 }
 
@@ -427,7 +443,10 @@ pub async fn run_command_worker(
 
 async fn dispatch_one(cmd: &p::Command) -> Result<()> {
     use p::command::Body;
-    let body = cmd.body.as_ref().ok_or_else(|| anyhow::anyhow!("command.body missing"))?;
+    let body = cmd
+        .body
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("command.body missing"))?;
     match body {
         Body::Kill(k) => {
             let pid = k.target.as_ref().map(|t| t.pid).unwrap_or(0);
@@ -462,10 +481,7 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
                 .await
                 .map_err(|e| anyhow::anyhow!("join: {e}"))??;
         }
-        Body::ScanFile(_)
-        | Body::ScanMemory(_)
-        | Body::Isolate(_)
-        | Body::Update(_) => {
+        Body::ScanFile(_) | Body::ScanMemory(_) | Body::Isolate(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented in M5.4");
         }
     }

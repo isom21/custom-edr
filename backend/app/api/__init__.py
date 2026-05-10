@@ -1,4 +1,5 @@
 """Aggregate FastAPI routers."""
+
 from fastapi import APIRouter
 
 from app.api import (
@@ -18,8 +19,18 @@ from app.api import (
 
 api_router = APIRouter()
 for module in (
-    auth, me, users, hosts, host_groups, rules, policies,
-    alerts, enrollment, api_tokens, sigma, commands,
+    auth,
+    me,
+    users,
+    hosts,
+    host_groups,
+    rules,
+    policies,
+    alerts,
+    enrollment,
+    api_tokens,
+    sigma,
+    commands,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

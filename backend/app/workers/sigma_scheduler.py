@@ -15,13 +15,14 @@ Each iteration:
 Run with:
     python -m app.workers.sigma_scheduler
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import signal
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import structlog
@@ -77,7 +78,7 @@ class SigmaScheduler:
                 log.exception("sigma.scheduler.tick_failed")
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=INTERVAL_SECONDS)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _tick(self) -> None:
@@ -85,7 +86,7 @@ class SigmaScheduler:
             rules = await self._load_rules(db)
         log.debug("sigma.scheduler.tick", rule_count=len(rules))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         upper = now - timedelta(seconds=EVAL_LAG_SECONDS)
 
         for rule in rules:
@@ -154,9 +155,7 @@ class SigmaScheduler:
             },
         }
         try:
-            resp = await self.os_client.search(
-                index="telemetry-*", body=body, request_timeout=15
-            )
+            resp = await self.os_client.search(index="telemetry-*", body=body, request_timeout=15)
         except Exception:
             log.exception("sigma.search_failed", rule_id=str(rule.id))
             return

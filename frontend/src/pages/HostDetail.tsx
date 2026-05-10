@@ -8,7 +8,11 @@ import { PageHeader } from "@/components/PageHeader";
 
 export function HostDetail() {
   const { id } = useParams<{ id: string }>();
-  const host = useQuery({ queryKey: ["host", id], queryFn: () => hostsApi.get(id!), enabled: !!id });
+  const host = useQuery({
+    queryKey: ["host", id],
+    queryFn: () => hostsApi.get(id!),
+    enabled: !!id,
+  });
   const alerts = useQuery({
     queryKey: ["alerts", { host_id: id }],
     queryFn: () => alertsApi.list({ host_id: id, limit: 50 }),
@@ -34,12 +38,15 @@ export function HostDetail() {
             <Row label="OS version" value={h.os_version ?? "—"} />
             <Row label="Architecture" value={h.os_arch ?? "—"} />
             <Row label="Agent version" value={h.agent_version ?? "—"} />
+            <Row label="Status" value={<Badge>{h.status}</Badge>} />
             <Row
-              label="Status"
-              value={<Badge>{h.status}</Badge>}
+              label="Enrolled"
+              value={h.enrolled_at ? new Date(h.enrolled_at).toLocaleString() : "never"}
             />
-            <Row label="Enrolled" value={h.enrolled_at ? new Date(h.enrolled_at).toLocaleString() : "never"} />
-            <Row label="Last seen" value={h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"} />
+            <Row
+              label="Last seen"
+              value={h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
+            />
             <Row label="Policy" value={h.policy_id ?? "—"} />
           </CardContent>
         </Card>
@@ -51,7 +58,10 @@ export function HostDetail() {
             {alerts.data?.items.length ? (
               <ul className="space-y-2 text-sm">
                 {alerts.data.items.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between rounded-md border p-2">
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between rounded-md border p-2"
+                  >
                     <div>
                       <div className="font-medium">{a.summary}</div>
                       <div className="text-xs text-muted-foreground">

@@ -16,12 +16,37 @@ import { commandsApi } from "@/api/commands";
 import { ApiError } from "@/api/client";
 import type { CommandKind } from "@/types/api";
 
-const KINDS: { value: CommandKind; label: string; payloadField: "pid" | "pattern"; placeholder: string }[] = [
-  { value: "kill_process",     label: "Kill process",     payloadField: "pid",     placeholder: "1234" },
-  { value: "block_process",    label: "Block process",    payloadField: "pattern", placeholder: "C:\\Users\\evil.exe or /usr/local/bin/evil" },
-  { value: "block_file",       label: "Block file",       payloadField: "pattern", placeholder: "C:\\Path\\to\\file.dll or /etc/secret.conf" },
-  { value: "unblock_process",  label: "Unblock process",  payloadField: "pattern", placeholder: "(must match an existing block pattern)" },
-  { value: "unblock_file",     label: "Unblock file",     payloadField: "pattern", placeholder: "(must match an existing block pattern)" },
+const KINDS: {
+  value: CommandKind;
+  label: string;
+  payloadField: "pid" | "pattern";
+  placeholder: string;
+}[] = [
+  { value: "kill_process", label: "Kill process", payloadField: "pid", placeholder: "1234" },
+  {
+    value: "block_process",
+    label: "Block process",
+    payloadField: "pattern",
+    placeholder: "C:\\Users\\evil.exe or /usr/local/bin/evil",
+  },
+  {
+    value: "block_file",
+    label: "Block file",
+    payloadField: "pattern",
+    placeholder: "C:\\Path\\to\\file.dll or /etc/secret.conf",
+  },
+  {
+    value: "unblock_process",
+    label: "Unblock process",
+    payloadField: "pattern",
+    placeholder: "(must match an existing block pattern)",
+  },
+  {
+    value: "unblock_file",
+    label: "Unblock file",
+    payloadField: "pattern",
+    placeholder: "(must match an existing block pattern)",
+  },
 ];
 
 interface Props {
@@ -73,8 +98,8 @@ export function CommandDialog({ hostId, trigger, defaultKind, defaultPattern, de
         <DialogHeader>
           <DialogTitle>Queue response action</DialogTitle>
           <DialogDescription>
-            Sends a command to the agent on the next gRPC round-trip (typically &lt;1s).
-            Result lands on /commands once the agent confirms.
+            Sends a command to the agent on the next gRPC round-trip (typically &lt;1s). Result
+            lands on /commands once the agent confirms.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -87,7 +112,9 @@ export function CommandDialog({ hostId, trigger, defaultKind, defaultPattern, de
               className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               {KINDS.map((k) => (
-                <option key={k.value} value={k.value}>{k.label}</option>
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
               ))}
             </select>
           </div>

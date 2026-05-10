@@ -16,14 +16,16 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import type { HostStatus, OsFamily } from "@/types/api";
 
-const STATUS_VARIANT: Record<HostStatus, "default" | "secondary" | "destructive" | "outline" | "success" | "warning"> =
-  {
-    pending: "warning",
-    online: "success",
-    offline: "secondary",
-    isolated: "destructive",
-    decommissioned: "outline",
-  };
+const STATUS_VARIANT: Record<
+  HostStatus,
+  "default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
+  pending: "warning",
+  online: "success",
+  offline: "secondary",
+  isolated: "destructive",
+  decommissioned: "outline",
+};
 
 export function Hosts() {
   const [q, setQ] = useState("");
@@ -59,10 +61,7 @@ export function Hosts() {
           <option value="isolated">isolated</option>
           <option value="decommissioned">decommissioned</option>
         </Select>
-        <Select
-          value={osFamily}
-          onChange={(e) => setOsFamily(e.target.value as OsFamily | "")}
-        >
+        <Select value={osFamily} onChange={(e) => setOsFamily(e.target.value as OsFamily | "")}>
           <option value="">all OS</option>
           <option value="windows">windows</option>
           <option value="linux">linux</option>

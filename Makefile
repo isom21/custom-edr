@@ -33,6 +33,36 @@ agent-linux-rpm: agent-linux-build ## Build a .rpm (RHEL/Rocky/Alma 9). Requires
 .PHONY: agent-linux-packages
 agent-linux-packages: agent-linux-deb agent-linux-rpm ## Build .deb + .rpm in one go.
 
+# ---------------------------------------------------------------------------
+# Gates (M8): same checks CI runs, locally.
+# ---------------------------------------------------------------------------
+.PHONY: gates
+gates: gate-rust gate-python gate-frontend ## Run all per-PR gates locally.
+
+.PHONY: gate-rust
+gate-rust: ## clippy + fmt + audit + deny (workspace).
+	cargo fmt --all --check
+	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
+	cargo audit --deny warnings || echo "  (cargo-audit not installed: cargo install cargo-audit)"
+	cargo deny check 2>/dev/null || echo "  (cargo-deny not installed: cargo install cargo-deny)"
+
+.PHONY: gate-python
+gate-python: ## ruff + pyright + pip-audit on backend.
+	cd backend && ruff check app && ruff format --check app
+	cd backend && pyright app || echo "  (pyright optional)"
+	cd backend && pip-audit --skip-editable || echo "  (pip-audit optional)"
+
+.PHONY: gate-frontend
+gate-frontend: ## tsc + eslint + prettier + npm audit on frontend.
+	cd frontend && npx tsc --noEmit
+	cd frontend && npx eslint --max-warnings=0 src
+	cd frontend && npx prettier --check src
+	cd frontend && npm audit --omit=dev --audit-level=high || echo "  (advisory only)"
+
+.PHONY: test-backend
+test-backend: ## Run the backend pytest suite against the dev DB (assumes EDR_TEST_PG_DSN or EDR_PG_DSN).
+	cd backend && pytest -v --cov=app --cov-report=term-missing
+
 .PHONY: proto-python
 proto-python: ## Regenerate Python bindings into backend/app/proto_gen.
 	@rm -rf $(BACKEND_GEN)

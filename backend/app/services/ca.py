@@ -8,6 +8,7 @@ The CA private key is encrypted at rest with a Fernet key derived from
   2. Manager server cert (RSA, generated locally, EKU=serverAuth) — used to
      terminate TLS for the gRPC ingest endpoint that agents connect to.
 """
+
 from __future__ import annotations
 
 import base64
@@ -15,7 +16,7 @@ import hashlib
 import ipaddress
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography import x509
@@ -60,16 +61,14 @@ class CaService:
         self.db = db
 
     async def get_or_bootstrap(self) -> CertificateAuthority:
-        ca = (
-            await self.db.execute(select(CertificateAuthority).limit(1))
-        ).scalar_one_or_none()
+        ca = (await self.db.execute(select(CertificateAuthority).limit(1))).scalar_one_or_none()
         if ca is not None:
             return ca
         return await self._bootstrap()
 
     async def _bootstrap(self) -> CertificateAuthority:
         key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         not_after = now + timedelta(days=CA_VALIDITY_DAYS)
 
         subject = issuer = x509.Name(
@@ -86,9 +85,7 @@ class CaService:
             .serial_number(x509.random_serial_number())
             .not_valid_before(now - timedelta(minutes=5))
             .not_valid_after(not_after)
-            .add_extension(
-                x509.BasicConstraints(ca=True, path_length=0), critical=True
-            )
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
             .add_extension(
                 x509.KeyUsage(
                     digital_signature=True,
@@ -134,9 +131,7 @@ class CaService:
             raise RuntimeError("CA key is not an RSA key")
         return key
 
-    async def sign_csr(
-        self, csr_pem: bytes, *, host_id: str, hostname: str
-    ) -> IssuedCert:
+    async def sign_csr(self, csr_pem: bytes, *, host_id: str, hostname: str) -> IssuedCert:
         try:
             csr = x509.load_pem_x509_csr(csr_pem)
         except ValueError as exc:
@@ -152,7 +147,7 @@ class CaService:
         ca_cert = x509.load_pem_x509_certificate(ca.cert_pem.encode())
         ca_key = await self._load_signing_key(ca)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         not_after = now + timedelta(days=CLIENT_CERT_VALIDITY_DAYS)
 
         subject = x509.Name(
@@ -225,7 +220,7 @@ class CaService:
         ca_key = await self._load_signing_key(ca)
 
         srv_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         not_after = now + timedelta(days=SERVER_CERT_VALIDITY_DAYS)
 
         subject = x509.Name(
