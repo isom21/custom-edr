@@ -73,8 +73,9 @@ export function Hosts() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } =
-    useTableQuery({ limit: 50 });
+  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+    limit: 50,
+  });
 
   const filters = state.filters;
   const statusFilter = asStatus(filters.status);
@@ -114,9 +115,7 @@ export function Hosts() {
         id: "hostname",
         header: "Hostname",
         sortable: true,
-        cell: (h) => (
-          <span className="font-medium hover:underline">{h.hostname}</span>
-        ),
+        cell: (h) => <span className="font-medium hover:underline">{h.hostname}</span>,
       },
       {
         id: "os_family",
@@ -133,9 +132,7 @@ export function Hosts() {
         header: "Agent",
         sortable: true,
         cell: (h) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {h.agent_version ?? "—"}
-          </span>
+          <span className="font-mono text-xs text-muted-foreground">{h.agent_version ?? "—"}</span>
         ),
       },
       {
@@ -158,9 +155,7 @@ export function Hosts() {
         id: "os_version",
         header: "OS version",
         hiddenByDefault: true,
-        cell: (h) => (
-          <span className="text-xs text-muted-foreground">{h.os_version ?? "—"}</span>
-        ),
+        cell: (h) => <span className="text-xs text-muted-foreground">{h.os_version ?? "—"}</span>,
       },
       {
         id: "enrolled_at",
@@ -248,9 +243,7 @@ export function Hosts() {
               data={statusBuckets(statusStats.data)}
               size={130}
               activeKey={statusFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter("status", statusFilter === s.key ? null : s.key)
-              }
+              onSliceClick={(s) => setFilter("status", statusFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="OS family" hint="Click a slice to filter">
@@ -258,9 +251,7 @@ export function Hosts() {
               data={osBuckets(osStats.data)}
               size={130}
               activeKey={osFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter("os_family", osFilter === s.key ? null : s.key)
-              }
+              onSliceClick={(s) => setFilter("os_family", osFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="Agent versions">

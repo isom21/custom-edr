@@ -84,8 +84,9 @@ export function Rules() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } =
-    useTableQuery({ limit: 50 });
+  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+    limit: 50,
+  });
 
   const filters = state.filters;
   const kindFilter = asKind(filters.kind);
@@ -188,17 +189,13 @@ export function Rules() {
         id: "revision",
         header: "Rev",
         hiddenByDefault: true,
-        cell: (r) => (
-          <span className="font-mono text-xs text-muted-foreground">{r.revision}</span>
-        ),
+        cell: (r) => <span className="font-mono text-xs text-muted-foreground">{r.revision}</span>,
       },
       {
         id: "iocs",
         header: "IOCs",
         hiddenByDefault: true,
-        cell: (r) => (
-          <span className="text-xs text-muted-foreground">{r.iocs.length}</span>
-        ),
+        cell: (r) => <span className="text-xs text-muted-foreground">{r.iocs.length}</span>,
       },
     ],
     [],
@@ -280,9 +277,7 @@ export function Rules() {
               data={kindBuckets(kindStats.data)}
               size={130}
               activeKey={kindFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter("kind", kindFilter === s.key ? null : s.key)
-              }
+              onSliceClick={(s) => setFilter("kind", kindFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="Severity">

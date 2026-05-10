@@ -47,18 +47,9 @@ export function AlertDetailPanel({ alert }: Props) {
           <CardTitle className="text-base">Overview</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <Row
-            label="State"
-            value={<AlertStateBadge state={alert.state} />}
-          />
-          <Row
-            label="Severity"
-            value={<SeverityBadge severity={alert.severity} />}
-          />
-          <Row
-            label="Action taken"
-            value={<RuleActionBadge action={alert.action_taken} />}
-          />
+          <Row label="State" value={<AlertStateBadge state={alert.state} />} />
+          <Row label="Severity" value={<SeverityBadge severity={alert.severity} />} />
+          <Row label="Action taken" value={<RuleActionBadge action={alert.action_taken} />} />
           <Row label="Host" value={alert.host_hostname ?? alert.host_id.slice(0, 8) + "…"} />
           <Row label="Rule" value={alert.rule_name ?? alert.rule_id.slice(0, 8) + "…"} />
           <Row label="Opened" value={new Date(alert.opened_at).toLocaleString()} />
@@ -171,9 +162,7 @@ export function AlertDetailPanel({ alert }: Props) {
                       {new Date(h.ts).toLocaleString()}
                     </span>
                   </div>
-                  {h.comment && (
-                    <div className="mt-1 text-muted-foreground">{h.comment}</div>
-                  )}
+                  {h.comment && <div className="mt-1 text-muted-foreground">{h.comment}</div>}
                 </li>
               ))}
             </ul>

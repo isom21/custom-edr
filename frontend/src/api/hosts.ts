@@ -19,6 +19,5 @@ export const hostsApi = {
   update: (id: string, body: { policy_id?: string | null; status?: HostStatus }) =>
     api<Host>(`/api/hosts/${id}`, { method: "PATCH", body }),
   remove: (id: string) => api<void>(`/api/hosts/${id}`, { method: "DELETE" }),
-  stats: (bucket: HostStatsBucket) =>
-    api<StatBucket[]>("/api/hosts/stats", { query: { bucket } }),
+  stats: (bucket: HostStatsBucket) => api<StatBucket[]>("/api/hosts/stats", { query: { bucket } }),
 };

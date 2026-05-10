@@ -70,9 +70,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
           {SECTIONS.map((section) => {
-            const items = section.items.filter(
-              (i) => !i.adminOnly || user?.role === "admin",
-            );
+            const items = section.items.filter((i) => !i.adminOnly || user?.role === "admin");
             if (items.length === 0) return null;
             return (
               <div key={section.heading}>

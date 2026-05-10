@@ -137,10 +137,7 @@ export function DonutChart({
             )}
             onClick={() => onSliceClick?.(d)}
           >
-            <span
-              className="h-2 w-2 shrink-0 rounded-sm"
-              style={{ backgroundColor: d.color }}
-            />
+            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: d.color }} />
             <span className="text-muted-foreground">{d.label ?? d.key}</span>
             <span className="ml-auto font-medium">{d.count}</span>
           </li>

@@ -58,10 +58,7 @@ export function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        title="Dashboard"
-        description="Live overview — counts refresh every 10–60 s."
-      />
+      <PageHeader title="Dashboard" description="Live overview — counts refresh every 10–60 s." />
       <div className="space-y-6 px-8 py-6">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {SEVS.map(({ key, label }) => {
@@ -100,10 +97,7 @@ export function Dashboard() {
                 </div>
                 <div className="text-sm">{total} total alerts open</div>
               </div>
-              <Link
-                to="/alerts"
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
+              <Link to="/alerts" className="text-xs text-muted-foreground hover:text-foreground">
                 Open console <ArrowRight className="inline h-3 w-3" />
               </Link>
             </div>
@@ -122,10 +116,30 @@ export function Dashboard() {
           <ChartCard title="Alert state">
             <DonutChart
               data={[
-                { key: "new", label: "new", color: SEVERITY_HSL.medium, count: bucket(stateStats.data, "new") },
-                { key: "investigating", label: "investigating", color: SEVERITY_HSL.low, count: bucket(stateStats.data, "investigating") },
-                { key: "true_positive", label: "true positive", color: SEVERITY_HSL.critical, count: bucket(stateStats.data, "true_positive") },
-                { key: "false_positive", label: "false positive", color: "hsl(var(--muted-foreground))", count: bucket(stateStats.data, "false_positive") },
+                {
+                  key: "new",
+                  label: "new",
+                  color: SEVERITY_HSL.medium,
+                  count: bucket(stateStats.data, "new"),
+                },
+                {
+                  key: "investigating",
+                  label: "investigating",
+                  color: SEVERITY_HSL.low,
+                  count: bucket(stateStats.data, "investigating"),
+                },
+                {
+                  key: "true_positive",
+                  label: "true positive",
+                  color: SEVERITY_HSL.critical,
+                  count: bucket(stateStats.data, "true_positive"),
+                },
+                {
+                  key: "false_positive",
+                  label: "false positive",
+                  color: "hsl(var(--muted-foreground))",
+                  count: bucket(stateStats.data, "false_positive"),
+                },
               ]}
               size={130}
             />
@@ -133,18 +147,36 @@ export function Dashboard() {
           <ChartCard title="Host status">
             <DonutChart
               data={[
-                { key: "online", label: "online", color: "hsl(143 64% 50%)", count: bucket(hostStatusStats.data, "online") },
-                { key: "offline", label: "offline", color: "hsl(var(--muted-foreground))", count: bucket(hostStatusStats.data, "offline") },
-                { key: "isolated", label: "isolated", color: SEVERITY_HSL.critical, count: bucket(hostStatusStats.data, "isolated") },
-                { key: "pending", label: "pending", color: SEVERITY_HSL.medium, count: bucket(hostStatusStats.data, "pending") },
+                {
+                  key: "online",
+                  label: "online",
+                  color: "hsl(143 64% 50%)",
+                  count: bucket(hostStatusStats.data, "online"),
+                },
+                {
+                  key: "offline",
+                  label: "offline",
+                  color: "hsl(var(--muted-foreground))",
+                  count: bucket(hostStatusStats.data, "offline"),
+                },
+                {
+                  key: "isolated",
+                  label: "isolated",
+                  color: SEVERITY_HSL.critical,
+                  count: bucket(hostStatusStats.data, "isolated"),
+                },
+                {
+                  key: "pending",
+                  label: "pending",
+                  color: SEVERITY_HSL.medium,
+                  count: bucket(hostStatusStats.data, "pending"),
+                },
               ]}
               size={130}
             />
           </ChartCard>
           <ChartCard title="Top firing rules">
-            <BarChart
-              data={(ruleStats.data ?? []).map((b) => ({ key: b.key, count: b.count }))}
-            />
+            <BarChart data={(ruleStats.data ?? []).map((b) => ({ key: b.key, count: b.count }))} />
           </ChartCard>
         </div>
 
@@ -154,25 +186,17 @@ export function Dashboard() {
               <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Recent alerts
               </div>
-              <Link
-                to="/alerts"
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
+              <Link to="/alerts" className="text-xs text-muted-foreground hover:text-foreground">
                 View all <ArrowRight className="inline h-3 w-3" />
               </Link>
             </div>
             <ul className="divide-y">
-              {recent.isLoading && (
-                <li className="py-3 text-sm text-muted-foreground">Loading…</li>
-              )}
+              {recent.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
               {recent.data?.items.length === 0 && !recent.isLoading && (
                 <li className="py-3 text-sm text-muted-foreground">No alerts yet.</li>
               )}
               {recent.data?.items.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center gap-3 py-2.5 text-sm"
-                >
+                <li key={a.id} className="flex items-center gap-3 py-2.5 text-sm">
                   <SeverityBadge severity={a.severity} />
                   <Link
                     to={`/alerts?openId=${a.id}`}

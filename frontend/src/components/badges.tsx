@@ -1,12 +1,6 @@
 import { SEVERITY_HSL } from "@/lib/severity";
 import { cn } from "@/lib/utils";
-import type {
-  AlertState,
-  CommandStatus,
-  HostStatus,
-  RuleAction,
-  Severity,
-} from "@/types/api";
+import type { AlertState, CommandStatus, HostStatus, RuleAction, Severity } from "@/types/api";
 
 const baseChip =
   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap";

@@ -69,7 +69,7 @@ export function FilterBar({
   onClearAll,
 }: Props) {
   const activeChips = Object.entries(values).filter(([k]) => k !== searchKey && values[k]);
-  const search = searchKey ? values[searchKey] ?? searchValue ?? "" : "";
+  const search = searchKey ? (values[searchKey] ?? searchValue ?? "") : "";
 
   return (
     <div className="space-y-2">
@@ -107,22 +107,13 @@ export function FilterBar({
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">Filters:</span>
           {searchKey && search && (
-            <FilterChip
-              label={`search: ${search}`}
-              onRemove={() => onSearchChange?.("")}
-            />
+            <FilterChip label={`search: ${search}`} onRemove={() => onSearchChange?.("")} />
           )}
           {activeChips.map(([k, v]) => {
             const def = filters.find((f) => f.key === k);
             const optLabel = def?.options.find((o) => o.value === v)?.label ?? v;
             const label = def ? `${def.label}: ${optLabel}` : `${k}: ${v}`;
-            return (
-              <FilterChip
-                key={k}
-                label={label}
-                onRemove={() => onFilterChange(k, null)}
-              />
-            );
+            return <FilterChip key={k} label={label} onRemove={() => onFilterChange(k, null)} />;
           })}
           <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onClearAll}>
             Clear all

@@ -16,13 +16,7 @@ interface Props {
   labelTruncate?: number;
 }
 
-export function BarChart({
-  data,
-  className,
-  onBarClick,
-  activeKey,
-  labelTruncate = 24,
-}: Props) {
+export function BarChart({ data, className, onBarClick, activeKey, labelTruncate = 24 }: Props) {
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
     <ul className={cn("space-y-1.5 text-xs", className)}>

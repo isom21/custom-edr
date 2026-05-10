@@ -34,7 +34,7 @@ def _validate_payload(kind: CommandKind, payload: dict) -> None:
     if kind == CommandKind.KILL_PROCESS:
         pid = payload.get("pid")
         if not isinstance(pid, int) or pid <= 0:
-            bad_request("kill_process payload requires integer pid > 0")
+            raise bad_request("kill_process payload requires integer pid > 0")
     elif kind in (
         CommandKind.BLOCK_PROCESS,
         CommandKind.BLOCK_FILE,
@@ -57,7 +57,7 @@ async def queue_command(
 ) -> CommandOut:
     host = await db.get(Host, host_id)
     if host is None:
-        not_found("host")
+        raise not_found("host")
     if not await host_visible_to(actor, host_id, db):
         raise forbidden("host not in any of your groups")
 
@@ -95,7 +95,7 @@ async def list_commands(
 ) -> Page[CommandOut]:
     host = await db.get(Host, host_id)
     if host is None:
-        not_found("host")
+        raise not_found("host")
     if not await host_visible_to(actor, host_id, db):
         raise forbidden("host not in any of your groups")
 
@@ -169,9 +169,7 @@ async def command_stats(
         raise bad_request("bucket must be one of: status, kind")
     stmt = apply_host_scope(stmt, actor, host_column=Command.host_id)
     rows = (await db.execute(stmt)).all()
-    return [
-        StatBucket(key=_key_str(k), count=int(c)) for k, c in rows
-    ]
+    return [StatBucket(key=_key_str(k), count=int(c)) for k, c in rows]
 
 
 def _key_str(v) -> str:

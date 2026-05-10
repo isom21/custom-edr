@@ -20,6 +20,5 @@ export const rulesApi = {
   update: (id: string, body: Partial<RuleCreate>) =>
     api<Rule>(`/api/rules/${id}`, { method: "PATCH", body }),
   remove: (id: string) => api<void>(`/api/rules/${id}`, { method: "DELETE" }),
-  stats: (bucket: RuleStatsBucket) =>
-    api<StatBucket[]>("/api/rules/stats", { query: { bucket } }),
+  stats: (bucket: RuleStatsBucket) => api<StatBucket[]>("/api/rules/stats", { query: { bucket } }),
 };

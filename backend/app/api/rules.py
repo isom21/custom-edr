@@ -103,9 +103,7 @@ async def rule_stats(
     else:
         raise bad_request("bucket must be one of: kind, severity, enabled")
     rows = (await db.execute(stmt)).all()
-    return [
-        StatBucket(key=_key_str(k), count=int(c)) for k, c in rows
-    ]
+    return [StatBucket(key=_key_str(k), count=int(c)) for k, c in rows]
 
 
 def _key_str(v) -> str:

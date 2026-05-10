@@ -26,9 +26,7 @@ def parse_sort(sort: str | None, allowed: dict[str, Any], default: OrderBy) -> O
     field, _, direction = sort.partition(":")
     direction = direction or "asc"
     if field not in allowed:
-        raise bad_request(
-            f"sort field '{field}' not allowed (allowed: {','.join(_keys(allowed))})"
-        )
+        raise bad_request(f"sort field '{field}' not allowed (allowed: {','.join(_keys(allowed))})")
     if direction not in ("asc", "desc"):
         raise bad_request("sort direction must be 'asc' or 'desc'")
     col = allowed[field]

@@ -68,9 +68,11 @@ async def list_alerts(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[AlertOut]:
-    stmt = select(Alert, Host.hostname, Rule.name).join(
-        Host, Host.id == Alert.host_id
-    ).join(Rule, Rule.id == Alert.rule_id)
+    stmt = (
+        select(Alert, Host.hostname, Rule.name)
+        .join(Host, Host.id == Alert.host_id)
+        .join(Rule, Rule.id == Alert.rule_id)
+    )
     count_stmt = (
         select(func.count(Alert.id))
         .join(Host, Host.id == Alert.host_id)
@@ -166,7 +168,7 @@ def _hourly_stmt():
     )
 
 
-def _fill_hourly(rows: list[tuple]) -> list[StatBucket]:
+def _fill_hourly(rows) -> list[StatBucket]:
     """Pad a 24-hour series so empty buckets still appear as count=0."""
     by_bucket: dict[datetime, int] = {}
     for ts, c in rows:

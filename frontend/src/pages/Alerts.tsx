@@ -66,8 +66,9 @@ function stateBuckets(data: StatBucket[] | undefined) {
 
 export function Alerts() {
   const qc = useQueryClient();
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } =
-    useTableQuery({ limit: TABLE_LIMIT });
+  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+    limit: TABLE_LIMIT,
+  });
 
   const filters = state.filters;
   const stateFilter = asState(filters.state);
@@ -76,7 +77,10 @@ export function Alerts() {
   const q = filters.q ?? "";
 
   const list = useQuery({
-    queryKey: ["alerts", { ...filters, sort: state.sort, offset: state.offset, limit: state.limit }],
+    queryKey: [
+      "alerts",
+      { ...filters, sort: state.sort, offset: state.offset, limit: state.limit },
+    ],
     queryFn: () =>
       alertsApi.list({
         state: stateFilter,
@@ -119,7 +123,7 @@ export function Alerts() {
 
   // ESC closes drawer; J/K navigate (handled inside drawer too for prev/next focus).
   const openIdx = useMemo(
-    () => (openId ? rows?.findIndex((r) => r.id === openId) ?? -1 : -1),
+    () => (openId ? (rows?.findIndex((r) => r.id === openId) ?? -1) : -1),
     [rows, openId],
   );
 
@@ -214,8 +218,7 @@ export function Alerts() {
     label,
     variant,
     isDisabled: (sel) =>
-      sel.length === 0 ||
-      sel.some((s) => !ALERT_TRANSITION_ALLOWED[s.state]?.has(to)),
+      sel.length === 0 || sel.some((s) => !ALERT_TRANSITION_ALLOWED[s.state]?.has(to)),
     onRun: async (sel) => {
       const errors: string[] = [];
       for (const a of sel) {
@@ -243,10 +246,7 @@ export function Alerts() {
 
   return (
     <>
-      <PageHeader
-        title="Alerts"
-        description={`${list.data?.total ?? 0} matching alerts`}
-      />
+      <PageHeader title="Alerts" description={`${list.data?.total ?? 0} matching alerts`} />
 
       <div className="space-y-6 px-8 py-6">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -255,12 +255,7 @@ export function Alerts() {
               data={severityBuckets(sevStats.data)}
               size={130}
               activeKey={severityFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter(
-                  "severity",
-                  severityFilter === s.key ? null : s.key,
-                )
-              }
+              onSliceClick={(s) => setFilter("severity", severityFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="State" hint="Click a slice to filter">
@@ -268,9 +263,7 @@ export function Alerts() {
               data={stateBuckets(stateStats.data)}
               size={130}
               activeKey={stateFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter("state", stateFilter === s.key ? null : s.key)
-              }
+              onSliceClick={(s) => setFilter("state", stateFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="Last 24h" hint="Alerts opened by hour">
@@ -290,9 +283,7 @@ export function Alerts() {
                 color: severityColor("medium"),
               }))}
               activeKey={hostFilter ?? null}
-              onBarClick={(b) =>
-                setFilter("host_hostname", hostFilter === b.key ? null : b.key)
-              }
+              onBarClick={(b) => setFilter("host_hostname", hostFilter === b.key ? null : b.key)}
             />
           </ChartCard>
         </div>

@@ -70,11 +70,7 @@ export function TopBar() {
           onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")}
           title={density === "compact" ? "Comfortable density" : "Compact density"}
         >
-          {density === "compact" ? (
-            <Rows3 className="h-4 w-4" />
-          ) : (
-            <Rows4 className="h-4 w-4" />
-          )}
+          {density === "compact" ? <Rows3 className="h-4 w-4" /> : <Rows4 className="h-4 w-4" />}
         </Button>
         <Button
           variant="ghost"

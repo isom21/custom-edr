@@ -69,15 +69,19 @@ function payloadSummary(kind: CommandKind, payload: Record<string, unknown>): st
 
 export function Commands() {
   const navigate = useNavigate();
-  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } =
-    useTableQuery({ limit: 50 });
+  const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
+    limit: 50,
+  });
 
   const filters = state.filters;
   const statusFilter = asStatus(filters.status);
   const kindFilter = asKind(filters.kind);
 
   const list = useQuery({
-    queryKey: ["commands", { ...filters, sort: state.sort, offset: state.offset, limit: state.limit }],
+    queryKey: [
+      "commands",
+      { ...filters, sort: state.sort, offset: state.offset, limit: state.limit },
+    ],
     queryFn: () =>
       commandsApi.listAll({
         status_: statusFilter,
@@ -116,18 +120,14 @@ export function Commands() {
         header: "Created",
         sortable: true,
         cell: (c) => (
-          <span className="font-mono text-xs">
-            {new Date(c.created_at).toLocaleString()}
-          </span>
+          <span className="font-mono text-xs">{new Date(c.created_at).toLocaleString()}</span>
         ),
       },
       {
         id: "host",
         header: "Host",
         cell: (c) => (
-          <span className="font-mono text-xs hover:underline">
-            {c.host_id.slice(0, 8)}…
-          </span>
+          <span className="font-mono text-xs hover:underline">{c.host_id.slice(0, 8)}…</span>
         ),
       },
       {
@@ -170,9 +170,7 @@ export function Commands() {
         header: "Error",
         hiddenByDefault: true,
         cell: (c) => (
-          <span className="block max-w-xs truncate text-xs text-destructive">
-            {c.error ?? ""}
-          </span>
+          <span className="block max-w-xs truncate text-xs text-destructive">{c.error ?? ""}</span>
         ),
       },
       {
@@ -221,9 +219,7 @@ export function Commands() {
               data={statusBuckets(statusStats.data)}
               size={130}
               activeKey={statusFilter ?? null}
-              onSliceClick={(s) =>
-                setFilter("status", statusFilter === s.key ? null : s.key)
-              }
+              onSliceClick={(s) => setFilter("status", statusFilter === s.key ? null : s.key)}
             />
           </ChartCard>
           <ChartCard title="Kind">
@@ -233,9 +229,7 @@ export function Commands() {
                 count: b.count,
               }))}
               activeKey={kindFilter ?? null}
-              onBarClick={(b) =>
-                setFilter("kind", kindFilter === b.key ? null : b.key)
-              }
+              onBarClick={(b) => setFilter("kind", kindFilter === b.key ? null : b.key)}
             />
           </ChartCard>
         </div>
