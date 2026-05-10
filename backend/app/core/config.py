@@ -49,5 +49,13 @@ class Settings(BaseSettings):
     # tailnet IP) when it differs from socket.gethostname().
     grpc_san_extras: str = ""
 
+    # Per-minute rate limits per role. Anon covers anything before auth
+    # (login, agent enrollment).
+    rl_user_admin_per_min: int = 600
+    rl_user_analyst_per_min: int = 300
+    rl_user_viewer_per_min: int = 120
+    rl_api_token_per_min: int = 600
+    rl_anon_per_min: int = 60
+
 
 settings = Settings()

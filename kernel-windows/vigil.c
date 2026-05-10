@@ -22,7 +22,7 @@
 #include <fwpsk.h>
 #include <fwpmk.h>
 
-#include "edr.h"
+#include "vigil.h"
 
 DRIVER_INITIALIZE DriverEntry;
 

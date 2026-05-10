@@ -27,7 +27,7 @@ install: ## One-shot manager bootstrap (infra, venv, deps, .env, migrations, adm
 .PHONY: up
 up: ## Start every manager process (backend workers + frontend) under honcho.
 	@test -f .vigil/installed || ( echo "run \`make install\` first" >&2 && exit 1 )
-	@$(VENV_HONCHO) start
+	@PATH="$(CURDIR)/backend/.venv/bin:$$PATH" $(VENV_HONCHO) -e backend/.env start
 
 .PHONY: down
 down: ## Stop everything started by `make up` (and the infra stack).

@@ -7,20 +7,20 @@ case "$1" in
         if command -v systemctl >/dev/null 2>&1; then
             # Stop the agent gracefully (init carve-out in lsm/task_kill
             # accepts SIGTERM from pid 1, which is what systemctl sends).
-            systemctl stop edr-agent.service 2>/dev/null || true
-            systemctl disable edr-agent.service 2>/dev/null || true
+            systemctl stop vigil-agent.service 2>/dev/null || true
+            systemctl disable vigil-agent.service 2>/dev/null || true
         fi
 
         # Drop pinned BPF objects so the next agent run starts from a clean
         # bpffs. Best-effort; failures here are acceptable (the binary is
         # about to be removed and the next agent install will re-pin).
-        if [ -x /usr/bin/edr-agent ]; then
-            /usr/bin/edr-agent --unpin 2>/dev/null || true
+        if [ -x /usr/bin/vigil-agent ]; then
+            /usr/bin/vigil-agent --unpin 2>/dev/null || true
         fi
         # M12.a: clear the immutable flag so dpkg can replace/remove
         # the binary.
-        if command -v chattr >/dev/null 2>&1 && [ -e /usr/bin/edr-agent ]; then
-            chattr -i /usr/bin/edr-agent 2>/dev/null || true
+        if command -v chattr >/dev/null 2>&1 && [ -e /usr/bin/vigil-agent ]; then
+            chattr -i /usr/bin/vigil-agent 2>/dev/null || true
         fi
         ;;
     failed-upgrade)

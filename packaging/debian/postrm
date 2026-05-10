@@ -7,11 +7,11 @@ case "$1" in
         # Full purge: drop state directory + config. `remove` (without
         # purge) leaves them intact so a re-install picks up the existing
         # enrollment.
-        rm -rf /var/lib/edr
-        rm -f /etc/edr/agent.env
-        rmdir --ignore-fail-on-non-empty /etc/edr 2>/dev/null || true
+        rm -rf /var/lib/vigil
+        rm -f /etc/vigil/agent.env
+        rmdir --ignore-fail-on-non-empty /etc/vigil 2>/dev/null || true
         # bpffs pin dir is auto-cleaned at boot but remove now too.
-        rm -rf /sys/fs/bpf/edr 2>/dev/null || true
+        rm -rf /sys/fs/bpf/vigil 2>/dev/null || true
         ;;
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
         ;;

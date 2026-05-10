@@ -34,6 +34,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 def _env_int(name: str, default: int) -> int:
+    # Read via settings so the value picks up backend/.env (loaded by
+    # pydantic-settings) in addition to plain os.environ. Falls back
+    # to the env var directly for fields settings doesn't model.
+    from app.core.config import settings as _s
+
+    fld = name.lower().removeprefix("vigil_")
+    val = getattr(_s, fld, None)
+    if isinstance(val, int):
+        return val
     try:
         return int(os.environ.get(name, default))
     except ValueError:

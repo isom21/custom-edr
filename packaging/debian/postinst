@@ -12,51 +12,51 @@ case "$1" in
         # State dir under /var/lib (Debian policy keeps it persistent across
         # package reinstalls). Mode 700 root:root — only the agent + root
         # should ever read identity material.
-        install -d -m 0700 -o root -g root /var/lib/edr
-        install -d -m 0700 -o root -g root /var/lib/edr/identity
-        install -d -m 0700 -o root -g root /var/lib/edr/spool
+        install -d -m 0700 -o root -g root /var/lib/vigil
+        install -d -m 0700 -o root -g root /var/lib/vigil/identity
+        install -d -m 0700 -o root -g root /var/lib/vigil/spool
 
         # Stage a default env file if the operator hasn't created one. The
         # agent won't start without an enrollment token on first run, so
         # leave the unit DISABLED — postinst messages tell the operator
         # how to finish provisioning.
-        install -d -m 0750 -o root -g root /etc/edr
-        if [ ! -e /etc/edr/agent.env ]; then
-            if [ -e /usr/share/edr/agent.env.example ]; then
-                install -m 0640 -o root -g root /usr/share/edr/agent.env.example /etc/edr/agent.env
+        install -d -m 0750 -o root -g root /etc/vigil
+        if [ ! -e /etc/vigil/agent.env ]; then
+            if [ -e /usr/share/vigil/agent.env.example ]; then
+                install -m 0640 -o root -g root /usr/share/vigil/agent.env.example /etc/vigil/agent.env
             fi
         fi
 
         # M12.a: write the install-time SHA-256 of the agent binary so
         # the agent can refuse to start after a cold-on-disk tamper.
-        if [ -x /usr/bin/edr-agent ]; then
-            sha256sum /usr/bin/edr-agent | awk '{print $1}' > /etc/edr/agent.sha256
-            chmod 0644 /etc/edr/agent.sha256
-            chown root:root /etc/edr/agent.sha256
+        if [ -x /usr/bin/vigil-agent ]; then
+            sha256sum /usr/bin/vigil-agent | awk '{print $1}' > /etc/vigil/agent.sha256
+            chmod 0644 /etc/vigil/agent.sha256
+            chown root:root /etc/vigil/agent.sha256
         fi
         # Mark the binary immutable. Best-effort — root can still revert
         # via `chattr -i`, which the M12.a-b LSM hook will catch in a
         # follow-up.
         if command -v chattr >/dev/null 2>&1; then
-            chattr +i /usr/bin/edr-agent 2>/dev/null || true
+            chattr +i /usr/bin/vigil-agent 2>/dev/null || true
         fi
 
         cat <<'EOF'
 
-  EDR agent installed but NOT YET STARTED.
+  Vigil agent installed but NOT YET STARTED.
 
   To finish provisioning:
 
-    1.  edit /etc/edr/agent.env  -- set EDR_MANAGER_ENDPOINT and
-        EDR_ENROLLMENT_TOKEN (mint via the manager's REST API).
+    1.  edit /etc/vigil/agent.env  -- set VIGIL_MANAGER_ENDPOINT and
+        VIGIL_ENROLLMENT_TOKEN (mint via the manager's REST API).
 
-    2.  systemctl enable --now edr-agent
+    2.  systemctl enable --now vigil-agent
 
-    3.  systemctl status edr-agent
-        journalctl -u edr-agent -f
+    3.  systemctl status vigil-agent
+        journalctl -u vigil-agent -f
 
-  Self-protection (M7.1) is enabled by default. To disable for dev:
-  set EDR_DISABLE_SELF_PROTECTION=1 in /etc/edr/agent.env.
+  Self-protection is enabled by default. To disable for dev:
+  set VIGIL_DISABLE_SELF_PROTECTION=1 in /etc/vigil/agent.env.
 
 EOF
         ;;

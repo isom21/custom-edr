@@ -1,13 +1,13 @@
 [Unit]
-Description=EDR endpoint agent
-Documentation=https://github.com/example/custom-edr
+Description=Vigil endpoint agent
+Documentation=https://github.com/isom21/vigil-edr
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/edr-agent
-EnvironmentFile=-/etc/edr/agent.env
+ExecStart=/usr/bin/vigil-agent
+EnvironmentFile=-/etc/vigil/agent.env
 Restart=always
 RestartSec=2
 TimeoutStopSec=10
@@ -19,7 +19,7 @@ User=root
 # turns the rest of /usr, /etc, /boot read-only.
 # A leading dash makes the path optional — if the operator overrides
 # EDR_STATE_DIR to a different location, they should add it here too.
-ReadWritePaths=-/var/lib/edr -/var/lib/edr-state /sys/fs/bpf
+ReadWritePaths=-/var/lib/vigil -/var/lib/vigil-state /sys/fs/bpf
 # StateDirectory implies ReadWritePaths and creates the dir if missing,
 # but only relative to /var/lib. Keep it for the default state path.
 StateDirectory=edr

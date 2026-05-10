@@ -12,7 +12,7 @@
 #   - VS Build Tools 2022 with MSVC v14.44+ at the default install path
 #   - Windows SDK 10.0.26100 + WDK 10.0.26100 installed at
 #     C:\Program Files (x86)\Windows Kits\10
-#   - Test cert thumbprint at C:\toolchain\edr-cert-thumbprint.txt
+#   - Test cert thumbprint at C:\toolchain\vigil-cert-thumbprint.txt
 param(
     [switch]$Clean
 )
@@ -54,7 +54,7 @@ Write-Host "INCLUDE=$env:INCLUDE"
 Write-Host "LIB=$env:LIB"
 
 if ($Clean) {
-    foreach ($f in @('edr.obj','vigil.sys','edr.pdb','edr.exp','edr.lib','vc140.pdb')) {
+    foreach ($f in @('vigil.obj','vigil.sys','vigil.pdb','vigil.exp','vigil.lib','vc140.pdb')) {
         if (Test-Path $f) { Remove-Item -Force $f; Write-Host "removed $f" }
     }
     return
@@ -64,7 +64,7 @@ Write-Host "msvc:    $msvc"
 Write-Host "kits:    $winKits"
 Write-Host "sdk ver: $sdkVer"
 
-Write-Host '--- compiling edr.c ---'
+Write-Host '--- compiling vigil.c ---'
 # /kernel auto-defines _KERNEL_MODE; passing /D_KERNEL_MODE again triggers
 # C4117 (reserved name), promoted to error by /WX.
 # /WX is on, but the WDK headers themselves trip a few "expected" warnings
@@ -85,7 +85,7 @@ $clArgs = @(
     '/DPOOL_NX_OPTIN=1','/DPOOL_ZERO_DOWN_LEVEL_SUPPORT=1'
     '/D_HAS_EXCEPTIONS=0'
 ) + $wdkWarningSuppressions + @(
-    'edr.c','/Foedr.obj','/Fdedr.pdb'
+    'vigil.c','/Fovigil.obj','/Fdvigil.pdb'
 )
 & $cl @clArgs
 if ($LASTEXITCODE -ne 0) { throw "cl failed (exit $LASTEXITCODE)" }
@@ -101,7 +101,7 @@ $linkArgs = @(
     '/INTEGRITYCHECK'
     '/MERGE:_TEXT=.text','/MERGE:_PAGE=PAGE'
     '/SECTION:INIT,d','/OPT:REF','/OPT:ICF'
-    'edr.obj',
+    'vigil.obj',
     # Kernel + filter manager
     'FltMgr.lib','ntoskrnl.lib','BufferOverflowFastFailK.lib','wdmsec.lib',
     # WFP: fwpkclnt.lib for FwpmEngine* / FwpmFilterAdd0,
@@ -112,7 +112,7 @@ $linkArgs = @(
 if ($LASTEXITCODE -ne 0) { throw "link failed (exit $LASTEXITCODE)" }
 
 Write-Host '--- signing vigil.sys ---'
-$thumbprint = (Get-Content 'C:\toolchain\edr-cert-thumbprint.txt' -ErrorAction Stop).Trim()
+$thumbprint = (Get-Content 'C:\toolchain\vigil-cert-thumbprint.txt' -ErrorAction Stop).Trim()
 $signtool   = (Get-ChildItem (Join-Path $winKits 'bin') -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
                Where-Object { $_.FullName -match '\\x64\\signtool.exe$' } |
                Select-Object -First 1).FullName
@@ -125,6 +125,6 @@ Write-Host '--- verifying signature ---'
 if ($LASTEXITCODE -ne 0) { Write-Warning "signtool verify reported issues (exit $LASTEXITCODE)" }
 
 Write-Host '--- artifacts ---'
-Get-Item 'vigil.sys','edr.obj','edr.pdb' -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime -AutoSize | Out-Host
+Get-Item 'vigil.sys','vigil.obj','vigil.pdb' -ErrorAction SilentlyContinue | Format-Table Name, Length, LastWriteTime -AutoSize | Out-Host
 
 Write-Host 'BUILD OK'
