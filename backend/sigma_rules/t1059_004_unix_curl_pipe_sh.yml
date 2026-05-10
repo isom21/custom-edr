@@ -1,0 +1,37 @@
+title: Unix curl/wget piped to shell
+id: 0a4d1f23-c001-4ec0-a5b2-4e1f5b7fb103
+status: experimental
+description: |
+  Classic "download + execute" attack pattern on Linux/macOS:
+  `curl … | sh` or `wget -qO- … | bash`. Common during
+  initial-access and execution phases of opportunistic intrusions.
+references:
+  - https://attack.mitre.org/techniques/T1059/004/
+author: edr-curated
+date: 2026-05-10
+tags:
+  - attack.execution
+  - attack.t1059.004
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_curl:
+    process.command_line|contains:
+      - 'curl '
+      - 'wget '
+  selection_pipe:
+    process.command_line|contains:
+      - '| sh'
+      - '|sh'
+      - '| bash'
+      - '|bash'
+      - '| zsh'
+      - '| ash'
+  condition: selection_curl and selection_pipe
+fields:
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Distribution install scripts run knowingly by operators.
+level: high

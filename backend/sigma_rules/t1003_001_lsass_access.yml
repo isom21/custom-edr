@@ -1,0 +1,37 @@
+title: Non-Microsoft process opens LSASS
+id: 0a4d1f23-c001-4ec0-a5b2-4e1f5b7fb104
+status: experimental
+description: |
+  Detects a process other than well-known Microsoft components
+  opening lsass.exe with PROCESS_VM_READ. Mimikatz / pypykatz / DUMP
+  variants always need this access, and almost no legitimate
+  third-party software does.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: edr-curated
+date: 2026-05-10
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    target.process.name|endswith: 'lsass.exe'
+    granted_access|contains: '0x0010'  # PROCESS_VM_READ
+  filter_signed:
+    process.executable|startswith:
+      - 'C:\Windows\system32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Windows\WinSxS\'
+      - 'C:\Program Files\Windows Defender\'
+      - 'C:\Program Files\Microsoft\'
+  condition: selection and not filter_signed
+fields:
+  - process.executable
+  - process.command_line
+  - target.process.executable
+falsepositives:
+  - Endpoint security tools other than Defender (legitimate AV/EDR).
+level: critical

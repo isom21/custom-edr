@@ -158,7 +158,10 @@ async fn dispatch(
                 persist(state_dir, state)?;
             }
         }
-        Body::ScanFile(_) | Body::ScanMemory(_) | Body::Isolate(_) | Body::Update(_) => {
+        Body::Isolate(req) => {
+            apply_network_isolation(state_dir, req.isolate, &req.allowlist_ips)?;
+        }
+        Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
         }
     }
@@ -172,5 +175,83 @@ fn kill_pid(pid: u32) -> Result<()> {
         let err = std::io::Error::last_os_error();
         anyhow::bail!("kill({pid}, SIGKILL): {err}");
     }
+    Ok(())
+}
+
+/// M11.a: flip the host's outbound firewall to deny everything except
+/// the manager + DNS + NTP + the operator-supplied allowlist. Restore
+/// is a single `nft delete table` call. Sentinel file at
+/// `{state_dir}/isolated` lets us reapply on agent restart.
+///
+/// Requires CAP_NET_ADMIN — already in the systemd unit's
+/// AmbientCapabilities. Falls back to a clear error if `nft` is absent
+/// (e.g. iptables-only systems); operator must install nftables.
+fn apply_network_isolation(
+    state_dir: &Path,
+    isolate: bool,
+    allowlist_ips: &[String],
+) -> Result<()> {
+    use std::io::Write as _;
+    use std::process::{Command as Proc, Stdio};
+
+    let sentinel = state_dir.join("isolated");
+
+    if !isolate {
+        // Restore: drop our table; idempotent.
+        let status = Proc::new("nft")
+            .args(["delete", "table", "inet", "edr-isolation"])
+            .stderr(Stdio::null())
+            .status();
+        if let Ok(s) = status {
+            tracing::info!(exit = ?s.code(), "isolation.removed");
+        }
+        let _ = std::fs::remove_file(&sentinel);
+        return Ok(());
+    }
+
+    let mut ruleset = String::from(
+        "table inet edr-isolation {\n  chain output {\n    type filter hook output priority 0; policy accept;\n",
+    );
+    // Always allow loopback + DNS + NTP + DHCP renewals.
+    ruleset.push_str("    oifname \"lo\" accept\n");
+    ruleset.push_str("    udp dport 53 accept\n");
+    ruleset.push_str("    udp dport 123 accept\n");
+    ruleset.push_str("    udp dport 67 accept\n");
+    ruleset.push_str("    udp dport 68 accept\n");
+    // Operator-supplied allowlist: each IP must be valid; we render
+    // both v4 and v6 lines so the chain is `inet`-family safe.
+    for ip in allowlist_ips {
+        let ip = ip.trim();
+        if ip.is_empty() {
+            continue;
+        }
+        if ip.contains(':') {
+            ruleset.push_str(&format!("    ip6 daddr {ip} accept\n"));
+        } else {
+            ruleset.push_str(&format!("    ip daddr {ip} accept\n"));
+        }
+    }
+    // Default deny.
+    ruleset.push_str("    counter drop\n  }\n}\n");
+
+    let mut child = Proc::new("nft")
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| "spawn nft (is nftables installed?)")?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(ruleset.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "nft -f failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    std::fs::create_dir_all(state_dir).ok();
+    std::fs::write(&sentinel, &ruleset).ok();
+    tracing::info!(allowlist = allowlist_ips.len(), "isolation.applied");
     Ok(())
 }

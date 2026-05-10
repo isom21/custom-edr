@@ -1,0 +1,32 @@
+title: Scheduled task creation
+id: 0a4d1f23-c001-4ec0-a5b2-4e1f5b7fb106
+status: experimental
+description: |
+  Detects `schtasks /create` or PowerShell `Register-ScheduledTask`
+  invocations from non-administrator-friendly contexts. Frequent
+  attacker persistence vector.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: edr-curated
+date: 2026-05-10
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_schtasks:
+    process.executable|endswith: 'schtasks.exe'
+    process.command_line|contains: '/create'
+  selection_powershell:
+    process.command_line|contains: 'Register-ScheduledTask'
+  condition: 1 of selection_*
+fields:
+  - process.command_line
+  - process.parent.executable
+falsepositives:
+  - Software installers configuring scheduled updates.
+  - System administrators (combine with audit log to attribute).
+level: medium
