@@ -10,6 +10,7 @@
 
 mod command_worker;
 mod ebpf;
+mod hasher;
 mod proc_watcher;
 
 use agent_core::client::ManagerClient;
@@ -226,7 +227,15 @@ async fn main() -> Result<()> {
             agent_id: identity.host_id.clone(),
             agent_version: AGENT_VERSION.into(),
         };
-        if let Err(e) = loader.spawn_drainer(drain_ctx, send_tx.clone()) {
+        // M10.a: file hashing for FileEvent enrichment. Disabled by
+        // env var when an operator wants the absolute lowest CPU
+        // footprint.
+        let hasher = if env::var_os("EDR_DISABLE_FILE_HASHING").is_some() {
+            None
+        } else {
+            Some(hasher::Hasher::spawn())
+        };
+        if let Err(e) = loader.spawn_drainer(drain_ctx, send_tx.clone(), hasher) {
             tracing::error!(error = %e, "ebpf.drainer.spawn_failed");
         }
 

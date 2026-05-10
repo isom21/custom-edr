@@ -30,6 +30,8 @@ nix = { version = "0.29", features = ["user", "hostname", "signal"] }
 # eBPF (M6). aya loads pre-compiled C eBPF objects (`agent-linux/ebpf/edr.bpf.o`).
 aya = "0.13"
 aya-log = "0.2"
+# M10.a file hashing on file_open events.
+sha2 = "0.10"
 
 [build-dependencies]
 # Re-runs ebpf/build.sh when the eBPF source changes.

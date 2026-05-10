@@ -265,10 +265,13 @@ impl Loader {
 
     /// Take ownership of the ring-buffer map and spawn an async drainer
     /// that translates events to protobuf and pushes them onto `send_tx`.
+    /// `hasher` (M10.a) optionally enriches FileEvent payloads with
+    /// SHA-256; pass None to disable.
     pub fn spawn_drainer(
         &mut self,
         ctx: LoaderCtx,
         send_tx: mpsc::Sender<p::ClientMessage>,
+        hasher: Option<crate::hasher::Hasher>,
     ) -> Result<()> {
         let map = self
             .ebpf
@@ -277,7 +280,7 @@ impl Loader {
         let ring = RingBuf::try_from(map)?;
 
         tokio::spawn(async move {
-            if let Err(e) = drain_loop(ring, ctx, send_tx).await {
+            if let Err(e) = drain_loop(ring, ctx, send_tx, hasher).await {
                 tracing::error!(error = %e, "ebpf.drain_loop_failed");
             }
         });
@@ -546,6 +549,7 @@ async fn drain_loop(
     mut ring: RingBuf<MapData>,
     ctx: LoaderCtx,
     send_tx: mpsc::Sender<p::ClientMessage>,
+    hasher: Option<crate::hasher::Hasher>,
 ) -> Result<()> {
     // RingBuf is edge-triggered via epoll; AsyncFd lets tokio await on it.
     // We follow aya's documented loop shape: wait, drain, clear_ready.
@@ -559,7 +563,13 @@ async fn drain_loop(
         let mut guard = async_fd.readable().await?;
         let mut batch: Vec<p::EndpointEvent> = Vec::new();
         while let Some(item) = ring.next() {
-            if let Some(ev) = parse_event(&item, &ctx) {
+            if let Some(mut ev) = parse_event(&item, &ctx) {
+                // M10.a: enrich FileEvent with SHA-256 (cache hit → sync,
+                // miss → fire-and-forget enqueue; the next event for this
+                // path will carry the hash).
+                if let Some(ref h) = hasher {
+                    enrich_file_hash(&mut ev, h);
+                }
                 batch.push(ev);
                 if batch.len() >= MAX_BATCH {
                     flush_batch(&send_tx, &mut batch).await;
@@ -793,6 +803,23 @@ fn parse_event(buf: &[u8], ctx: &LoaderCtx) -> Option<p::EndpointEvent> {
             ))
         }
         _ => None,
+    }
+}
+
+/// Lookup the path in the hasher and stamp the SHA-256 onto the
+/// FileEvent payload if cached. Cache miss: enqueue (background) and
+/// leave the hash empty; next event for the same path benefits.
+fn enrich_file_hash(ev: &mut p::EndpointEvent, hasher: &crate::hasher::Hasher) {
+    if let Some(p::endpoint_event::Payload::File(ref mut fe)) = ev.payload {
+        if !fe.path.is_empty() && fe.hash.is_none() {
+            if let Some(hex) = hasher.lookup_or_enqueue(&fe.path) {
+                fe.hash = Some(p::Hash {
+                    sha256: hex,
+                    md5: String::new(),
+                    sha1: String::new(),
+                });
+            }
+        }
     }
 }
 
