@@ -107,9 +107,7 @@ async def record(
     ip: str | None = None,
 ) -> None:
     user_id = actor.user.id if actor else None
-    api_token_id = (
-        actor.token_id if actor and actor.kind == "api_token" else None
-    )
+    api_token_id = actor.token_id if actor and actor.kind == "api_token" else None
     actor_kind = actor.kind if actor else "system"
 
     row = AuditLog(

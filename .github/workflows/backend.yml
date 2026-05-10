@@ -63,7 +63,12 @@ jobs:
           --health-retries 30
 
     env:
-      EDR_DATABASE_URL: postgresql+psycopg://edr:edr@localhost:5432/edr_test
+      # `app.core.config.Settings` reads `EDR_PG_DSN`, not
+      # EDR_DATABASE_URL. Alembic env.py converts +asyncpg → +psycopg
+      # at migration time so we keep the same DSN shape used in
+      # production. Kafka + OpenSearch settings names also match the
+      # Settings field names.
+      EDR_PG_DSN: postgresql+asyncpg://edr:edr@localhost:5432/edr_test
       EDR_KAFKA_BROKERS: localhost:9092
       EDR_OPENSEARCH_URL: http://localhost:9200
       EDR_TEST_ENV: "1"

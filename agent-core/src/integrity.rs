@@ -67,9 +67,9 @@ impl IntegrityBaseline {
         let binary_sha256 = sha256_file(&binary_path)
             .with_context(|| format!("hash binary {}", binary_path.display()))?;
         let config_sha256 = match &config_path {
-            Some(p) => Some(
-                sha256_file(p).with_context(|| format!("hash config {}", p.display()))?,
-            ),
+            Some(p) => {
+                Some(sha256_file(p).with_context(|| format!("hash config {}", p.display()))?)
+            }
             None => None,
         };
         Ok(Self {
@@ -93,7 +93,9 @@ impl IntegrityBaseline {
                 actual: actual_bin,
             });
         }
-        if let (Some(path), Some(expected)) = (self.config_path.as_ref(), self.config_sha256.as_ref()) {
+        if let (Some(path), Some(expected)) =
+            (self.config_path.as_ref(), self.config_sha256.as_ref())
+        {
             let actual = sha256_file(path).unwrap_or_else(|e| format!("ERROR:{e}"));
             if !actual.eq_ignore_ascii_case(expected) {
                 drift.config = Some(DriftDetail {
@@ -112,7 +114,9 @@ fn sha256_file(p: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
-        let n = f.read(&mut buf).with_context(|| format!("read {}", p.display()))?;
+        let n = f
+            .read(&mut buf)
+            .with_context(|| format!("read {}", p.display()))?;
         if n == 0 {
             break;
         }

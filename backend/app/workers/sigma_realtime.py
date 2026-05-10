@@ -98,7 +98,7 @@ class SigmaRealtime:
             existing = await self.os_client.search(
                 index=os_svc.SIGMA_RULES_INDEX,
                 body={"size": 10_000, "_source": ["rule_id"]},
-                request_timeout=10,
+                request_timeout=10,  # pyright: ignore[reportCallIssue]
             )
             existing_ids = {
                 h["_source"]["rule_id"]
@@ -148,6 +148,9 @@ class SigmaRealtime:
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
             except TimeoutError:
+                continue
+            if msg.value is None:
+                await self.consumer.commit()
                 continue
 
             try:

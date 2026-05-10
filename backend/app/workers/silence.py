@@ -25,6 +25,7 @@ Configurable via env:
     EDR_SILENCE_THRESHOLD_SECONDS  silence trigger (default 600)
     EDR_SILENCE_TICK_SECONDS       scan cadence (default 60)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -108,9 +109,7 @@ class SilenceWorker:
                     last = last.replace(tzinfo=UTC)
                 is_silent = last < cutoff
                 if is_silent and host.id not in self._open_alerts:
-                    silence_seconds = int(
-                        (datetime.now(UTC) - last).total_seconds()
-                    )
+                    silence_seconds = int((datetime.now(UTC) - last).total_seconds())
                     await self._fire_alert(db, host, silence_seconds)
                     self._open_alerts.add(host.id)
                 elif not is_silent and host.id in self._open_alerts:
@@ -130,9 +129,7 @@ class SilenceWorker:
             summary=f"Agent silent for {silence_seconds}s on {host.hostname}",
             details={
                 "hostname": host.hostname,
-                "last_seen_at": host.last_seen_at.isoformat()
-                if host.last_seen_at
-                else None,
+                "last_seen_at": host.last_seen_at.isoformat() if host.last_seen_at else None,
                 "silence_seconds": silence_seconds,
                 "threshold_seconds": int(self._threshold.total_seconds()),
                 "host_status_at_detect": host.status.value,

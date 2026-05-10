@@ -188,7 +188,8 @@ def _peer_host_id(context: grpc.aio.ServicerContext) -> str | None:
     (e.g. plaintext channel during local dev).
     """
     auth_ctx = context.auth_context()
-    cn = auth_ctx.get("x509_common_name", [])
+    cn_iter = auth_ctx.get("x509_common_name", [])
+    cn = list(cn_iter) if cn_iter else []
     if cn:
         return cn[0].decode() if isinstance(cn[0], bytes) else cn[0]
     return None
@@ -420,6 +421,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                     # journal periodically (M14.b will turn this into
                     # a metric).
                     import time as _time
+
                     bucket = _GRPC_BUCKETS.setdefault(str(host_id), _HostBucket())
                     want = len(msg.events.events)
                     granted = bucket.admit(_time.monotonic(), want)
@@ -525,13 +527,19 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         sync = control_pb2.RuleSync(rules_version=int(datetime.now(UTC).timestamp()))
         for r in rows:
             if r.kind is RuleKind.YARA and r.body:
+                # `severity`/`action`/`kind` are protobuf enums (ints on
+                # the wire). protoc-generated stubs collide with our
+                # SQLAlchemy app-side enum names of the same shape, so
+                # pyright infers the wrong type here. Suppressing the
+                # arg-type check is correct: at runtime these are
+                # plain ints accepted by the proto enum field.
                 sync.yara.append(
                     control_pb2.YaraRule(
                         id=str(r.id),
                         name=r.name,
                         source=r.body,
-                        severity=_pb_severity(r.severity.value),
-                        action=_pb_action(r.action.value),
+                        severity=_pb_severity(r.severity.value),  # pyright: ignore[reportArgumentType]
+                        action=_pb_action(r.action.value),  # pyright: ignore[reportArgumentType]
                     )
                 )
             elif r.kind is RuleKind.IOC:
@@ -544,10 +552,10 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                         control_pb2.IocRule(
                             id=str(r.id),
                             name=r.name,
-                            kind=_pb_ioc_kind(kind),
+                            kind=_pb_ioc_kind(kind),  # pyright: ignore[reportArgumentType]
                             values=[e.value_normalized for e in entries],
-                            severity=_pb_severity(r.severity.value),
-                            action=_pb_action(r.action.value),
+                            severity=_pb_severity(r.severity.value),  # pyright: ignore[reportArgumentType]
+                            action=_pb_action(r.action.value),  # pyright: ignore[reportArgumentType]
                         )
                     )
         return sync

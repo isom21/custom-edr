@@ -204,7 +204,8 @@ async fn main() -> Result<()> {
         match IntegrityBaseline::capture(bin_path, cfg_path) {
             Ok(baseline) => {
                 tracing::info!(
-                    binary_sha256_prefix = &baseline.binary_sha256[..16.min(baseline.binary_sha256.len())],
+                    binary_sha256_prefix =
+                        &baseline.binary_sha256[..16.min(baseline.binary_sha256.len())],
                     config_tracked = baseline.config_path.is_some(),
                     "agent.integrity_watchdog.baseline_captured"
                 );
@@ -235,7 +236,8 @@ async fn main() -> Result<()> {
                                 actual = %d.actual,
                                 "agent.tamper.binary_mismatch"
                             );
-                            snap.tamper_binary.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            snap.tamper_binary
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let ev = agent_core::event::agent_tamper(
                                 &host_id,
                                 &agent_id,
@@ -266,7 +268,8 @@ async fn main() -> Result<()> {
                                 actual = %d.actual,
                                 "agent.tamper.config_mismatch"
                             );
-                            snap.tamper_config.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            snap.tamper_config
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let ev = agent_core::event::agent_tamper(
                                 &host_id,
                                 &agent_id,
@@ -659,10 +662,8 @@ fn spawn_bpf_watchdog(
     tokio::spawn(async move {
         // Per-target latch: true => already alerted, suppress until
         // the file reappears.
-        let mut alerted_links: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-        let mut alerted_maps: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut alerted_links: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut alerted_maps: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
         // Skip immediate fire — pin files may still be appearing.
         interval.tick().await;

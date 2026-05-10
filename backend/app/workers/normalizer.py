@@ -71,6 +71,9 @@ class Normalizer:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
             except TimeoutError:
                 continue
+            if msg.value is None:
+                await self.consumer.commit()
+                continue
             try:
                 ev = events_pb2.EndpointEvent()
                 ev.ParseFromString(msg.value)

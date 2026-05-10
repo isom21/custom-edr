@@ -95,17 +95,19 @@ async def delete_user(user_id: UUID, db: DbSession, actor: RequireAdmin) -> None
 
 
 @router.get("/{user_id}/groups", response_model=UserGroupAssignment)
-async def get_user_groups(
-    user_id: UUID, db: DbSession, actor: RequireAdmin
-) -> UserGroupAssignment:
+async def get_user_groups(user_id: UUID, db: DbSession, actor: RequireAdmin) -> UserGroupAssignment:
     user = await db.get(User, user_id)
     if user is None:
         raise not_found("user", str(user_id))
     rows = (
-        await db.execute(
-            select(user_host_group.c.host_group_id).where(user_host_group.c.user_id == user_id)
+        (
+            await db.execute(
+                select(user_host_group.c.host_group_id).where(user_host_group.c.user_id == user_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return UserGroupAssignment(host_group_ids=list(rows))
 
 
@@ -127,11 +129,11 @@ async def replace_user_groups(
     # call is idempotent against a partially-stale frontend.
     valid_groups: list[UUID] = []
     if body.host_group_ids:
-        valid_groups = (
-            await db.execute(
-                select(HostGroup.id).where(HostGroup.id.in_(body.host_group_ids))
-            )
-        ).scalars().all()
+        valid_groups = list(
+            (await db.execute(select(HostGroup.id).where(HostGroup.id.in_(body.host_group_ids))))
+            .scalars()
+            .all()
+        )
 
     await db.execute(delete(user_host_group).where(user_host_group.c.user_id == user_id))
     for gid in valid_groups:

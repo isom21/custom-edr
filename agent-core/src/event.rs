@@ -160,6 +160,7 @@ pub fn kernel_module_loaded(
 /// (M12.a binary/config drift, M12.b BPF detachment). Always
 /// emitted with kind=ALERT and category=INTRUSION_DETECTION so the
 /// manager surfaces it immediately, not buried in routine telemetry.
+#[allow(clippy::too_many_arguments)]
 pub fn agent_tamper(
     host_id: &str,
     agent_id: &str,

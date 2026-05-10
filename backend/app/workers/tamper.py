@@ -18,12 +18,12 @@ Out of scope:
   * Notifier integration (email/Slack) — the existing alert path
     already covers fan-out; this worker just needs to write the row.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import signal
 from uuid import UUID
 
@@ -85,6 +85,9 @@ class TamperWorker:
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
             except TimeoutError:
+                continue
+            if msg.value is None:
+                await self.consumer.commit()
                 continue
             try:
                 doc = json.loads(msg.value)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, JSON, DateTime, ForeignKey, LargeBinary, String, text
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, LargeBinary, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UuidPkMixin

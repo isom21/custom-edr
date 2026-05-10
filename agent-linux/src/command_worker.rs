@@ -205,8 +205,7 @@ fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result
     // quarantine basename. Avoids collisions when multiple variants of
     // the same file appear; identical bytes share a quarantine entry.
     let mut hasher = Sha256::new();
-    let mut f = std::fs::File::open(src_path)
-        .with_context(|| format!("open {src}"))?;
+    let mut f = std::fs::File::open(src_path).with_context(|| format!("open {src}"))?;
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = f.read(&mut buf).with_context(|| format!("read {src}"))?;
@@ -223,8 +222,7 @@ fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result
         .collect::<String>();
 
     let qdir = state_dir.join("quarantine");
-    std::fs::create_dir_all(&qdir)
-        .with_context(|| format!("mkdir -p {}", qdir.display()))?;
+    std::fs::create_dir_all(&qdir).with_context(|| format!("mkdir -p {}", qdir.display()))?;
     let qpath = qdir.join(format!("{hex}.bin"));
 
     // Copy then optionally delete. If we're keeping the original we
@@ -242,8 +240,7 @@ fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result
     }
 
     if delete_original {
-        std::fs::remove_file(src_path)
-            .with_context(|| format!("remove {src}"))?;
+        std::fs::remove_file(src_path).with_context(|| format!("remove {src}"))?;
     }
 
     tracing::info!(
@@ -323,10 +320,7 @@ fn apply_network_isolation(
     }
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        anyhow::bail!(
-            "nft -f failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        anyhow::bail!("nft -f failed: {}", String::from_utf8_lossy(&out.stderr));
     }
     std::fs::create_dir_all(state_dir).ok();
     std::fs::write(&sentinel, &ruleset).ok();

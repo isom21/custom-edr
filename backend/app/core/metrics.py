@@ -10,6 +10,7 @@ registered anywhere in the app appears at `/metrics` automatically.
 That means a contributor adding a new counter doesn't need to touch
 this file beyond importing.
 """
+
 from __future__ import annotations
 
 from typing import Final

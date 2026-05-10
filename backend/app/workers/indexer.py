@@ -83,6 +83,7 @@ class Indexer:
                 log.exception("indexer.bulk_failed", n=len(buffered))
             buffered = []
             last_flush = asyncio.get_event_loop().time()
+            assert self.consumer is not None
             await self.consumer.commit()
 
         while not self._stop.is_set():
@@ -91,6 +92,8 @@ class Indexer:
             except TimeoutError:
                 if buffered:
                     await flush()
+                continue
+            if msg.value is None:
                 continue
 
             try:

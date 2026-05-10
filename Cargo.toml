@@ -10,7 +10,14 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-license = "Proprietary"
+# `LicenseRef-Proprietary` is the SPDX escape hatch for non-OSS
+# licenses; cargo-deny needs a parseable SPDX expression. The
+# `[licenses] private = { ignore = true }` block in deny.toml plus
+# `publish = false` on each workspace crate keeps cargo-deny from
+# treating these as "unlicensed" while still flagging third-party
+# deps that don't carry an allowed SPDX id.
+license = "LicenseRef-Proprietary"
+publish = false
 repository = "https://github.com/REPLACE/edr"
 
 [workspace.dependencies]

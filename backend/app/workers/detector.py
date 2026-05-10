@@ -65,6 +65,9 @@ class Detector:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
             except TimeoutError:
                 continue
+            if msg.value is None:
+                await self.consumer.commit()
+                continue
 
             try:
                 ecs = json.loads(msg.value)

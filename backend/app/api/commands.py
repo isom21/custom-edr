@@ -32,9 +32,9 @@ def _validate_payload(kind: CommandKind, payload: dict) -> None:
     ):
         pattern = payload.get("pattern")
         if not isinstance(pattern, str) or not pattern.strip():
-            bad_request(f"{kind.value} payload requires non-empty 'pattern' string")
+            raise bad_request(f"{kind.value} payload requires non-empty 'pattern' string")
         if len(pattern.encode("utf-16-le")) > 512:
-            bad_request("pattern is longer than the driver's 512-byte UTF-16 limit")
+            raise bad_request("pattern is longer than the driver's 512-byte UTF-16 limit")
 
 
 @router.post("/{host_id}/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)

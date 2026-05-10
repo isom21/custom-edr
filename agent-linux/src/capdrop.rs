@@ -66,8 +66,7 @@ pub fn drop_to_minimum() -> Result<DropReport> {
     // 1. Bounding set — drop one cap at a time. capset(2) doesn't
     //    accept a wholesale "set the bounding set to X" operation;
     //    you can only DROP from the bounding set, never add.
-    let bounding_before = caps::read(None, CapSet::Bounding)
-        .context("read bounding caps")?;
+    let bounding_before = caps::read(None, CapSet::Bounding).context("read bounding caps")?;
     for cap in bounding_before.iter() {
         if keep.contains(cap) {
             continue;
@@ -87,8 +86,7 @@ pub fn drop_to_minimum() -> Result<DropReport> {
     // 2. Effective + Permitted: replace wholesale with the keep set
     //    intersected with what we actually have. We can't add caps
     //    we never had; trying would EPERM.
-    let permitted_before = caps::read(None, CapSet::Permitted)
-        .context("read permitted caps")?;
+    let permitted_before = caps::read(None, CapSet::Permitted).context("read permitted caps")?;
     let target: CapsHashSet = keep.intersection(&permitted_before).copied().collect();
     caps::set(None, CapSet::Effective, &target).context("set effective caps")?;
     caps::set(None, CapSet::Permitted, &target).context("set permitted caps")?;

@@ -38,13 +38,9 @@ class CommandIn(BaseModel):
         ):
             pattern = self.payload.get("pattern")
             if not isinstance(pattern, str) or not pattern.strip():
-                raise ValueError(
-                    f"{self.kind.value} payload requires non-empty 'pattern' string"
-                )
+                raise ValueError(f"{self.kind.value} payload requires non-empty 'pattern' string")
             if len(pattern.encode("utf-16-le")) > 512:
-                raise ValueError(
-                    "pattern is longer than the driver's 512-byte UTF-16 limit"
-                )
+                raise ValueError("pattern is longer than the driver's 512-byte UTF-16 limit")
         elif self.kind == CommandKind.ISOLATE:
             allowlist = self.payload.get("allowlist_ips", [])
             if not isinstance(allowlist, list):
@@ -52,9 +48,7 @@ class CommandIn(BaseModel):
         elif self.kind == CommandKind.QUARANTINE_FILE:
             path = self.payload.get("path")
             if not isinstance(path, str) or not path.strip():
-                raise ValueError(
-                    "quarantine_file payload requires non-empty 'path' string"
-                )
+                raise ValueError("quarantine_file payload requires non-empty 'path' string")
         return self
 
 

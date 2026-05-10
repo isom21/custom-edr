@@ -155,7 +155,11 @@ class SigmaScheduler:
             },
         }
         try:
-            resp = await self.os_client.search(index="telemetry-*", body=body, request_timeout=15)
+            resp = await self.os_client.search(
+                index="telemetry-*",
+                body=body,
+                request_timeout=15,  # pyright: ignore[reportCallIssue]
+            )
         except Exception:
             log.exception("sigma.search_failed", rule_id=str(rule.id))
             return

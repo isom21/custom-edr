@@ -5,9 +5,8 @@ across the entire audit_log table. Operators can also run
 `python -m app.services.audit_verifier` from the host to get the
 same result over the CLI.
 """
-from __future__ import annotations
 
-from typing import Any
+from __future__ import annotations
 
 from fastapi import APIRouter
 from pydantic import BaseModel

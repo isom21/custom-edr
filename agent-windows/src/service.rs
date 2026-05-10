@@ -59,9 +59,7 @@ define_windows_service!(ffi_service_main, service_main);
 pub fn dispatch_if_scm_started() -> Result<bool> {
     match service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
         Ok(()) => Ok(true),
-        Err(windows_service::Error::Winapi(io_err))
-            if io_err.raw_os_error() == Some(1063) =>
-        {
+        Err(windows_service::Error::Winapi(io_err)) if io_err.raw_os_error() == Some(1063) => {
             // ERROR_FAILED_SERVICE_CONTROLLER_CONNECT — we weren't
             // started by SCM. Console mode is the right fallback.
             Ok(false)
@@ -197,7 +195,7 @@ pub fn install() -> Result<()> {
         executable_path: exe,
         launch_arguments: vec![],
         dependencies: vec![],
-        account_name: None,    // LocalSystem
+        account_name: None, // LocalSystem
         account_password: None,
     };
 
@@ -207,9 +205,7 @@ pub fn install() -> Result<()> {
             tracing::info!(name = SERVICE_NAME, "service.installed");
             Ok(())
         }
-        Err(windows_service::Error::Winapi(io_err))
-            if io_err.raw_os_error() == Some(1073) =>
-        {
+        Err(windows_service::Error::Winapi(io_err)) if io_err.raw_os_error() == Some(1073) => {
             // ERROR_SERVICE_EXISTS. Idempotent: success.
             tracing::info!(name = SERVICE_NAME, "service.already_installed");
             Ok(())
@@ -227,9 +223,7 @@ pub fn uninstall() -> Result<()> {
         ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE,
     ) {
         Ok(s) => s,
-        Err(windows_service::Error::Winapi(io_err))
-            if io_err.raw_os_error() == Some(1060) =>
-        {
+        Err(windows_service::Error::Winapi(io_err)) if io_err.raw_os_error() == Some(1060) => {
             // ERROR_SERVICE_DOES_NOT_EXIST. Already gone.
             tracing::info!(name = SERVICE_NAME, "service.not_installed");
             return Ok(());

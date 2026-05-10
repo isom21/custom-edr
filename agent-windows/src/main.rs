@@ -22,7 +22,7 @@ mod service;
 
 use agent_core::client::ManagerClient;
 use agent_core::config::AgentConfig;
-use agent_core::enroll::{EnrollContext, enroll};
+use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::proto as p;
 use anyhow::{Context, Result};

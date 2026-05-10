@@ -101,10 +101,11 @@ def to_ecs(ev: events_pb2.EndpointEvent) -> dict[str, Any]:
             doc["process"] = {"pid": f.process.pid}
     elif payload == "image_load":
         il = ev.image_load
-        doc["file"] = {"path": il.path or None}
+        file_doc: dict[str, Any] = {"path": il.path or None}
         h = _hash_dict(il.hash)
         if h:
-            doc["file"]["hash"] = h
+            file_doc["hash"] = h
+        doc["file"] = file_doc
         # Mirror loader pid up to top-level for joins (matches file branch).
         if il.process.pid:
             doc["process"] = {"pid": il.process.pid}

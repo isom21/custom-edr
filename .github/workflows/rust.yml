@@ -43,7 +43,12 @@ jobs:
       - name: install eBPF prerequisites
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy clang llvm linux-tools-common bpftool
+          # `bpftool` standalone package isn't on Ubuntu 24.04 runners;
+          # ships under linux-tools-common + linux-tools-generic. We
+          # don't actually invoke bpftool from CI (the build embeds a
+          # pre-compiled .o), but clang/llvm are needed to rebuild it
+          # if ebpf/build.rs decides to.
+          sudo apt-get install -qy clang llvm linux-tools-common linux-tools-generic
       - run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
   test:
@@ -56,7 +61,7 @@ jobs:
       - name: install eBPF prerequisites
         run: |
           sudo apt-get update -q
-          sudo apt-get install -qy clang llvm bpftool
+          sudo apt-get install -qy clang llvm linux-tools-common linux-tools-generic
       - run: cargo test --workspace --all-features --no-fail-fast
 
   windows-check:
@@ -67,6 +72,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      # aws-lc-sys (transitive via reqwest/hyper-rustls) needs NASM to
+      # build its assembly fast paths on Windows. Without it, the
+      # check job fails with `nasm not found in PATH`.
+      - uses: ilammy/setup-nasm@v1
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p agent-windows -p agent-core --target x86_64-pc-windows-msvc
 

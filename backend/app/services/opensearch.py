@@ -200,13 +200,26 @@ async def register_sigma_rule(
         "enabled": True,
         "registered_at": datetime.now(UTC).isoformat(),
     }
-    await client.index(index=SIGMA_RULES_INDEX, id=str(rule_id), body=body, refresh="wait_for")
+    # `refresh`/`request_timeout` are opensearch-py runtime kwargs that
+    # forward into the URL params; the type stubs in opensearch-py 2.x
+    # don't list them. The kwarg is real at runtime, so we suppress
+    # the per-kwarg call-issue with the inline pyright pragma.
+    await client.index(
+        index=SIGMA_RULES_INDEX,
+        id=str(rule_id),
+        body=body,
+        refresh="wait_for",  # pyright: ignore[reportCallIssue]
+    )
 
 
 async def unregister_sigma_rule(client: AsyncOpenSearch, rule_id: UUID) -> None:
     """Remove a rule's percolator doc. Idempotent — 404 is swallowed."""
     try:
-        await client.delete(index=SIGMA_RULES_INDEX, id=str(rule_id), refresh="wait_for")
+        await client.delete(
+            index=SIGMA_RULES_INDEX,
+            id=str(rule_id),
+            refresh="wait_for",  # pyright: ignore[reportCallIssue]
+        )
     except Exception as exc:
         status = getattr(exc, "status_code", None)
         if status not in (404, "404"):
@@ -227,5 +240,9 @@ async def percolate(client: AsyncOpenSearch, ecs_doc: dict[str, Any]) -> list[di
             }
         },
     }
-    resp = await client.search(index=SIGMA_RULES_INDEX, body=body, request_timeout=10)
+    resp = await client.search(
+        index=SIGMA_RULES_INDEX,
+        body=body,
+        request_timeout=10,  # pyright: ignore[reportCallIssue]
+    )
     return [h["_source"] for h in resp.get("hits", {}).get("hits", [])]

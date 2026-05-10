@@ -18,8 +18,8 @@
 
 #![cfg(target_os = "linux")]
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -63,15 +63,21 @@ impl MetricsSnapshot {
         self.bpf_file_open.store(stats[2], Ordering::Relaxed);
         self.bpf_network_connect.store(stats[3], Ordering::Relaxed);
         self.bpf_module_load.store(stats[4], Ordering::Relaxed);
-        self.bpf_block_hits_process.store(stats[5], Ordering::Relaxed);
+        self.bpf_block_hits_process
+            .store(stats[5], Ordering::Relaxed);
         self.bpf_block_hits_file.store(stats[6], Ordering::Relaxed);
-        self.bpf_block_hits_network.store(stats[7], Ordering::Relaxed);
+        self.bpf_block_hits_network
+            .store(stats[7], Ordering::Relaxed);
         self.bpf_kill_requests.store(stats[8], Ordering::Relaxed);
         self.bpf_events_dropped.store(stats[9], Ordering::Relaxed);
-        self.bpf_self_kill_blocked.store(stats[10], Ordering::Relaxed);
-        self.bpf_self_ptrace_blocked.store(stats[11], Ordering::Relaxed);
-        self.bpf_self_bpf_blocked.store(stats[12], Ordering::Relaxed);
-        self.bpf_self_unlink_blocked.store(stats[13], Ordering::Relaxed);
+        self.bpf_self_kill_blocked
+            .store(stats[10], Ordering::Relaxed);
+        self.bpf_self_ptrace_blocked
+            .store(stats[11], Ordering::Relaxed);
+        self.bpf_self_bpf_blocked
+            .store(stats[12], Ordering::Relaxed);
+        self.bpf_self_unlink_blocked
+            .store(stats[13], Ordering::Relaxed);
     }
 }
 
@@ -102,10 +108,7 @@ pub fn spawn(bind: &str, snapshot: Arc<MetricsSnapshot>) -> tokio::task::JoinHan
     })
 }
 
-async fn handle(
-    sock: tokio::net::TcpStream,
-    snap: Arc<MetricsSnapshot>,
-) -> std::io::Result<()> {
+async fn handle(sock: tokio::net::TcpStream, snap: Arc<MetricsSnapshot>) -> std::io::Result<()> {
     let (read_half, mut write_half) = sock.into_split();
     let mut br = BufReader::new(read_half);
     let mut request_line = String::new();
@@ -145,20 +148,76 @@ async fn handle(
 fn render_metrics(snap: &MetricsSnapshot) -> String {
     let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
     let bpf: [(&str, &str, u64); 14] = [
-        ("edr_agent_bpf_process_exec_total", "BPF tracepoint sched_process_exec hits", load(&snap.bpf_process_exec)),
-        ("edr_agent_bpf_process_exit_total", "BPF tracepoint sched_process_exit hits", load(&snap.bpf_process_exit)),
-        ("edr_agent_bpf_file_open_total", "lsm/file_open hits", load(&snap.bpf_file_open)),
-        ("edr_agent_bpf_network_connect_total", "lsm/socket_connect hits", load(&snap.bpf_network_connect)),
-        ("edr_agent_bpf_module_load_total", "tracepoint module/module_load hits", load(&snap.bpf_module_load)),
-        ("edr_agent_bpf_block_hits_process_total", "lsm/bprm_check_security blocks", load(&snap.bpf_block_hits_process)),
-        ("edr_agent_bpf_block_hits_file_total", "lsm/file_open EPERM hits", load(&snap.bpf_block_hits_file)),
-        ("edr_agent_bpf_block_hits_network_total", "lsm/socket_connect EPERM hits", load(&snap.bpf_block_hits_network)),
-        ("edr_agent_bpf_kill_requests_total", "Kill response actions issued", load(&snap.bpf_kill_requests)),
-        ("edr_agent_bpf_events_dropped_total", "BPF ringbuf drops (userspace too slow)", load(&snap.bpf_events_dropped)),
-        ("edr_agent_bpf_self_kill_blocked_total", "M7.1 self-protection: kills blocked", load(&snap.bpf_self_kill_blocked)),
-        ("edr_agent_bpf_self_ptrace_blocked_total", "M7.1 self-protection: ptrace blocked", load(&snap.bpf_self_ptrace_blocked)),
-        ("edr_agent_bpf_self_bpf_blocked_total", "M7.1 self-protection: bpf detach blocked", load(&snap.bpf_self_bpf_blocked)),
-        ("edr_agent_bpf_self_unlink_blocked_total", "M7.1 self-protection: inode unlink blocked", load(&snap.bpf_self_unlink_blocked)),
+        (
+            "edr_agent_bpf_process_exec_total",
+            "BPF tracepoint sched_process_exec hits",
+            load(&snap.bpf_process_exec),
+        ),
+        (
+            "edr_agent_bpf_process_exit_total",
+            "BPF tracepoint sched_process_exit hits",
+            load(&snap.bpf_process_exit),
+        ),
+        (
+            "edr_agent_bpf_file_open_total",
+            "lsm/file_open hits",
+            load(&snap.bpf_file_open),
+        ),
+        (
+            "edr_agent_bpf_network_connect_total",
+            "lsm/socket_connect hits",
+            load(&snap.bpf_network_connect),
+        ),
+        (
+            "edr_agent_bpf_module_load_total",
+            "tracepoint module/module_load hits",
+            load(&snap.bpf_module_load),
+        ),
+        (
+            "edr_agent_bpf_block_hits_process_total",
+            "lsm/bprm_check_security blocks",
+            load(&snap.bpf_block_hits_process),
+        ),
+        (
+            "edr_agent_bpf_block_hits_file_total",
+            "lsm/file_open EPERM hits",
+            load(&snap.bpf_block_hits_file),
+        ),
+        (
+            "edr_agent_bpf_block_hits_network_total",
+            "lsm/socket_connect EPERM hits",
+            load(&snap.bpf_block_hits_network),
+        ),
+        (
+            "edr_agent_bpf_kill_requests_total",
+            "Kill response actions issued",
+            load(&snap.bpf_kill_requests),
+        ),
+        (
+            "edr_agent_bpf_events_dropped_total",
+            "BPF ringbuf drops (userspace too slow)",
+            load(&snap.bpf_events_dropped),
+        ),
+        (
+            "edr_agent_bpf_self_kill_blocked_total",
+            "M7.1 self-protection: kills blocked",
+            load(&snap.bpf_self_kill_blocked),
+        ),
+        (
+            "edr_agent_bpf_self_ptrace_blocked_total",
+            "M7.1 self-protection: ptrace blocked",
+            load(&snap.bpf_self_ptrace_blocked),
+        ),
+        (
+            "edr_agent_bpf_self_bpf_blocked_total",
+            "M7.1 self-protection: bpf detach blocked",
+            load(&snap.bpf_self_bpf_blocked),
+        ),
+        (
+            "edr_agent_bpf_self_unlink_blocked_total",
+            "M7.1 self-protection: inode unlink blocked",
+            load(&snap.bpf_self_unlink_blocked),
+        ),
     ];
     let mut out = String::with_capacity(2048);
     for (name, help, val) in bpf {

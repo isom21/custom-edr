@@ -21,6 +21,7 @@ these with the EDR_RL_ prefix):
     EDR_RL_API_TOKEN_PER_MIN      default 600
     EDR_RL_ANON_PER_MIN           default 10  (per IP for /enroll)
 """
+
 from __future__ import annotations
 
 import os
@@ -118,18 +119,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             import hashlib
 
             tok_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
-            if token.startswith("edr_"):
-                role = "api_token"
-            else:
-                # We can't decode the JWT cheaply here, so use the
-                # token-hash bucket and pick the highest-tier limit
-                # (admin) — this is conservative on the safe side
-                # (admins get the most generous limit anyway, and
-                # mis-classifying analyst/viewer as admin only over-
-                # counts their quota slightly). Real per-role
-                # enforcement is the M13.a-b refinement once we cache
-                # decoded JWTs.
-                role = "admin"
+            # JWT case picks "admin" because we can't decode the JWT
+            # cheaply on this hot path. That's conservative — admins
+            # get the most generous limit, so mis-classifying
+            # analyst/viewer as admin only over-counts their quota
+            # slightly. Real per-role enforcement is M13.a-b once
+            # we cache decoded JWTs.
+            role = "api_token" if token.startswith("edr_") else "admin"
             key = f"{tok_hash}:{role}"
         else:
             role = "anon"

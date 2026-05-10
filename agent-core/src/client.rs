@@ -71,8 +71,8 @@ impl ManagerClient {
     /// (recommended: `{state_dir}/spool`). Idempotent; safe to call
     /// after process restart.
     pub fn with_spool(mut self, dir: PathBuf) -> Result<Self> {
-        let q = SpoolQueue::open(&dir)
-            .with_context(|| format!("open spool at {}", dir.display()))?;
+        let q =
+            SpoolQueue::open(&dir).with_context(|| format!("open spool at {}", dir.display()))?;
         self.spool = Some(Arc::new(q));
         Ok(self)
     }
@@ -129,13 +129,11 @@ impl ManagerClient {
             // timeout shape means we both rate-limit the spool churn
             // and respect the backoff window.
             if let Some(q) = spool.as_deref() {
-                let deadline = tokio::time::Instant::now()
-                    + Duration::from_millis(backoff_ms);
+                let deadline = tokio::time::Instant::now() + Duration::from_millis(backoff_ms);
                 let mut spooled = 0usize;
                 while tokio::time::Instant::now() < deadline {
-                    let recv_remaining = deadline.saturating_duration_since(
-                        tokio::time::Instant::now(),
-                    );
+                    let recv_remaining =
+                        deadline.saturating_duration_since(tokio::time::Instant::now());
                     match tokio::time::timeout(recv_remaining, send_rx.recv()).await {
                         Ok(Some(msg)) => {
                             let mut buf = Vec::with_capacity(msg.encoded_len());
@@ -143,8 +141,8 @@ impl ManagerClient {
                                 spooled += 1;
                             }
                         }
-                        Ok(None) => break,    // send_tx all dropped
-                        Err(_) => break,       // backoff window elapsed
+                        Ok(None) => break, // send_tx all dropped
+                        Err(_) => break,   // backoff window elapsed
                     }
                 }
                 if spooled > 0 {

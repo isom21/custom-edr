@@ -102,7 +102,7 @@ async def _run_test(body: str, lookback_hours: int) -> SigmaTestResponse:
                     }
                 },
             },
-            request_timeout=20,
+            request_timeout=20,  # pyright: ignore[reportCallIssue]
         )
     finally:
         await client.close()

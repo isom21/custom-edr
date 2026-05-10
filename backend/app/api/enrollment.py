@@ -149,9 +149,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     # We never reject the enrollment (legitimate workflows need it
     # to succeed), but we attach an Alert so the recent-enrollment
     # gets flagged for human review.
-    reenrollment_window_seconds = int(
-        os.environ.get("EDR_REENROLLMENT_WINDOW_SECONDS", 3600)
-    )
+    reenrollment_window_seconds = int(os.environ.get("EDR_REENROLLMENT_WINDOW_SECONDS", 3600))
     reenrollment_cutoff = now - timedelta(seconds=reenrollment_window_seconds)
     prior_host = (
         await db.execute(
@@ -180,7 +178,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     db.add(host)
     await db.flush()  # need host.id for the CSR subject CN
 
-    if prior_host is not None and prior_host.id != host.id:
+    if prior_host is not None and prior_host.id != host.id and prior_host.enrolled_at is not None:
         await _ensure_reenrollment_rule(db)
         prior_age_seconds = int((now - prior_host.enrolled_at).total_seconds())
         same_os = prior_host.os_family == payload.os_family

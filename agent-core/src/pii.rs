@@ -103,16 +103,21 @@ pub fn scrub(input: &str) -> String {
     out = p.pem.replace_all(&out, PLACEHOLDER).to_string();
     out = p
         .flags
-        .replace_all(&out, |c: &regex::Captures| format!("{} {PLACEHOLDER}", &c[1]))
+        .replace_all(&out, |c: &regex::Captures| {
+            format!("{} {PLACEHOLDER}", &c[1])
+        })
         .to_string();
-    out = p
-        .kv
-        .replace_all(&out, |c: &regex::Captures| format!("{}={PLACEHOLDER}", &c[1]))
+    out =
+        p.kv.replace_all(&out, |c: &regex::Captures| {
+            format!("{}={PLACEHOLDER}", &c[1])
+        })
         .to_string();
     out = p.aws_akia.replace_all(&out, PLACEHOLDER).to_string();
     out = p
         .bearer
-        .replace_all(&out, |c: &regex::Captures| format!("{} {PLACEHOLDER}", &c[1]))
+        .replace_all(&out, |c: &regex::Captures| {
+            format!("{} {PLACEHOLDER}", &c[1])
+        })
         .to_string();
     out = p.jwt.replace_all(&out, PLACEHOLDER).to_string();
     out

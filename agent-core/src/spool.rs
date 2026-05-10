@@ -87,11 +87,7 @@ impl SpoolQueue {
         let tmp_path = self.dir.join(format!("{seq:020}.tmp"));
         fs::write(&tmp_path, bytes).with_context(|| format!("write {}", tmp_path.display()))?;
         fs::rename(&tmp_path, &final_path).with_context(|| {
-            format!(
-                "rename {} -> {}",
-                tmp_path.display(),
-                final_path.display()
-            )
+            format!("rename {} -> {}", tmp_path.display(), final_path.display())
         })?;
         self.evict_if_over_budget()?;
         Ok(seq)

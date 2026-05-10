@@ -9,6 +9,7 @@ The `route` label is the FastAPI route template (e.g.
 keeps cardinality bounded. Falls back to `<unknown>` for paths
 without a matched route.
 """
+
 from __future__ import annotations
 
 import time

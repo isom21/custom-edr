@@ -1,4 +1,5 @@
 """Prometheus `/metrics` endpoint (M14.a)."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Response

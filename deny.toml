@@ -13,10 +13,27 @@ all-features = true
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+# Transitive unmaintained crates we can't easily upgrade away from.
+# Each entry has a comment with the upstream chain we're stuck on.
+ignore = [
+    # `instant`: pulled in by parking_lot 0.11 -> sled 0.34. Sled 1.x
+    # drops parking_lot entirely; we'll move when sled 1.x stabilises.
+    "RUSTSEC-2024-0384",
+    # `fxhash`: pulled in by aya 0.13 transitive. Aya 0.14 (in dev)
+    # uses rustc-hash; bump when released.
+    "RUSTSEC-2025-0057",
+    # `rustls-pemfile`: pulled in by tonic 0.12 transitive. Tonic 0.13
+    # migrates to rustls-pki-types::PemObject; bump when on tonic 0.13.
+    "RUSTSEC-2025-0134",
+]
 
 [licenses]
 version = 2
+# Our own workspace crates are marked "Proprietary" (not a real SPDX
+# id). `private = { ignore = true }` tells cargo-deny to skip the
+# license check for path-deps within this workspace; the third-party
+# allow list below still applies to crates.io deps.
+private = { ignore = true }
 allow = [
     "MIT",
     "Apache-2.0",
@@ -37,7 +54,12 @@ exceptions = []
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+# Wildcard means a dep specified as `version = "*"`. Path-only deps
+# (`{ path = "..." }`) without an explicit version are treated as
+# wildcards by cargo-deny v0.19+; we use those for our own workspace
+# crates and treat that as fine.
+wildcards = "allow"
+allow-wildcard-paths = true
 deny = []
 skip = []
 skip-tree = []

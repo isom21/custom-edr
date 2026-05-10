@@ -1,0 +1,20 @@
+# cargo-audit configuration. Mirrors the same advisory ignores in
+# `deny.toml` — both tools read RustSec but drive different gates,
+# and CI runs `cargo audit --deny warnings`.
+#
+# Each entry has the upstream chain we're stuck on. Re-evaluate
+# whenever sled, aya, or tonic majors.
+
+[advisories]
+ignore = [
+    # `instant` (RUSTSEC-2024-0384): pulled by parking_lot 0.11 ->
+    # sled 0.34. Sled 1.x drops parking_lot; bump when sled 1.x
+    # stabilises.
+    "RUSTSEC-2024-0384",
+    # `fxhash` (RUSTSEC-2025-0057): aya 0.13 transitive. Aya 0.14
+    # uses rustc-hash; bump on release.
+    "RUSTSEC-2025-0057",
+    # `rustls-pemfile` (RUSTSEC-2025-0134): tonic 0.12 transitive.
+    # Tonic 0.13 migrates to rustls-pki-types::PemObject.
+    "RUSTSEC-2025-0134",
+]

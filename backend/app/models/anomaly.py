@@ -5,6 +5,7 @@ across the fleet. The `app.workers.anomaly` consumer increments the
 counter for each process_started event; first-time-seen triples whose
 parent is not a known launcher fire an alert.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -19,9 +20,7 @@ from app.models.base import Base, UuidPkMixin
 class ProcessBaseline(UuidPkMixin, Base):
     __tablename__ = "process_baseline"
     __table_args__ = (
-        UniqueConstraint(
-            "host_id", "exe", "parent_exe", name="uq_process_baseline_triple"
-        ),
+        UniqueConstraint("host_id", "exe", "parent_exe", name="uq_process_baseline_triple"),
     )
 
     host_id: Mapped[UUID] = mapped_column(

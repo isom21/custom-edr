@@ -32,6 +32,7 @@ Out of scope:
   * False-positive feedback that boosts a triple's count to suppress
     future alerts (M11.c).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,13 +40,11 @@ import json
 import logging
 import os
 import signal
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
 from aiokafka import AIOKafkaConsumer
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,6 +132,9 @@ class AnomalyWorker:
             try:
                 msg = await asyncio.wait_for(self.consumer.getone(), timeout=1.0)
             except TimeoutError:
+                continue
+            if msg.value is None:
+                await self.consumer.commit()
                 continue
             try:
                 doc = json.loads(msg.value)
@@ -244,7 +246,8 @@ class AnomalyWorker:
             rule = Rule(
                 id=ANOMALY_RULE_ID,
                 name="Anomaly: first-time process exec",
-                kind=RuleKind.IOC,  # closest existing kind; M11.c may add a dedicated `ANOMALY` kind
+                # Closest existing kind; M11.c may add a dedicated `ANOMALY` kind.
+                kind=RuleKind.IOC,
                 action=RuleAction.DETECT,
                 severity=Severity.LOW,
                 enabled=True,
