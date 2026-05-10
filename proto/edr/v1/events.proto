@@ -31,6 +31,7 @@ message EndpointEvent {
     RegistryEvent registry = 24;     // Windows only
     NetworkEvent network = 25;
     ScanEvent scan = 26;             // YARA/IOC scan match emitted by agent
+    DnsEvent dns = 27;               // M10.b: DNS query/response observation
   }
 
   // Optional labels propagated from rule evaluation (set on alert path).
@@ -189,6 +190,32 @@ enum NetworkAction {
   NETWORK_ACTION_ACCEPT = 2;
   NETWORK_ACTION_DISCONNECT = 3;
   NETWORK_ACTION_BLOCKED = 4;
+}
+
+// ----- DNS (M10.b) -----
+//
+// One event per query the agent observes. The kernel-side capture
+// path (M10.b-bpf) reads the DNS payload from `udp_sendmsg` to
+// resolve `name` + `qtype`; reply parsing on `udp_recvmsg` fills
+// `rcode` + `answers`. The userspace fallback path
+// (M10.b-resolved) tails systemd-resolved's journald output and
+// fills the same fields with whatever resolution the resolver
+// performed.
+message DnsEvent {
+  ProcessKey process = 1;
+  string name = 2;            // queried hostname (FQDN, no trailing dot)
+  uint32 qtype = 3;            // DNS qtype: 1=A, 28=AAAA, 5=CNAME, ...
+  uint32 rcode = 4;            // DNS rcode: 0=NoError, 3=NXDOMAIN, ...
+  repeated string answers = 5; // resolved IPs / CNAMEs, best-effort
+  string resolver = 6;         // resolver IP the query was sent to (when known)
+  DnsAction action = 7;
+}
+
+enum DnsAction {
+  DNS_ACTION_UNSPECIFIED = 0;
+  DNS_ACTION_QUERY = 1;        // outbound question
+  DNS_ACTION_ANSWER = 2;       // matched response observed
+  DNS_ACTION_BLOCKED = 3;      // resolver returned NXDOMAIN at agent's request
 }
 
 // ----- Scan match (agent-side YARA / IOC hit) -----
