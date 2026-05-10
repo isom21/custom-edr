@@ -481,8 +481,15 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
                 .await
                 .map_err(|e| anyhow::anyhow!("join: {e}"))??;
         }
-        Body::ScanFile(_) | Body::ScanMemory(_) | Body::Isolate(_) | Body::Update(_) => {
-            anyhow::bail!("command kind not implemented in M5.4");
+        Body::ScanFile(_)
+        | Body::ScanMemory(_)
+        | Body::Isolate(_)
+        | Body::Update(_)
+        | Body::QuarantineFile(_) => {
+            // QuarantineFile is implemented on Linux (M11.f) but the
+            // Windows path needs a minifilter-aware copy + ACL strip
+            // that's tracked separately.
+            anyhow::bail!("command kind not implemented on Windows yet");
         }
     }
     Ok(())
