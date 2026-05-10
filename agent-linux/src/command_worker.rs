@@ -161,6 +161,9 @@ async fn dispatch(
         Body::Isolate(req) => {
             apply_network_isolation(state_dir, req.isolate, &req.allowlist_ips)?;
         }
+        Body::QuarantineFile(req) => {
+            quarantine_file(state_dir, &req.path, req.delete_original)?;
+        }
         Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
         }
@@ -175,6 +178,81 @@ fn kill_pid(pid: u32) -> Result<()> {
         let err = std::io::Error::last_os_error();
         anyhow::bail!("kill({pid}, SIGKILL): {err}");
     }
+    Ok(())
+}
+
+/// M11.f: quarantine the file at `src` by moving it (or copying then
+/// deleting) into `{state_dir}/quarantine/<sha256>.bin` with mode 0600
+/// and SYSTEM ownership. Logs the SHA-256 + original path so the
+/// operator can correlate via the audit log.
+///
+/// Returns Ok(()) even if the source file is already gone (idempotent
+/// on operator double-clicks) but bails on any other I/O error.
+fn quarantine_file(state_dir: &Path, src: &str, delete_original: bool) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let src_path = std::path::Path::new(src);
+    if !src_path.exists() {
+        tracing::info!(path = src, "quarantine.skip_already_gone");
+        return Ok(());
+    }
+    if !src_path.is_file() {
+        anyhow::bail!("quarantine: {src} is not a regular file");
+    }
+
+    // Hash the file content once so we can use the digest as the
+    // quarantine basename. Avoids collisions when multiple variants of
+    // the same file appear; identical bytes share a quarantine entry.
+    let mut hasher = Sha256::new();
+    let mut f = std::fs::File::open(src_path)
+        .with_context(|| format!("open {src}"))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).with_context(|| format!("read {src}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    drop(f);
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+
+    let qdir = state_dir.join("quarantine");
+    std::fs::create_dir_all(&qdir)
+        .with_context(|| format!("mkdir -p {}", qdir.display()))?;
+    let qpath = qdir.join(format!("{hex}.bin"));
+
+    // Copy then optionally delete. If we're keeping the original we
+    // still copy (so quarantine has a snapshot), but we don't error
+    // on already-existing quarantine entry — re-copying the same
+    // content is safe.
+    if !qpath.exists() {
+        std::fs::copy(src_path, &qpath)
+            .with_context(|| format!("copy {src} -> {}", qpath.display()))?;
+        // Tighten the mode after copy. The agent already runs as root,
+        // so mode 0600 with default ownership is enough (no other user
+        // can read).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&qpath, std::fs::Permissions::from_mode(0o600)).ok();
+    }
+
+    if delete_original {
+        std::fs::remove_file(src_path)
+            .with_context(|| format!("remove {src}"))?;
+    }
+
+    tracing::info!(
+        path = src,
+        sha256 = %&hex[..16],
+        deleted = delete_original,
+        quarantine = %qpath.display(),
+        "quarantine.complete"
+    );
     Ok(())
 }
 

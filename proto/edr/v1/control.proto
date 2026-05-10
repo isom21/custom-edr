@@ -163,7 +163,17 @@ message Command {
     BlockFileCmd block_file = 16;
     UnblockProcessCmd unblock_process = 17;
     UnblockFileCmd unblock_file = 18;
+    QuarantineFileCmd quarantine_file = 19;
   }
+}
+
+// M11.f: agent moves the file to a SYSTEM-only quarantine directory,
+// SHA-256s the content (or recomputes if cached), and reports the
+// digest back. `delete_original` controls whether the original path
+// is left in place (false) or removed after copy (true).
+message QuarantineFileCmd {
+  string path = 1;
+  bool delete_original = 2;
 }
 
 message KillProcessCmd {

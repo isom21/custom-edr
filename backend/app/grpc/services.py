@@ -166,6 +166,20 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             return None
         pb.unblock_file.pattern = pat
         return pb
+    if cmd.kind == CommandKind.ISOLATE:
+        # Booleans default to False on missing key — translate.
+        pb.isolate.isolate = bool(payload.get("isolate", True))
+        for ip in payload.get("allowlist_ips", []) or []:
+            if isinstance(ip, str) and ip.strip():
+                pb.isolate.allowlist_ips.append(ip.strip())
+        return pb
+    if cmd.kind == CommandKind.QUARANTINE_FILE:
+        path = str(payload.get("path") or "")
+        if not path:
+            return None
+        pb.quarantine_file.path = path
+        pb.quarantine_file.delete_original = bool(payload.get("delete_original", False))
+        return pb
     return None
 
 

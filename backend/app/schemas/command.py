@@ -49,6 +49,12 @@ class CommandIn(BaseModel):
             allowlist = self.payload.get("allowlist_ips", [])
             if not isinstance(allowlist, list):
                 raise ValueError("isolate payload requires allowlist_ips as a list")
+        elif self.kind == CommandKind.QUARANTINE_FILE:
+            path = self.payload.get("path")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError(
+                    "quarantine_file payload requires non-empty 'path' string"
+                )
         return self
 
 
