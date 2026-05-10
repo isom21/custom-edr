@@ -63,14 +63,21 @@ tools/             Smoke tests, dev helpers
 ```bash
 git clone https://github.com/isom21/vigil-edr.git
 cd vigil-edr
+./install.sh
+make up
 ```
 
-Then follow [`docs/install.md`](docs/install.md) — single document
-covering manager bring-up, enrollment-token generation, and Linux +
-Windows agent installation.
+`install.sh` handles infra, venv, dependencies, secret generation,
+migrations, the first admin user, and frontend deps. It's idempotent.
+`make up` starts every backend worker plus the frontend dev server
+under one supervisor.
 
-For day-to-day operations after install, see
-[`docs/operator-guide.md`](docs/operator-guide.md).
+After `make up` you can sign in at <http://localhost:5173> with the
+credentials `install.sh` printed.
+
+[`docs/install.md`](docs/install.md) covers the manual flow,
+production deployment, and Linux + Windows agent enrollment. Day-to-day
+operations are in [`docs/operator-guide.md`](docs/operator-guide.md).
 
 ## What's not included
 

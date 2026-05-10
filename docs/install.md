@@ -1,51 +1,108 @@
 # Installation guide
 
-Single source of truth for standing up Vigil end-to-end:
+The fastest path is two commands:
 
-1. [Install the manager](#1-install-the-manager) (FastAPI + Postgres + Kafka + OpenSearch + UI)
-2. [Generate an enrollment token](#2-generate-an-enrollment-token)
-3. [Install the Linux agent](#3-install-the-linux-agent)
-4. [Install the Windows agent](#4-install-the-windows-agent)
-5. [Verify](#5-verify)
+```bash
+git clone https://github.com/isom21/vigil-edr.git
+cd vigil-edr
+./install.sh
+make up
+```
 
-If you only need to operate an already-running deployment (triage
-alerts, queue commands, decommission hosts), see
-[`operator-guide.md`](operator-guide.md) instead.
+`install.sh` brings up the infra (Postgres + Redpanda + OpenSearch +
+Flink), creates the backend venv, generates `backend/.env` with secure
+random secrets, applies migrations, creates the first admin user,
+installs frontend dependencies, and prints the URLs and admin
+credentials. It's idempotent — re-running it never overwrites your
+`.env` or your existing admin password.
+
+`make up` then starts every long-running process under one supervisor
+(uvicorn API, gRPC ingest, six Kafka workers, frontend dev server).
+Stop it with `Ctrl-C`, or `make down` from another shell to also stop
+the docker infra.
+
+After `make up` you can sign in at <http://localhost:5173> with the
+credentials install.sh printed.
+
+The rest of this document is the manual flow — useful for production
+deployments where you want explicit control over each step, or when
+something in the bootstrap fails and you want to skip ahead. Each
+manual step below corresponds to a step in `install.sh`, so you can
+mix and match.
+
+---
 
 ## Prerequisites
 
 | Component | Version |
 |---|---|
 | Docker + Docker Compose | 24.0+ |
-| Rust toolchain | 1.85+ (pinned in `rust-toolchain.toml`) |
+| Rust toolchain (agent build only) | 1.85+ (pinned in `rust-toolchain.toml`) |
 | Python | 3.12+ |
 | Node | 20+ |
 | Postgres (host or container) | 16 |
 | OpenSearch | 2.x |
-| Kafka-API broker | Redpanda recommended for dev; any modern Kafka works |
+| Kafka-API broker | Redpanda recommended for dev |
 
 The agents add OS-specific requirements:
 
 * **Linux agent**: kernel 5.15+ with `CONFIG_BPF_LSM=y` and BTF
   available at `/sys/kernel/security/lsm` (Ubuntu 22.04+, Debian 12+,
   RHEL/Rocky/Alma 9+ all qualify out of the box).
-* **Windows agent**: Windows 10 21H2+ or Server 2019+ as the endpoint;
-  the kernel driver must be either WHQL-signed (production path) or
-  loaded under `bcdedit /set testsigning on` (lab path).
+* **Windows agent**: Windows 10 21H2+ or Server 2019+; the kernel
+  driver must be either WHQL-signed (production) or loaded under
+  `bcdedit /set testsigning on` (lab path).
 
-## 1. Install the manager
+## What `install.sh` does
 
-The manager runs five long-lived processes plus the supporting
-infrastructure. For dev / single-host installs, `docker compose`
-brings up Postgres + Redpanda + OpenSearch; the FastAPI manager and
-its workers run on the host.
+For transparency, here is every step the script runs. Anything below
+this section is the manual equivalent.
 
-### 1.1 Bring up infrastructure
+1. **Pre-flight** — verifies docker, python 3.12+, node 20+ are on PATH.
+2. **Infra** — `make infra-up`, then waits up to 120 s for Postgres to
+   be `pg_isready`, then `make infra-bootstrap` to create Kafka topics.
+3. **Backend venv** — creates `backend/.venv`, upgrades pip,
+   `pip install -e backend[dev]` plus `honcho`.
+4. **Proto bindings** — `make proto-python` generates
+   `backend/app/proto_gen/` from `proto/edr/v1/*.proto`.
+5. **Secrets + .env** — if `backend/.env` doesn't exist, generates
+   random `VIGIL_JWT_SECRET`, `VIGIL_CA_MASTER_KEY`, and
+   `VIGIL_AUDIT_HMAC_KEY` (each 32 bytes hex) and writes them
+   alongside the standard service URLs. File mode 0600. Existing
+   `.env` is left alone.
+6. **Migrations** — `alembic upgrade head` against the just-started DB.
+7. **Admin user** — runs `python -m scripts.create_admin` with
+   `VIGIL_ADMIN_EMAIL` (default `admin@vigil.local`) and
+   `VIGIL_ADMIN_PASSWORD` (default: 20-char random alphanumeric,
+   printed once on completion).
+8. **Frontend deps** — `npm install` in `frontend/`.
+9. **Marker** — writes `.vigil/installed` so `make up` knows install
+   ran successfully.
+
+To override admin credentials:
 
 ```bash
-git clone https://github.com/isom21/vigil-edr.git
-cd vigil-edr
+VIGIL_ADMIN_EMAIL=admin@example.com \
+VIGIL_ADMIN_PASSWORD='your-strong-password' \
+./install.sh
+```
 
+To skip parts:
+
+```bash
+VIGIL_INSTALL_SKIP_INFRA=1 ./install.sh      # don't touch docker
+VIGIL_INSTALL_SKIP_FRONTEND=1 ./install.sh   # don't npm install
+```
+
+## Manual install (when you can't or won't use `install.sh`)
+
+Useful when production deployments separate the manager and infra
+across hosts, or when one of the steps in `install.sh` fails and you
+want to retry just that piece.
+
+### 1. Bring up infrastructure
+
+```bash
 make infra-up           # Postgres + Redpanda + OpenSearch + Flink
 make infra-bootstrap    # creates Kafka topics
 ```
@@ -60,16 +117,16 @@ Services exposed on the host:
 | OpenSearch | http://localhost:9200 |
 | OpenSearch Dashboards | http://localhost:5601 |
 
-### 1.2 Configure the backend
+### 2. Configure the backend
 
 ```bash
 cd backend
-python -m venv ~/edr-venvs/backend           # keep the venv on a Linux fs
-source ~/edr-venvs/backend/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e '.[dev]'
 
 cp .env.example .env
-$EDITOR .env                                  # see "Required env" below
+$EDITOR .env          # see "Required env" below
 ```
 
 Required env (`backend/.env`):
@@ -78,42 +135,35 @@ Required env (`backend/.env`):
 VIGIL_PG_DSN=postgresql+asyncpg://edr:<password>@localhost:5432/edr
 VIGIL_KAFKA_BROKERS=localhost:19092
 VIGIL_OPENSEARCH_URL=http://localhost:9200
-VIGIL_SECRET_KEY=<generate via: openssl rand -hex 32>
-VIGIL_AUDIT_HMAC_KEY=<generate via: openssl rand -hex 32>
+VIGIL_JWT_SECRET=<openssl rand -hex 32>
+VIGIL_AUDIT_HMAC_KEY=<openssl rand -hex 32>
+VIGIL_CA_MASTER_KEY=<openssl rand -hex 32>
 ```
 
-`VIGIL_SECRET_KEY` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
+`VIGIL_JWT_SECRET` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
 tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
 `VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
 
-### 1.3 Apply the database schema
+### 3. Apply the database schema
 
 ```bash
 alembic upgrade head
 ```
 
-This is also the migration that activates the audit-log INSERT-only
-privileges and the M12.f HMAC chain columns.
-
-### 1.4 Create the first admin user
+### 4. Create the first admin
 
 ```bash
 python -m scripts.create_admin \
-  --email admin@example.local \
+  --email admin@vigil.local \
   --password 'change-me-please-12chars'
 ```
 
-### 1.5 Generate the manager TLS certificate authority
+### 5. Generate the manager TLS certificate authority
 
-The manager mints client certificates for every enrolled agent during
-the REST enrollment flow. The CA itself can be either operator-supplied
-(production) or auto-generated on first start (dev / lab).
-
-For a dev / single-host install, the auto-generation is fine: the
-backend will lazily create the CA in `VIGIL_CA_DIR` (default
-`backend/data/ca/`) on first call to the enrollment endpoint, and
-persist it there.
+For dev / single-host installs the auto-generated CA is fine: the
+backend lazily creates one in `VIGIL_CA_DIR` (default
+`backend/data/ca/`) on first call to the enrollment endpoint.
 
 For production:
 
@@ -125,15 +175,16 @@ openssl req -x509 -new -nodes -key /var/lib/vigil-ca/ca.key -sha256 \
 chmod 600 /var/lib/vigil-ca/ca.key
 ```
 
-Then set in `.env`:
+Then in `.env`:
 
 ```
 VIGIL_CA_DIR=/var/lib/vigil-ca
 ```
 
-### 1.6 Start the manager processes
+### 6. Start the manager processes
 
-Each in its own shell, from the repo root:
+`make up` runs honcho with the top-level `Procfile` (preferred). To
+start individual processes by hand for debugging:
 
 ```bash
 make backend-dev          # FastAPI REST API (:8000)
@@ -145,30 +196,16 @@ make backend-sigma        # realtime Sigma percolator
 make backend-anomaly      # first-time-process anomaly detector
 make backend-tamper       # agent self-protection tamper alerter
 make backend-silence      # agent-silence alerter
+make frontend-dev         # React UI (:5173)
 ```
 
-For long-running deployments, use a systemd unit per process or a
-process supervisor (supervisord, systemd, k8s deployment). A reference
-`systemd/` set of unit files lives under `deploy/`.
+For long-running production deployments, use a systemd unit per
+process or a process supervisor (supervisord, k8s deployment).
+Reference systemd units live under `deploy/systemd/`.
 
-### 1.7 Start the UI
+## Generating an enrollment token
 
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:5173 (dev)
-# or for production:
-npm run build && npm run preview
-```
-
-The dev server proxies `/api/*` to `localhost:8000`.
-
-Sign in with the admin you created in 1.4.
-
-## 2. Generate an enrollment token
-
-Each agent needs a one-time enrollment token to bootstrap. Mint one
-through the UI or the API.
+Each agent needs a one-time enrollment token to bootstrap.
 
 ### Via the UI
 
@@ -180,7 +217,7 @@ Sign in as an admin → **Enrollment** → **New token** → copy the
 ```bash
 TOKEN=$(curl -s "$MANAGER_REST/api/auth/login" -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.local","password":"<password>"}' \
+  -d '{"email":"admin@vigil.local","password":"<password>"}' \
   | jq -r .access_token)
 
 curl -s "$MANAGER_REST/api/enrollment/tokens" -X POST \
@@ -193,9 +230,9 @@ curl -s "$MANAGER_REST/api/enrollment/tokens" -X POST \
 Tokens are single-use: once an agent enrolls with one, it's marked
 spent. Re-enrolling the same host requires a fresh token.
 
-## 3. Install the Linux agent
+## Install the Linux agent
 
-### 3.1 Build the .deb / .rpm
+### 1. Build the .deb / .rpm
 
 From the repo root, on a Linux build host with `cargo install
 cargo-deb cargo-generate-rpm`:
@@ -205,7 +242,7 @@ make agent-linux-deb       # writes target/debian/vigil-agent_*.deb
 make agent-linux-rpm       # writes target/generate-rpm/vigil-agent-*.rpm
 ```
 
-### 3.2 Install on the endpoint
+### 2. Install on the endpoint
 
 Debian / Ubuntu:
 
@@ -223,7 +260,7 @@ The package creates `/etc/vigil/agent.env` from a template, sets up
 `/var/lib/vigil/` for state, and registers the systemd unit
 `vigil-agent.service` (disabled by default).
 
-### 3.3 Configure & start
+### 3. Configure & start
 
 ```bash
 sudo $EDITOR /etc/vigil/agent.env
@@ -234,61 +271,50 @@ Set at minimum:
 ```
 VIGIL_MANAGER_ENDPOINT=https://manager.example.com:50051
 VIGIL_MANAGER_REST=https://manager.example.com:8000
-VIGIL_ENROLLMENT_TOKEN=enr_<token-from-section-2>
+VIGIL_ENROLLMENT_TOKEN=enr_<token>
 ```
 
 Optional:
 
 ```
-VIGIL_HOSTNAME=<override>            # default: kernel's hostname
-VIGIL_STATE_DIR=/var/lib/vigil         # default
-VIGIL_DISABLE_SELF_PROTECTION=1      # only set if BPF LSM unavailable
-VIGIL_DISABLE_FILE_HASHING=1         # cuts CPU at the cost of file IOC matching
+VIGIL_HOSTNAME=<override>
+VIGIL_STATE_DIR=/var/lib/vigil
+VIGIL_DISABLE_SELF_PROTECTION=1   # only if BPF LSM unavailable
+VIGIL_DISABLE_FILE_HASHING=1      # cuts CPU at the cost of file IOC matching
 ```
 
 Then:
 
 ```bash
 sudo systemctl enable --now vigil-agent
-sudo journalctl -u vigil-agent -f         # watch enrollment + first telemetry
+sudo journalctl -u vigil-agent -f       # watch enrollment + first telemetry
 ```
 
-The agent enrolls with the manager, receives a client certificate,
-persists it in `/var/lib/vigil/identity/`, and starts streaming events
-over mTLS gRPC.
+## Install the Windows agent
 
-## 4. Install the Windows agent
+### 1. Build the agent + driver
 
-### 4.1 Build the agent + driver
-
-On a Windows lab box (or a self-hosted runner), with the WDK 10 +
-Visual Studio Build Tools installed:
+On a Windows lab box with the WDK 10 + Visual Studio Build Tools:
 
 ```powershell
-# Driver — produces vigil.sys + vigil.cat + vigil.inf
 cd kernel-windows
-.\build.ps1
+.\build.ps1                     # produces vigil.sys + vigil.cat + vigil.inf
 
-# Agent — produces vigil-agent.exe
 cd ..
 cargo build -p agent-windows --release --target x86_64-pc-windows-msvc
 ```
 
-For the kernel driver, you have three signing options:
+Driver signing options:
 
-* **Production**: WHQL-attested via the Microsoft Hardware Dev Center
-  portal. Requires an EV code-signing certificate. The driver loads
-  on Secure Boot machines without any extra steps.
-* **Cross-signed**: an EV code-signing certificate + a kernel-mode
-  signing flow. Works on Windows 10 1607+ but not on Server 2019+
-  with HVCI.
+* **Production**: WHQL-attested via the Microsoft Hardware Dev Center.
+  Requires an EV code-signing certificate. Loads on Secure Boot
+  without further steps.
+* **Cross-signed**: EV cert + kernel-mode signing flow. Works on
+  Windows 10 1607+ but not on Server 2019+ with HVCI.
 * **Test-signing**: zero-cost lab path. The endpoint must boot with
-  `bcdedit /set testsigning on`; cleartext "Test Mode" appears on the
-  desktop. Use only in non-production.
+  `bcdedit /set testsigning on`. Use only in non-production.
 
-### 4.2 Package & deploy
-
-The build output ships as a ZIP:
+### 2. Package & deploy
 
 ```powershell
 .\packaging\windows\make-package.ps1
@@ -303,21 +329,21 @@ bcdedit /set testsigning on
 Restart-Computer
 
 # Then:
-Expand-Archive -Path .\vigil-windows-1.0.0.zip -DestinationPath C:\edr
-cd C:\edr\vigil-windows-1.0.0
+Expand-Archive -Path .\vigil-windows-1.0.0.zip -DestinationPath C:\vigil
+cd C:\vigil\vigil-windows-1.0.0
 .\install-vigil.ps1
 ```
 
 The installer:
 
 1. Copies `vigil.sys` to `%SystemRoot%\System32\drivers\`.
-2. Registers and starts the `edr` kernel service.
+2. Registers and starts the `vigil` kernel service.
 3. Installs the agent at `%ProgramFiles%\Vigil\vigil-agent.exe`.
 4. Creates `%ProgramData%\Vigil\agent.env` from a template.
 5. Registers the agent as a Windows service (`vigil-agent`, manual
    start by default).
 
-### 4.3 Configure & start
+### 3. Configure & start
 
 ```powershell
 notepad %ProgramData%\Vigil\agent.env
@@ -328,40 +354,32 @@ Set:
 ```
 VIGIL_MANAGER_ENDPOINT=https://manager.example.com:50051
 VIGIL_MANAGER_REST=https://manager.example.com:8000
-VIGIL_ENROLLMENT_TOKEN=enr_<token-from-section-2>
+VIGIL_ENROLLMENT_TOKEN=enr_<token>
 ```
 
 Then:
 
 ```powershell
-Start-Service edr           # kernel driver
+Start-Service vigil           # kernel driver
 Start-Service vigil-agent     # userspace agent
-
-# Watch the first enrollment:
-Get-EventLog -LogName Application -Source 'vigil-agent' -Newest 50
+Set-Service -Name vigil-agent -StartupType Automatic   # for boot-start
 ```
 
-For service start at boot, change the start type:
-
-```powershell
-Set-Service -Name vigil-agent -StartupType Automatic
-```
-
-## 5. Verify
+## Verify
 
 After the agent finishes enrolling, you should see:
 
-1. **In the UI** — Hosts → search by hostname → the row appears with
+1. **In the UI** — Hosts → search by hostname → row appears with
    status `online` and `last_seen_at` ticking.
 2. **In OpenSearch** — `telemetry-*` index has events with that
-   `host.id`. Try:
+   `host.id`:
    ```
    curl -s "$OS_URL/telemetry-*/_search?q=event.kind:process_started&size=5"
    ```
-3. **In `/metrics`** — agent exposes `127.0.0.1:9101/metrics` showing
-   `edr_agent_bpf_*` counters incrementing on Linux.
+3. **In `/metrics`** — `127.0.0.1:9101/metrics` on the agent host
+   shows `edr_agent_bpf_*` counters incrementing.
 
-For a structured smoke run, use the scripts under `tools/smoke/`:
+For a structured smoke run:
 
 ```bash
 tools/smoke/00-backend-smoke.sh         # REST surface
@@ -371,10 +389,6 @@ tools/smoke/30-sigma-realtime-e2e.sh    # Sigma percolator
 tools/smoke/45-self-protection-linux.sh # BPF LSM hooks
 ```
 
-For Windows-specific verification, the
-`tools/smoke/46-self-protection-windows.ps1` script exercises the
-driver's ObCallback handle-stripping.
-
 ## Where to go next
 
 * [`operator-guide.md`](operator-guide.md) — daily operations: triage
@@ -383,5 +397,5 @@ driver's ObCallback handle-stripping.
 * [`threat-model.md`](threat-model.md) — what the agent defends
   against and the explicit gaps.
 * [`agent-update-protocol.md`](agent-update-protocol.md) — how
-  agents discover updates and verify them.
+  agents discover updates.
 * [`adr/`](adr/) — architecture decision records.

@@ -4,10 +4,35 @@ PROTO_DIR := proto
 PROTO_FILES := $(PROTO_DIR)/edr/v1/common.proto $(PROTO_DIR)/edr/v1/events.proto $(PROTO_DIR)/edr/v1/control.proto
 BACKEND_GEN := backend/app/proto_gen
 RUST_GEN_NOTE := agent-core regenerates Rust bindings via tonic-build at compile time; run 'cargo build -p agent-core'.
+VENV_PY := backend/.venv/bin/python
+VENV_HONCHO := backend/.venv/bin/honcho
 
 .PHONY: help
 help:
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+# ---------------------------------------------------------------------------
+# One-shot bring-up. The minimal install path is:
+#
+#     ./install.sh && make up
+#
+# install.sh is idempotent; `make install` is a thin wrapper around it.
+# `make up` runs every backend worker + the frontend under honcho. Stop
+# with Ctrl-C or `make down` from another shell.
+# ---------------------------------------------------------------------------
+.PHONY: install
+install: ## One-shot manager bootstrap (infra, venv, deps, .env, migrations, admin, npm).
+	./install.sh
+
+.PHONY: up
+up: ## Start every manager process (backend workers + frontend) under honcho.
+	@test -f .vigil/installed || ( echo "run \`make install\` first" >&2 && exit 1 )
+	@$(VENV_HONCHO) start
+
+.PHONY: down
+down: ## Stop everything started by `make up` (and the infra stack).
+	-pkill -f "honcho start" 2>/dev/null || true
+	cd deploy && docker compose stop
 
 .PHONY: proto
 proto: proto-python ## Regenerate all protobuf bindings (Python; Rust regenerates at cargo build time).

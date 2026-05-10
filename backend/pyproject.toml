@@ -3,7 +3,7 @@ name = "vigil-backend"
 version = "0.1.0"
 description = "Vigil manager: REST API, gRPC ingest, rules/alerts/host management."
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = { text = "Apache-2.0" }
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -28,6 +28,9 @@ dependencies = [
     "httpx>=0.28",
     "structlog>=24.4",
     "prometheus-client>=0.21",
+    # Process supervisor used by `make up` to run all 9 backend workers
+    # plus the frontend dev server under one parent (reads ./Procfile).
+    "honcho>=2.0",
 ]
 
 [project.optional-dependencies]
