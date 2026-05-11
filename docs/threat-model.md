@@ -65,7 +65,17 @@ spuriously protected.
   assigned `HostGroup`s. Applies to host list, alerts, and command
   queue.
 - Three roles (`admin`, `analyst`, `viewer`) with role-gated routes.
-- Append-only audit log for every state-changing action.
+- Append-only audit log for every state-changing action — enforced
+  at the DB role level (`audit_log` is owned by `vigil_audit_writer`;
+  the manager's runtime user has only `SELECT, INSERT`; `UPDATE` /
+  `DELETE` / `TRUNCATE` raise `InsufficientPrivilege`) **and**
+  tamper-evident via an HMAC chain (`VIGIL_AUDIT_HMAC_KEY`). The
+  chain is the trip-wire if the role split is ever bypassed (e.g.
+  someone restores the volume to a snapshot with a less-restrictive
+  schema). Co-locating the HMAC key with the manager means a
+  manager-host compromise can rewrite history *and* recompute the
+  chain — externalize the key (HSM / KMS / vault) when the threat
+  model includes a manager-host attacker.
 - API tokens (machine accounts) inherit a fixed role + are
   individually revocable.
 

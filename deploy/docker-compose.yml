@@ -21,16 +21,23 @@ services:
     image: postgres:16-alpine
     container_name: edr-postgres
     restart: unless-stopped
+    # Bootstrap as `postgres` (the default superuser). The init script
+    # mounted below provisions `edr` as a non-superuser runtime role
+    # and makes it the owner of the `edr` database. Without this split,
+    # the manager's GRANT/REVOKE-based hardening on audit_log (M16.a)
+    # is decorative — a superuser bypasses those checks. See
+    # docs/install.md and the M16.a (fixed) migration.
     environment:
-      POSTGRES_USER: edr
-      POSTGRES_PASSWORD: vigil_dev_password
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: vigil_dev_postgres_password
       POSTGRES_DB: edr
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/01-vigil-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U edr -d edr"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d edr"]
       interval: 5s
       timeout: 5s
       retries: 10

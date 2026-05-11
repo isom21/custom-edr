@@ -111,11 +111,28 @@ Services exposed on the host:
 
 | Service | URL |
 |---|---|
-| Postgres | `localhost:5432` (user `edr`, db `edr`) |
+| Postgres | `localhost:5432` (cluster superuser `postgres`, runtime user `edr`, db `edr`) |
 | Redpanda Kafka | `localhost:19092` |
 | Redpanda Console | http://localhost:8080 |
 | OpenSearch | http://localhost:9200 |
 | OpenSearch Dashboards | http://localhost:5601 |
+
+Two Postgres roles, on purpose:
+
+- `postgres` — cluster superuser, used only for the initial schema
+  bootstrap and any future operation that needs cluster-wide
+  privileges. The compose creates it via `POSTGRES_USER: postgres`.
+- `edr` — non-superuser runtime role the manager connects as. Owner
+  of the `edr` database; can create tables, INSERT into
+  `audit_log` but not UPDATE/DELETE/TRUNCATE it. Provisioned by
+  `deploy/postgres-init.sql` on first DB init.
+
+The split is load-bearing: the M16.a audit-log INSERT-only guarantee
+relies on the runtime user not being a superuser (PG superusers
+bypass GRANT/REVOKE checks). Older dev installs that bootstrapped
+with `POSTGRES_USER: edr` carry a superuser `edr` in the data dir
+and the guarantee silently fails — `docker compose down -v` then
+re-run `install.sh` to get the role split in place.
 
 ### 2. Configure the backend
 
@@ -132,7 +149,13 @@ $EDITOR .env          # see "Required env" below
 Required env (`backend/.env`):
 
 ```
+# Runtime DSN — manager connects as the non-superuser `edr` role.
 VIGIL_PG_DSN=postgresql+asyncpg://edr:<password>@localhost:5432/edr
+# Audit-writer DSN — verifier connects as the table-owner role.
+VIGIL_PG_DSN_AUDIT=postgresql+asyncpg://vigil_audit_writer:<password>@localhost:5432/edr
+# Same password as VIGIL_PG_DSN_AUDIT — the M16.a (fixed) migration
+# uses it to create / rotate the vigil_audit_writer role.
+VIGIL_AUDIT_OWNER_PASSWORD=<openssl rand -base64 32>
 VIGIL_KAFKA_BROKERS=localhost:19092
 VIGIL_OPENSEARCH_URL=http://localhost:9200
 VIGIL_JWT_SECRET=<openssl rand -hex 32>
@@ -144,6 +167,13 @@ VIGIL_CA_MASTER_KEY=<openssl rand -hex 32>
 tamper-evident audit log chain. Both must be at least 16 bytes; once
 set, do not rotate without a maintenance window — rotating
 `VIGIL_AUDIT_HMAC_KEY` invalidates every existing audit row's HMAC.
+
+`VIGIL_PG_DSN_AUDIT` + `VIGIL_AUDIT_OWNER_PASSWORD` are new in M16.a
+(fixed). The first time you apply migrations after upgrading,
+`VIGIL_AUDIT_OWNER_PASSWORD` must be present in the env so the
+migration can create the `vigil_audit_writer` role. `install.sh`
+writes both for you; production operators provision the password
+through their secrets manager.
 
 ### 3. Apply the database schema
 

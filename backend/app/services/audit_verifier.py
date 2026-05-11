@@ -4,8 +4,9 @@ Walks audit_log rows in seq order, recomputes the HMAC chain, and
 reports breaks. A break means one of:
 
   * A row was UPDATEd (the M16.a INSERT-only privileges deny this
-    via REVOKE, but a sufficiently privileged DB-level attacker
-    could bypass).
+    from the manager's runtime pool, but a privileged DB-level
+    attacker — anyone who can reach the table as the owner role —
+    can still bypass).
   * A row was DELETEd (same).
   * A row was INSERTed at the wrong sequence position.
   * The HMAC key was changed without resetting the chain (which
@@ -14,6 +15,11 @@ reports breaks. A break means one of:
 Rows whose `row_hmac` is NULL are treated as the pre-chain era —
 they're skipped silently. The chain starts at the first row with
 a non-NULL row_hmac.
+
+The verifier connects via `VIGIL_PG_DSN_AUDIT` (the writer role) so
+its connection pool stays isolated from the manager's runtime pool.
+Falls back to `VIGIL_PG_DSN` when the audit DSN is unset, for dev
+environments that haven't been bootstrapped through install.sh yet.
 
 CLI usage:
     python -m app.services.audit_verifier
@@ -27,8 +33,13 @@ import sys
 from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models import AuditLog
 from app.services.audit import canonical_row_bytes, compute_row_hmac
@@ -126,9 +137,20 @@ async def verify_chain(db: AsyncSession) -> VerifyResult:
     return VerifyResult(rows_examined, chain_rows, breaks)
 
 
+def _verifier_session_factory() -> async_sessionmaker:
+    """Open a session against the audit-writer DSN when set, else fall
+    back to the runtime pool. The runtime pool can still SELECT, so
+    dev/test environments work without provisioning the second role."""
+    if settings.pg_dsn_audit:
+        engine = create_async_engine(settings.pg_dsn_audit, pool_pre_ping=True, echo=False)
+        return async_sessionmaker(engine, expire_on_commit=False)
+    return SessionLocal
+
+
 async def _cli() -> int:
     logging.basicConfig(level=logging.INFO)
-    async with SessionLocal() as db:
+    session_factory = _verifier_session_factory()
+    async with session_factory() as db:
         result = await verify_chain(db)
     print(
         f"audit chain: examined {result.rows_examined} rows, "

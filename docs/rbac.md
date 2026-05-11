@@ -113,11 +113,36 @@ audit_log
 └── ts           timestamptz  (indexed)
 ```
 
-Today the log is append-only at the model level — there's no API to
-prune it, and the indexer doesn't archive it. Operators with growing
-volume should periodically `DELETE FROM audit_log WHERE ts < now() -
-interval '90 days'` themselves; archive to S3 + WORM bucket if
-compliance demands.
+Today the log is append-only at the **DB role level**. Two independent
+defenses:
+
+1. **Role split.** `audit_log` is owned by `vigil_audit_writer`. The
+   manager's runtime user `edr` is non-superuser and has only
+   `SELECT, INSERT` on the table and `USAGE, SELECT` on
+   `audit_log_seq`. `UPDATE`, `DELETE`, `TRUNCATE` from the runtime
+   pool raise `InsufficientPrivilege` (PG SQLSTATE 42501). See
+   `deploy/postgres-init.sql` (which provisions `edr` as
+   non-superuser) and migration `c41d5b7e9f02` (which moves
+   ownership). Operators who built dev environments before this fix
+   need to `docker compose down -v` and re-run `install.sh`.
+2. **HMAC chain.** Every row carries `prev_hmac` + `row_hmac`,
+   computed under `VIGIL_AUDIT_HMAC_KEY`. The verifier
+   (`app/services/audit_verifier.py`, also reachable via
+   `python -m app.services.audit_verifier`) walks the chain and
+   reports any UPDATE / DELETE / re-key that slipped past the role
+   split — i.e. the second leg is the trip-wire if the first ever
+   breaks.
+
+Pruning is intentionally not exposed to the manager. Operators with
+growing volume connect as `vigil_audit_writer` and run their own
+retention sweep (`DELETE FROM audit_log WHERE ts < now() - interval
+'90 days'`); archive to S3 + WORM bucket if compliance demands. A
+pruning worker (M16.b) will live behind the same DSN.
+
+The HMAC key co-located with the manager means a manager-host
+compromise can rewrite history *and* recompute the chain. Externalize
+`VIGIL_AUDIT_HMAC_KEY` (HSM / KMS / vault) for deployments where the
+threat model includes a manager-host attacker.
 
 What's logged today:
 

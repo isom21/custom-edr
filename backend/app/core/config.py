@@ -19,6 +19,15 @@ class Settings(BaseSettings):
 
     # Postgres
     pg_dsn: str = "postgresql+asyncpg://edr:vigil_dev_password@localhost:5432/edr"
+    # Owner-role DSN for audit_log. After M16.a (fixed), audit_log is
+    # owned by `vigil_audit_writer` and the runtime user `edr` keeps
+    # only SELECT + INSERT. Audit schema migrations and the chain
+    # verifier connect through this DSN so they have the privileges
+    # they need without granting the runtime pool a path to mutate
+    # the log. Defaults to `pg_dsn` so dev environments that haven't
+    # run install.sh yet still work for reads; production must set
+    # this explicitly.
+    pg_dsn_audit: str = ""
 
     # OpenSearch
     opensearch_url: str = "http://localhost:9200"

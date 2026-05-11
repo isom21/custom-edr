@@ -45,10 +45,18 @@ protobuf schema.
 - The Linux agent's BPF programs and pinned maps live under
   `/sys/fs/bpf/vigil/`; if a previous agent crashed, the next one runs
   `cleanup_or_takeover` to claim them rather than refusing to start.
-- The audit log is INSERT-only at the DB role level (REVOKE UPDATE,
-  DELETE, TRUNCATE) and tamper-evident via an HMAC chain keyed off
-  `VIGIL_AUDIT_HMAC_KEY`. Don't try to "fix" rows by UPDATE; insert
-  compensating rows instead.
+- The audit log is INSERT-only at the DB role level *and* tamper-
+  evident via an HMAC chain. The role split: `audit_log` is owned by
+  `vigil_audit_writer`; the manager's runtime user `edr` is non-
+  superuser and has only SELECT + INSERT. Superusers bypass GRANT/
+  REVOKE checks, which is why the dev docker-compose now bootstraps
+  as `postgres` (the cluster superuser) and an init script creates
+  `edr` separately. Setup details: `deploy/postgres-init.sql` +
+  migration `c41d5b7e9f02` (M16.a fixed). The HMAC chain is keyed off
+  `VIGIL_AUDIT_HMAC_KEY`; rotation requires a manager restart and
+  invalidates every row written under the old key. Don't try to "fix"
+  rows by UPDATE — the runtime user can't, and the verifier would
+  catch it anyway. Insert compensating rows instead.
 
 ## Optional commercial signing
 
