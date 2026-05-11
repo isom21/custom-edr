@@ -4,6 +4,7 @@ import type { Page, Rule, RuleCreate, RuleKind, StatBucket } from "@/types/api";
 export interface RuleListParams {
   kind?: RuleKind;
   enabled?: boolean;
+  group_id?: string;
   q?: string;
   sort?: string;
   limit?: number;

@@ -59,6 +59,7 @@ async def list_rules(
     actor: RequireAnalyst,
     kind: RuleKind | None = None,
     enabled: bool | None = None,
+    group_id: str | None = None,
     q: str | None = None,
     sort: str | None = None,
     limit: int = 50,
@@ -72,6 +73,20 @@ async def list_rules(
     if enabled is not None:
         stmt = stmt.where(Rule.enabled == enabled)
         count_stmt = count_stmt.where(Rule.enabled == enabled)
+    if group_id is not None:
+        # Special-case "null" string for the kind-section "Ungrouped"
+        # row so the UI can fetch unassigned rules without inventing a
+        # sentinel UUID.
+        if group_id == "null":
+            stmt = stmt.where(Rule.group_id.is_(None))
+            count_stmt = count_stmt.where(Rule.group_id.is_(None))
+        else:
+            try:
+                gid = UUID(group_id)
+            except ValueError as exc:
+                raise bad_request("group_id must be a UUID or 'null'") from exc
+            stmt = stmt.where(Rule.group_id == gid)
+            count_stmt = count_stmt.where(Rule.group_id == gid)
     if q:
         stmt = stmt.where(Rule.name.ilike(f"%{q}%"))
         count_stmt = count_stmt.where(Rule.name.ilike(f"%{q}%"))
@@ -283,7 +298,10 @@ async def update_rule(
         action="rule.update",
         resource_type="rule",
         resource_id=str(rule.id),
-        payload=payload.model_dump(exclude_none=True),
+        # mode="json" coerces UUID/datetime into JSON-native types so the
+        # audit_log JSON column accepts the row (UUID() is not serializable
+        # by stdlib json otherwise).
+        payload=payload.model_dump(exclude_none=True, mode="json"),
     )
     await db.flush()
     await db.refresh(rule, attribute_names=["iocs"])
