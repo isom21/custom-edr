@@ -215,9 +215,7 @@ impl Loader {
                         Array::try_from(map).context("Array::try_from(old agent_self)")?;
                     let old_tgid = arr.get(&0u32, 0).unwrap_or(0);
                     if old_tgid == 0 {
-                        tracing::info!(
-                            "self_protection.takeover.previous_slot_clear"
-                        );
+                        tracing::info!("self_protection.takeover.previous_slot_clear");
                     } else if Path::new(&format!("/proc/{old_tgid}/status")).exists() {
                         anyhow::bail!(
                             "agent_self[0]={old_tgid} points at a live process; \

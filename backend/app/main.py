@@ -36,11 +36,17 @@ async def lifespan(_app: FastAPI):
     await broker.start()
 
     # M-audit-and-auth #6: audit-chain verifier as a background task.
-    # `VIGIL_AUDIT_VERIFIER_INTERVAL_S=0` opts out (CI, tests).
+    # `VIGIL_AUDIT_VERIFIER_INTERVAL_S=0` opts out explicitly;
+    # `VIGIL_TEST_ENV=1` (set by the CI workflow + the pytest harness)
+    # also opts out so a parallel lifespan-mounted ASGI test doesn't
+    # spin up the loop and contend with the test's own DB session.
     import os as _os
 
     verifier_task: asyncio.Task | None = None
-    if _os.environ.get("VIGIL_AUDIT_VERIFIER_INTERVAL_S", "300") != "0":
+    if (
+        _os.environ.get("VIGIL_AUDIT_VERIFIER_INTERVAL_S", "300") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
         from app.workers.audit_verifier_loop import run_forever as _verifier_loop
 
         verifier_task = asyncio.create_task(_verifier_loop())

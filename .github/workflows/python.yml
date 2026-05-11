@@ -26,7 +26,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      # Pin ruff: ASYNC240 (which we ignore in pyproject.toml) wasn't a
+      # rule selector until 0.14.0, so a CI runner that resolves an
+      # older ruff fails with "Unknown rule selector: ASYNC240". We hit
+      # exactly that on commit c4ad1794. >=0.14 is plenty fresh; tighten
+      # further if the suite stops needing it.
+      - run: pip install 'ruff>=0.14'
       # M-lint-fix (MEDIUM #11): scope the gate to the whole backend
       # tree (not just app/). tests/, scripts/, alembic env, etc.
       # were outside the gate before; without that, lint drift
