@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
+from sse_starlette.sse import EventSourceResponse
 
-from app.core.deps import DbSession, RequireAnalyst
+from app.core.deps import CurrentActorStream, DbSession, RequireAnalyst
 from app.core.errors import bad_request, forbidden, not_found
 from app.models import (
     ALERT_STATE_TRANSITIONS,
@@ -60,6 +63,51 @@ def _alert_out(a: Alert, host_hostname: str | None, rule_name: str | None) -> Al
     out.host_hostname = host_hostname
     out.rule_name = rule_name
     return out
+
+
+@router.get("/stream")
+async def stream_alerts(
+    request: Request,
+    actor: CurrentActorStream,
+    db: DbSession,
+) -> EventSourceResponse:
+    """SSE stream of newly-inserted alerts.
+
+    Subscribers receive `event: alert\\ndata: {...}` lines. Heartbeats
+    (`event: ping`) fire every 20s to keep proxies from idling the
+    connection. RBAC scoping is applied per-event using
+    `host_visible_to` so analysts only get events for hosts in their
+    groups.
+    """
+    from app.services.alert_broker import broker
+    from app.services.scoping import host_visible_to
+
+    async def gen():
+        async with broker.subscribe() as q:
+            # Initial comment so EventSource fires its `open` event
+            # promptly instead of waiting for the first real message.
+            yield {"event": "ready", "data": ""}
+            heartbeat_at = asyncio.get_event_loop().time() + 20.0
+            while True:
+                if await request.is_disconnected():
+                    return
+                timeout = max(1.0, heartbeat_at - asyncio.get_event_loop().time())
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=timeout)
+                except TimeoutError:
+                    heartbeat_at = asyncio.get_event_loop().time() + 20.0
+                    yield {"event": "ping", "data": ""}
+                    continue
+                # RBAC: drop events for hosts the actor can't see.
+                try:
+                    host_uuid = UUID(event["host_id"])
+                except (KeyError, ValueError):
+                    continue
+                if not await host_visible_to(actor, host_uuid, db):
+                    continue
+                yield {"event": "alert", "data": json.dumps(event)}
+
+    return EventSourceResponse(gen())
 
 
 @router.get("", response_model=Page[AlertOut])
@@ -311,9 +359,7 @@ async def get_alert_context(
     # into `alert.details["event_id"]` even when telemetry_doc_ids is
     # empty. Treat that as a trigger so the chain builder has something
     # to seed from.
-    details_event_id = (
-        alert.details.get("event_id") if isinstance(alert.details, dict) else None
-    )
+    details_event_id = alert.details.get("event_id") if isinstance(alert.details, dict) else None
     if details_event_id and details_event_id not in trigger_event_ids:
         trigger_event_ids.append(details_event_id)
 

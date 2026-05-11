@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { AlertStreamToasts } from "@/components/AlertStreamToasts";
 import { TopBar } from "@/components/TopBar";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
@@ -105,6 +106,9 @@ export function Layout({ children }: { children: ReactNode }) {
         <TopBar />
         <div className="flex-1 overflow-auto">{children}</div>
       </main>
+      {/* M22.b: SSE alert stream + toast notifier. Mounted at layout
+          level so it survives route changes. */}
+      <AlertStreamToasts />
     </div>
   );
 }

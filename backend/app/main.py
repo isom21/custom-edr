@@ -27,8 +27,16 @@ async def lifespan(_app: FastAPI):
         ],
     )
     log.info("edr.backend.starting", debug=settings.debug)
-    yield
-    log.info("edr.backend.stopping")
+    # M22.b: kick off the alert broker so SSE subscribers can fan out
+    # without each connection running its own DB poll loop.
+    from app.services.alert_broker import broker
+
+    await broker.start()
+    try:
+        yield
+    finally:
+        await broker.stop()
+        log.info("edr.backend.stopping")
 
 
 app = FastAPI(

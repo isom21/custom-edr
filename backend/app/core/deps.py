@@ -90,7 +90,32 @@ async def current_actor(
     return Actor(user=user, kind="user")
 
 
+async def current_actor_stream(
+    request: Request,
+    db: DbSession,
+    authorization: Annotated[str | None, Header()] = None,
+) -> Actor:
+    """SSE-friendly variant of current_actor.
+
+    EventSource can't set Authorization headers, so we also accept the
+    bearer token via `?access_token=...`. Header still takes precedence
+    when both are present.
+    """
+    token: str | None = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        token = request.query_params.get("access_token")
+    if not token:
+        raise unauthorized("missing bearer token")
+    if token.startswith("edr_"):
+        return await _resolve_api_token(token, db)
+    user = await _resolve_jwt(token, db)
+    return Actor(user=user, kind="user")
+
+
 CurrentActor = Annotated[Actor, Depends(current_actor)]
+CurrentActorStream = Annotated[Actor, Depends(current_actor_stream)]
 
 
 def require_role(*roles: UserRole):
