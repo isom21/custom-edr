@@ -45,7 +45,7 @@ async def two_alerts(db_session):
         kind=RuleKind.YARA,
         name=f"r-{os.urandom(3).hex()}",
         severity=Severity.HIGH,
-        action=RuleAction.DETECT,
+        action=RuleAction.ALERT,
     )
     db_session.add_all([host, rule])
     await db_session.flush()
