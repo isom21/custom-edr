@@ -33,7 +33,6 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
-from uuid import UUID
 
 import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -46,14 +45,12 @@ from app.core.metrics import (
     audit_chain_rows_examined,
 )
 from app.models import Alert, AlertState, Host, Rule, RuleAction, RuleKind, Severity
+from app.models.synthetic_rules import AUDIT_CHAIN_BREAK_RULE_ID
 from app.services.audit_verifier import verify_chain
 
 log = structlog.get_logger()
 
-
-# Synthetic rule that audit-chain-break alerts attach to. Stable so
-# repeated breaks don't fragment across rule rows.
-AUDIT_CHAIN_BREAK_RULE_ID = UUID("a0a0a0a0-0000-0000-0000-000000000006")
+__all__ = ("AUDIT_CHAIN_BREAK_RULE_ID", "run_forever")
 
 
 def _interval_seconds() -> int:

@@ -39,12 +39,19 @@ from app.models import (
     RuleKind,
     Severity,
 )
+from app.models.synthetic_rules import REENROLLMENT_RULE_ID
 
-# M12.e: synthetic rule id for re-enrollment anomaly alerts. Stable
-# across restarts so all such alerts attach to one row in the alerts
-# UI. Kept here (not in `api/enrollment.py`) so both REST and gRPC
-# enroll paths point at the same rule.
-REENROLLMENT_RULE_ID = UUID("a0a0a0a0-0000-0000-0000-000000000005")
+# Re-export for callers that imported the constant from this module
+# (REST enrollment + the existing race tests). LOW #8 moved the
+# canonical value to `app.models.synthetic_rules`; the alias here
+# keeps the call sites unchanged.
+__all__ = (
+    "EnrollmentTokenInvalid",
+    "REENROLLMENT_RULE_ID",
+    "bind_token_to_host",
+    "consume_token",
+    "detect_reenrollment",
+)
 
 
 class EnrollmentTokenInvalid(Exception):  # noqa: N818 — read aloud as "token-invalid", not "error"
