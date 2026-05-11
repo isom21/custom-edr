@@ -330,6 +330,46 @@ async def fetch_host_window(
     return resp.get("hits", {}).get("hits", [])
 
 
+async def fetch_host_since(
+    client: AsyncOpenSearch,
+    *,
+    host_id: str,
+    since: datetime | None,
+    fallback_window: timedelta = timedelta(minutes=5),
+    size: int = 200,
+) -> list[dict[str, Any]]:
+    """Polling helper for the live host telemetry tab.
+
+    Returns docs with @timestamp > since, ordered asc. When `since` is
+    None (first poll), returns up to `fallback_window` of recent
+    history so the tab has something to render immediately rather than
+    waiting for the next event.
+    """
+    if since is None:
+        lower = datetime.now(UTC) - fallback_window
+        lower_op = "gte"
+    else:
+        lower = since
+        lower_op = "gt"
+    resp = await client.search(
+        index="telemetry-*",
+        body={
+            "size": size,
+            "sort": [{"@timestamp": {"order": "asc"}}],
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"host.id": host_id}},
+                        {"range": {"@timestamp": {lower_op: lower.isoformat()}}},
+                    ]
+                }
+            },
+        },
+        request_timeout=10,  # pyright: ignore[reportCallIssue]
+    )
+    return resp.get("hits", {}).get("hits", [])
+
+
 async def fetch_pid_window(
     client: AsyncOpenSearch,
     *,

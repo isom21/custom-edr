@@ -228,6 +228,32 @@ export interface ProcessDetail {
   truncated: boolean;
 }
 
+// M20.j live host telemetry feed.
+export interface LiveTelemetryEvent {
+  event_id: string;
+  timestamp: string;
+  category: string[];
+  action: string | null;
+  outcome: string | null;
+  pid: number | null;
+  executable: string | null;
+  command_line: string | null;
+  file_path: string | null;
+  file_action: string | null;
+  destination_ip: string | null;
+  destination_port: number | null;
+  transport: string | null;
+  rule_name: string | null;
+  sha256: string | null;
+}
+
+export interface LiveTelemetryPage {
+  host_id: string;
+  events: LiveTelemetryEvent[];
+  latest_timestamp: string | null;
+  truncated: boolean;
+}
+
 // M20.c quarantine inventory + release.
 export type QuarantineStatus = "active" | "released" | "deleted";
 

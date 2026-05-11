@@ -12,9 +12,10 @@ from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
 from app.core.errors import bad_request, forbidden, not_found
 from app.models import Host, HostStatus, OsFamily
 from app.schemas.common import Page
-from app.schemas.host import HostOut, HostUpdate
+from app.schemas.host import HostOut, HostUpdate, LiveTelemetryEvent, LiveTelemetryPage
 from app.schemas.stats import StatBucket
 from app.services import audit
+from app.services import opensearch as os_svc
 from app.services.scoping import apply_host_scope, host_visible_to
 from app.services.sorting import parse_sort
 
@@ -144,6 +145,93 @@ async def update_host(
         payload=payload.model_dump(exclude_none=True),
     )
     return HostOut.model_validate(host)
+
+
+@router.get("/{host_id}/telemetry", response_model=LiveTelemetryPage)
+async def host_live_telemetry(
+    host_id: UUID,
+    db: DbSession,
+    actor: RequireAnalyst,
+    since: datetime | None = None,
+    limit: int = 200,
+) -> LiveTelemetryPage:
+    """M20.j: poll-based live telemetry feed for one host.
+
+    Returns events newer than `since`, sorted by @timestamp asc. The
+    frontend tab polls every couple of seconds and walks `since`
+    forward — there's no kafka consumer churn on the manager side,
+    we just tail OpenSearch which already has every event.
+    """
+    if limit <= 0 or limit > 1000:
+        raise bad_request("limit must be in (0, 1000]")
+    host = await db.get(Host, host_id)
+    if host is None:
+        raise not_found("host", str(host_id))
+    if not await host_visible_to(actor, host_id, db):
+        raise forbidden("host not in any of your groups")
+
+    client = os_svc._client()
+    try:
+        hits = await os_svc.fetch_host_since(
+            client,
+            host_id=str(host_id),
+            since=since,
+            size=limit,
+        )
+    finally:
+        await client.close()
+
+    events: list[LiveTelemetryEvent] = []
+    latest: datetime | None = None
+    for h in hits:
+        src = h.get("_source") or {}
+        ts_str = src.get("@timestamp")
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else None
+        except (AttributeError, ValueError):
+            ts = None
+        if ts is None:
+            continue
+        latest = ts if latest is None or ts > latest else latest
+        event = src.get("event") or {}
+        proc = src.get("process") or {}
+        file_ = src.get("file") or {}
+        dest = src.get("destination") or {}
+        net = src.get("network") or {}
+        rule = src.get("rule") or {}
+        hashes = (
+            (proc.get("hash") if isinstance(proc.get("hash"), dict) else None)
+            or (file_.get("hash") if isinstance(file_.get("hash"), dict) else None)
+            or {}
+        )
+        pid_raw = proc.get("pid")
+        port_raw = dest.get("port")
+        events.append(
+            LiveTelemetryEvent(
+                event_id=event.get("id") or h.get("_id") or "",
+                timestamp=ts,
+                category=list(event.get("category") or []),
+                action=event.get("action"),
+                outcome=event.get("outcome"),
+                pid=pid_raw if isinstance(pid_raw, int) else None,
+                executable=proc.get("executable"),
+                command_line=proc.get("command_line"),
+                file_path=file_.get("path"),
+                file_action=file_.get("action") if isinstance(file_.get("action"), str) else None,
+                destination_ip=dest.get("ip"),
+                destination_port=port_raw if isinstance(port_raw, int) else None,
+                transport=net.get("transport"),
+                rule_name=rule.get("name"),
+                sha256=hashes.get("sha256") if isinstance(hashes, dict) else None,
+            )
+        )
+
+    return LiveTelemetryPage(
+        host_id=host_id,
+        events=events,
+        latest_timestamp=latest,
+        truncated=len(hits) >= limit,
+    )
 
 
 @router.delete("/{host_id}", status_code=status.HTTP_204_NO_CONTENT)

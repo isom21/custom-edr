@@ -4,6 +4,8 @@ import { alertsApi } from "@/api/alerts";
 import { hostsApi } from "@/api/hosts";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HostLiveTelemetry } from "@/components/HostLiveTelemetry";
 import { HostQuarantinePanel } from "@/components/HostQuarantinePanel";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -29,58 +31,73 @@ export function HostDetail() {
   return (
     <>
       <PageHeader title={h.hostname} description={`${h.os_platform ?? h.os_family} • ${h.id}`} />
-      <div className="grid gap-4 p-8 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="OS family" value={h.os_family} />
-            <Row label="OS version" value={h.os_version ?? "—"} />
-            <Row label="Architecture" value={h.os_arch ?? "—"} />
-            <Row label="Agent version" value={h.agent_version ?? "—"} />
-            <Row label="Status" value={<Badge>{h.status}</Badge>} />
-            <Row
-              label="Enrolled"
-              value={h.enrolled_at ? new Date(h.enrolled_at).toLocaleString() : "never"}
-            />
-            <Row
-              label="Last seen"
-              value={h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
-            />
-            <Row label="Policy" value={h.policy_id ?? "—"} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent alerts ({alerts.data?.total ?? 0})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {alerts.data?.items.length ? (
-              <ul className="space-y-2 text-sm">
-                {alerts.data.items.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-center justify-between rounded-md border p-2"
-                  >
-                    <Link to={`/alerts/${a.id}`} className="min-w-0 flex-1 hover:underline">
-                      <div className="truncate font-medium">{a.summary}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(a.opened_at).toLocaleString()} • {a.severity}
-                      </div>
-                    </Link>
-                    <Badge variant="outline">{a.state}</Badge>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No alerts yet.</p>
-            )}
-          </CardContent>
-        </Card>
-        <div className="lg:col-span-2">
-          <HostQuarantinePanel hostId={h.id} />
-        </div>
+      <div className="mx-auto w-full max-w-[1600px] px-6 py-6">
+        <Tabs defaultValue="overview" className="w-full">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="telemetry">Live telemetry</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="mt-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <Row label="OS family" value={h.os_family} />
+                  <Row label="OS version" value={h.os_version ?? "—"} />
+                  <Row label="Architecture" value={h.os_arch ?? "—"} />
+                  <Row label="Agent version" value={h.agent_version ?? "—"} />
+                  <Row label="Status" value={<Badge>{h.status}</Badge>} />
+                  <Row
+                    label="Enrolled"
+                    value={h.enrolled_at ? new Date(h.enrolled_at).toLocaleString() : "never"}
+                  />
+                  <Row
+                    label="Last seen"
+                    value={h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
+                  />
+                  <Row label="Policy" value={h.policy_id ?? "—"} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent alerts ({alerts.data?.total ?? 0})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {alerts.data?.items.length ? (
+                    <ul className="space-y-2 text-sm">
+                      {alerts.data.items.map((a) => (
+                        <li
+                          key={a.id}
+                          className="flex items-center justify-between rounded-md border p-2"
+                        >
+                          <Link to={`/alerts/${a.id}`} className="min-w-0 flex-1 hover:underline">
+                            <div className="truncate font-medium">{a.summary}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {new Date(a.opened_at).toLocaleString()} • {a.severity}
+                            </div>
+                          </Link>
+                          <Badge variant="outline">{a.state}</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No alerts yet.</p>
+                  )}
+                </CardContent>
+              </Card>
+              <div className="lg:col-span-2">
+                <HostQuarantinePanel hostId={h.id} />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="telemetry" className="mt-4">
+            <HostLiveTelemetry hostId={h.id} />
+          </TabsContent>
+        </Tabs>
       </div>
     </>
   );
