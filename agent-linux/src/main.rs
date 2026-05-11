@@ -22,6 +22,7 @@ use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::integrity::IntegrityBaseline;
 use agent_core::jobs::JobDispatcher;
 use agent_core::jobs_handlers::register_cross_platform_handlers;
+use agent_core::jobs_hunt::register_hunt_handlers;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
@@ -157,6 +158,7 @@ async fn main() -> Result<()> {
         }
     };
     let send_tx = client.send_tx.clone();
+    let client_rules = client.rules();
     let mut commands_rx = client.take_commands_rx();
 
     // M14.b: agent-side Prometheus exporter snapshot. Created early so
@@ -418,6 +420,7 @@ async fn main() -> Result<()> {
                         AGENT_VERSION,
                         std::env::consts::ARCH,
                     );
+                    register_hunt_handlers(&mut job_dispatcher, client_rules.clone());
                     let job_dispatcher = Arc::new(job_dispatcher);
 
                     let identity_for_channel = identity.clone();

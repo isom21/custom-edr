@@ -17,6 +17,7 @@ pub mod integrity;
 pub mod jobs;
 pub mod jobs_acquire;
 pub mod jobs_handlers;
+pub mod jobs_hunt;
 pub mod jobs_runtime;
 pub mod pii;
 pub mod scanner;

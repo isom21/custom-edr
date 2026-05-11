@@ -26,6 +26,7 @@ use agent_core::enroll::{enroll, EnrollContext};
 use agent_core::identity::{Identity, IdentityPaths};
 use agent_core::jobs::JobDispatcher;
 use agent_core::jobs_handlers::register_cross_platform_handlers;
+use agent_core::jobs_hunt::register_hunt_handlers;
 use agent_core::proto as p;
 use anyhow::{Context, Result};
 use std::env;
@@ -192,6 +193,8 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
     };
     let send_tx = client.send_tx.clone();
     #[cfg(windows)]
+    let client_rules = client.rules();
+    #[cfg(windows)]
     let commands_rx = client.take_commands_rx();
 
     // Hello.
@@ -245,6 +248,7 @@ pub async fn run_agent_async(stop_rx: Option<tokio::sync::oneshot::Receiver<()>>
             AGENT_VERSION,
             std::env::consts::ARCH,
         );
+        register_hunt_handlers(&mut job_dispatcher, client_rules.clone());
         let job_dispatcher = Arc::new(job_dispatcher);
         let identity_for_channel = identity.clone();
         let endpoint_for_channel = cfg.manager_endpoint.clone();
