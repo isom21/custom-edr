@@ -9,7 +9,7 @@ from fastapi import APIRouter, status
 from sqlalchemy import case, func, select
 
 from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
-from app.core.errors import bad_request, forbidden, not_found
+from app.core.errors import bad_request, not_found
 from app.models import Host, HostStatus, OsFamily
 from app.schemas.common import Page
 from app.schemas.host import HostOut, HostUpdate, LiveTelemetryEvent, LiveTelemetryPage
@@ -121,7 +121,8 @@ async def get_host(host_id: UUID, db: DbSession, actor: RequireAnalyst) -> HostO
     if host is None:
         raise not_found("host", str(host_id))
     if not await host_visible_to(actor, host_id, db):
-        raise forbidden("host not in any of your groups")
+        # M-audit-and-auth #7: 404 not 403 so existence isn't leaked.
+        raise not_found("host", str(host_id))
     return HostOut.model_validate(host)
 
 
@@ -168,7 +169,8 @@ async def host_live_telemetry(
     if host is None:
         raise not_found("host", str(host_id))
     if not await host_visible_to(actor, host_id, db):
-        raise forbidden("host not in any of your groups")
+        # M-audit-and-auth #7: 404 not 403 so existence isn't leaked.
+        raise not_found("host", str(host_id))
 
     client = os_svc._client()
     try:

@@ -8,11 +8,15 @@
 #
 #   - admin sees both hosts in GET /api/hosts
 #   - viewer sees only host A
-#   - viewer GET /api/hosts/<host_B> -> 403
-#   - viewer POST /api/hosts/<host_B>/commands -> 403
+#   - viewer GET /api/hosts/<host_B> -> 404
+#   - viewer POST /api/hosts/<host_B>/commands -> 404
 #   - viewer POST /api/hosts/<host_A>/commands -> 201 (when permitted) or
 #     403 (current implementation requires admin/analyst — this verifies
 #     the scoping is at host visibility, not role).
+#
+# Note: out-of-scope returns 404 (not 403) so the wire response
+# doesn't distinguish "exists-but-hidden" from "does-not-exist".
+# See MEDIUM #7 in the review.
 #
 # Cleans up the created users/groups at the end.
 
@@ -87,9 +91,12 @@ LISTED=$(curl -fsS "$BASE/api/hosts" -H "Authorization: Bearer $ANALYST_TOK" \
 if [[ "$LISTED" == *"$HOST_A"* ]]; then ok "analyst's host list contains host_A"; else fail "host_A missing from analyst list ($LISTED)"; fi
 if [[ "$LISTED" != *"$HOST_B"* ]]; then ok "analyst's host list does NOT contain host_B"; else fail "host_B leaked into analyst list ($LISTED)"; fi
 
-# 3. analyst GET /api/hosts/<host_B> -> 403
+# 3. analyst GET /api/hosts/<host_B> -> 404 (M-audit-and-auth #7:
+#    out-of-scope is indistinguishable from non-existent on the wire,
+#    so a bug-bounty hunter pasting alert / host UUIDs around can't
+#    use 403-vs-404 to confirm a UUID is real).
 GETB_HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/hosts/$HOST_B" -H "Authorization: Bearer $ANALYST_TOK")
-if [ "$GETB_HTTP" = "403" ]; then ok "analyst GET host_B -> 403"; else fail "analyst GET host_B -> $GETB_HTTP (expected 403)"; fi
+if [ "$GETB_HTTP" = "404" ]; then ok "analyst GET host_B -> 404"; else fail "analyst GET host_B -> $GETB_HTTP (expected 404)"; fi
 
 # 4. analyst POST commands on host_A -> 201 or 200 (allowed by group)
 CMDA_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/hosts/$HOST_A/commands" \
@@ -97,11 +104,11 @@ CMDA_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/hosts/$HOS
     -d '{"kind":"block_process","payload":{"pattern":"smoke.exe"}}')
 if [ "$CMDA_HTTP" = "201" ] || [ "$CMDA_HTTP" = "200" ]; then ok "analyst POST commands on host_A -> $CMDA_HTTP"; else fail "analyst POST commands on host_A -> $CMDA_HTTP (expected 201)"; fi
 
-# 5. analyst POST commands on host_B -> 403
+# 5. analyst POST commands on host_B -> 404 (was 403; see #3 above)
 CMDB_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/hosts/$HOST_B/commands" \
     -H "Authorization: Bearer $ANALYST_TOK" -H 'Content-Type: application/json' \
     -d '{"kind":"block_process","payload":{"pattern":"smoke.exe"}}')
-if [ "$CMDB_HTTP" = "403" ]; then ok "analyst POST commands on host_B -> 403"; else fail "analyst POST commands on host_B -> $CMDB_HTTP (expected 403)"; fi
+if [ "$CMDB_HTTP" = "404" ]; then ok "analyst POST commands on host_B -> 404"; else fail "analyst POST commands on host_B -> $CMDB_HTTP (expected 404)"; fi
 
 # Cleanup.
 curl -fsS -X DELETE "$BASE/api/host-groups/$ALPHA_ID" -H "Authorization: Bearer $ADMIN_TOK" > /dev/null

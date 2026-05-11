@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.deps import CurrentActorStream, DbSession, RequireAnalyst
-from app.core.errors import bad_request, forbidden, not_found
+from app.core.errors import bad_request, not_found
 from app.models import (
     ALERT_STATE_TRANSITIONS,
     Alert,
@@ -261,7 +261,12 @@ async def get_alert(alert_id: UUID, db: DbSession, actor: RequireAnalyst) -> Ale
         raise not_found("alert", str(alert_id))
     alert, hostname, rule_name = row
     if not await host_visible_to(actor, alert.host_id, db):
-        raise forbidden("alert refers to a host outside your groups")
+        # M-audit-and-auth #7: return 404 (not 403) so the response
+        # doesn't distinguish "this alert id is real but you can't
+        # see it" from "this alert id doesn't exist". The 403/404
+        # split let a low-priv account confirm shared cross-team
+        # alert ids without seeing their contents.
+        raise not_found("alert", str(alert_id))
     detail = AlertDetail.model_validate(alert)
     detail.host_hostname = hostname
     detail.rule_name = rule_name
@@ -349,7 +354,12 @@ async def get_alert_context(
         raise not_found("alert", str(alert_id))
     alert, hostname, rule_name = row
     if not await host_visible_to(actor, alert.host_id, db):
-        raise forbidden("alert refers to a host outside your groups")
+        # M-audit-and-auth #7: return 404 (not 403) so the response
+        # doesn't distinguish "this alert id is real but you can't
+        # see it" from "this alert id doesn't exist". The 403/404
+        # split let a low-priv account confirm shared cross-team
+        # alert ids without seeing their contents.
+        raise not_found("alert", str(alert_id))
 
     start = alert.opened_at - timedelta(minutes=window_minutes)
     end = alert.opened_at + timedelta(minutes=window_minutes)
@@ -602,7 +612,12 @@ async def get_process_detail(
     if alert is None:
         raise not_found("alert", str(alert_id))
     if not await host_visible_to(actor, alert.host_id, db):
-        raise forbidden("alert refers to a host outside your groups")
+        # M-audit-and-auth #7: return 404 (not 403) so the response
+        # doesn't distinguish "this alert id is real but you can't
+        # see it" from "this alert id doesn't exist". The 403/404
+        # split let a low-priv account confirm shared cross-team
+        # alert ids without seeing their contents.
+        raise not_found("alert", str(alert_id))
 
     start = alert.opened_at - timedelta(minutes=window_minutes)
     end = alert.opened_at + timedelta(minutes=window_minutes)
