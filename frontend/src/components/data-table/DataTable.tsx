@@ -11,7 +11,10 @@ import {
 } from "@/components/ui/table";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { cn } from "@/lib/utils";
+import { applyFilters, type Filter } from "@/lib/table-filters";
+import { ColumnHeaderFilter } from "./ColumnHeaderFilter";
 import { ColumnMenu } from "./ColumnMenu";
+import { FilterChipBar } from "./FilterChipBar";
 import type { BulkAction, ColumnDef } from "./types";
 
 interface Props<T> {
@@ -41,6 +44,19 @@ interface Props<T> {
   bulkActions?: BulkAction<T>[];
   /** Optional toolbar slot rendered above the table (filters, search, etc.). */
   toolbar?: React.ReactNode;
+  /**
+   * Column-filter state (M20.k). When `columnFilters` is wired the
+   * table renders the chip bar + per-column popovers and applies the
+   * filters client-side to the page of rows. Wire from
+   * `useColumnFilters()`.
+   */
+  columnFilters?: Filter[];
+  onColumnFiltersChange?: (filters: Filter[]) => void;
+  /**
+   * When supplied, the chip bar exposes "Save set" / saved-set picker
+   * scoped to this tableId via localStorage.
+   */
+  savedFiltersTableId?: string;
 }
 
 export function DataTable<T>({
@@ -63,6 +79,9 @@ export function DataTable<T>({
   onHiddenColsChange,
   bulkActions,
   toolbar,
+  columnFilters,
+  onColumnFiltersChange,
+  savedFiltersTableId,
 }: Props<T>) {
   const { density } = useUiPrefs();
   const cellPad = density === "compact" ? "px-3 py-1.5" : "px-4 py-3";
@@ -75,7 +94,28 @@ export function DataTable<T>({
     [columns, hiddenCols],
   );
 
-  const selectableRows = useMemo(() => rows ?? [], [rows]);
+  // M20.k: build a (col -> filterValue) accessor table from ColumnDef
+  // so the engine can pull the right field for arbitrary column ids.
+  const accessors = useMemo(() => {
+    const m = new Map<string, (row: T) => unknown>();
+    for (const c of columns) {
+      if (c.filterValue) m.set(c.id, c.filterValue);
+    }
+    return m;
+  }, [columns]);
+  const columnLabels = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of columns) m[c.id] = c.header ?? c.id;
+    return m;
+  }, [columns]);
+
+  const filteredRows = useMemo(() => {
+    if (!rows) return rows;
+    if (!columnFilters || columnFilters.length === 0) return rows;
+    return applyFilters(rows, columnFilters, (row, col) => accessors.get(col)?.(row));
+  }, [rows, columnFilters, accessors]);
+
+  const selectableRows = useMemo(() => filteredRows ?? [], [filteredRows]);
   const allSelected =
     selectableRows.length > 0 && selectableRows.every((r) => selected.has(getRowId(r)));
 
@@ -99,7 +139,7 @@ export function DataTable<T>({
     [selectableRows, selected, getRowId],
   );
 
-  const onHeaderClick = (col: ColumnDef<T>) => {
+  const cycleSort = (col: ColumnDef<T>) => {
     if (!col.sortable) return;
     const key = col.sortKey ?? col.id;
     if (!sort || sort.id !== key) {
@@ -112,8 +152,14 @@ export function DataTable<T>({
   };
 
   const colCount = visibleColumns.length + (bulkActions ? 1 : 0);
-  const start = total === 0 ? 0 : offset + 1;
-  const end = Math.min(offset + limit, total);
+  // M20.k: when client-side filters narrow the page we want the
+  // pagination footer to reflect what's actually shown, not the
+  // server-reported total. Effective total = server total when no
+  // filter is active, otherwise the filtered length on this page.
+  const filterActive = !!(columnFilters && columnFilters.length > 0);
+  const effectiveTotal = filterActive ? (filteredRows?.length ?? 0) : total;
+  const start = effectiveTotal === 0 ? 0 : offset + 1;
+  const end = filterActive ? offset + (filteredRows?.length ?? 0) : Math.min(offset + limit, total);
 
   return (
     <div className="space-y-3">
@@ -121,6 +167,19 @@ export function DataTable<T>({
         <div className="flex-1 min-w-[12rem]">{toolbar}</div>
         <ColumnMenu columns={columns} hidden={hiddenCols} onChange={onHiddenColsChange} />
       </div>
+
+      {onColumnFiltersChange && savedFiltersTableId && (
+        <FilterChipBar
+          tableId={savedFiltersTableId}
+          filters={columnFilters ?? []}
+          columnLabels={columnLabels}
+          onRemove={(idx) =>
+            onColumnFiltersChange((columnFilters ?? []).filter((_, i) => i !== idx))
+          }
+          onClear={() => onColumnFiltersChange([])}
+          onApply={(fs) => onColumnFiltersChange(fs)}
+        />
+      )}
 
       {bulkActions && selectedRows.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-secondary/40 px-3 py-2 text-sm">
@@ -165,29 +224,42 @@ export function DataTable<T>({
               {visibleColumns.map((col) => {
                 const sortKey = col.sortKey ?? col.id;
                 const isActive = sort && sort.id === sortKey;
+                const label = col.header ?? col.id;
+                const filterable = !!(col.filterValue && onColumnFiltersChange);
                 return (
                   <TableHead
                     key={col.id}
-                    className={cn(
-                      headPad,
-                      "text-xs uppercase tracking-wider",
-                      col.headerClassName,
-                      col.sortable && "cursor-pointer select-none hover:text-foreground",
-                    )}
-                    onClick={() => onHeaderClick(col)}
+                    className={cn(headPad, "text-xs uppercase tracking-wider", col.headerClassName)}
                   >
-                    <span className="inline-flex items-center gap-1.5">
-                      {col.header ?? col.id}
+                    <span className="inline-flex items-center gap-1">
+                      {filterable ? (
+                        <ColumnHeaderFilter
+                          colId={col.id}
+                          label={label}
+                          onAdd={(f) => onColumnFiltersChange!([...(columnFilters ?? []), f])}
+                        />
+                      ) : (
+                        <span>{label}</span>
+                      )}
                       {col.sortable && (
-                        <span className="text-muted-foreground">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cycleSort(col);
+                          }}
+                          className="rounded-sm p-0.5 text-muted-foreground hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          title={isActive ? "Sorted — click to cycle" : "Sort by this column"}
+                          aria-label={`Sort by ${label}`}
+                        >
                           {!isActive ? (
-                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                            <ArrowUpDown className="h-3 w-3 opacity-50" />
                           ) : sort?.desc ? (
                             <ArrowDown className="h-3 w-3" />
                           ) : (
                             <ArrowUp className="h-3 w-3" />
                           )}
-                        </span>
+                        </button>
                       )}
                     </span>
                   </TableHead>
@@ -210,16 +282,18 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             )}
-            {!isLoading && !isError && rows && rows.length === 0 && (
+            {!isLoading && !isError && filteredRows && filteredRows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={colCount} className={cn(cellPad, "text-muted-foreground")}>
-                  {emptyMessage}
+                  {filterActive && rows && rows.length > 0
+                    ? `No rows on this page match the ${columnFilters?.length} active filter${columnFilters?.length === 1 ? "" : "s"}.`
+                    : emptyMessage}
                 </TableCell>
               </TableRow>
             )}
             {!isLoading &&
               !isError &&
-              rows?.map((row) => {
+              filteredRows?.map((row) => {
                 const id = getRowId(row);
                 const isSelected = selected.has(id);
                 return (
@@ -259,11 +333,14 @@ export function DataTable<T>({
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <div>
-          {total > 0 ? (
+          {effectiveTotal > 0 ? (
             <>
               Showing <span className="font-medium text-foreground">{start}</span>–
               <span className="font-medium text-foreground">{end}</span> of{" "}
-              <span className="font-medium text-foreground">{total}</span>
+              <span className="font-medium text-foreground">{effectiveTotal}</span>
+              {filterActive && total !== effectiveTotal && (
+                <span className="ml-1">({total} on server, filtered locally)</span>
+              )}
             </>
           ) : (
             "0 results"

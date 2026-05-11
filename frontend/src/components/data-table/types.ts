@@ -16,6 +16,12 @@ export interface ColumnDef<T> {
   className?: string;
   /** Optional className for the header. */
   headerClassName?: string;
+  /**
+   * Value extractor used by the column-filter engine. When set, the
+   * column header becomes click-to-filter; without it the column is
+   * still rendered but isn't filterable.
+   */
+  filterValue?: (row: T) => unknown;
 }
 
 export interface BulkAction<T> {

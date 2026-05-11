@@ -10,6 +10,7 @@ import type { BulkAction, ColumnDef, FilterDef } from "@/components/data-table";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { useTableQuery } from "@/hooks/useTableQuery";
+import { useColumnFilters } from "@/lib/table-filters";
 import type { Host, HostStatus, OsFamily, StatBucket } from "@/types/api";
 
 const STATUSES: HostStatus[] = ["pending", "online", "offline", "isolated", "decommissioned"];
@@ -73,6 +74,7 @@ export function Hosts() {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
   const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
     limit: 50,
   });
@@ -115,12 +117,14 @@ export function Hosts() {
         id: "hostname",
         header: "Hostname",
         sortable: true,
+        filterValue: (h) => h.hostname,
         cell: (h) => <span className="font-medium hover:underline">{h.hostname}</span>,
       },
       {
         id: "os_family",
         header: "OS",
         sortable: true,
+        filterValue: (h) => `${h.os_family} ${h.os_platform ?? ""} ${h.os_arch ?? ""}`,
         cell: (h) => (
           <span className="text-sm text-muted-foreground">
             {h.os_platform ?? h.os_family} {h.os_arch ? `(${h.os_arch})` : ""}
@@ -131,6 +135,7 @@ export function Hosts() {
         id: "agent_version",
         header: "Agent",
         sortable: true,
+        filterValue: (h) => h.agent_version ?? "",
         cell: (h) => (
           <span className="font-mono text-xs text-muted-foreground">{h.agent_version ?? "—"}</span>
         ),
@@ -139,12 +144,14 @@ export function Hosts() {
         id: "status",
         header: "Status",
         sortable: true,
+        filterValue: (h) => h.status,
         cell: (h) => <HostStatusBadge status={h.status} />,
       },
       {
         id: "last_seen_at",
         header: "Last seen",
         sortable: true,
+        filterValue: (h) => h.last_seen_at ?? "",
         cell: (h) => (
           <span className="text-sm text-muted-foreground">
             {h.last_seen_at ? new Date(h.last_seen_at).toLocaleString() : "never"}
@@ -155,6 +162,7 @@ export function Hosts() {
         id: "os_version",
         header: "OS version",
         hiddenByDefault: true,
+        filterValue: (h) => h.os_version ?? "",
         cell: (h) => <span className="text-xs text-muted-foreground">{h.os_version ?? "—"}</span>,
       },
       {
@@ -162,6 +170,7 @@ export function Hosts() {
         header: "Enrolled",
         sortable: true,
         hiddenByDefault: true,
+        filterValue: (h) => h.enrolled_at ?? "",
         cell: (h) => (
           <span className="text-xs text-muted-foreground">
             {h.enrolled_at ? new Date(h.enrolled_at).toLocaleString() : "never"}
@@ -172,6 +181,7 @@ export function Hosts() {
         id: "id",
         header: "ID",
         hiddenByDefault: true,
+        filterValue: (h) => h.id,
         cell: (h) => <span className="font-mono text-xs">{h.id.slice(0, 8)}</span>,
       },
     ],
@@ -280,6 +290,9 @@ export function Hosts() {
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           bulkActions={bulkActions}
+          columnFilters={columnFilters}
+          onColumnFiltersChange={setColumnFilters}
+          savedFiltersTableId="hosts"
           toolbar={
             <FilterBar
               searchKey="q"

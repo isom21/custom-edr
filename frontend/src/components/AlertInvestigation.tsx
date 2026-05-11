@@ -8,15 +8,30 @@
  * Triage UX lives in a sibling rail rendered by AlertDetail; this
  * component is purely the analyst's investigation surface.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { alertsApi } from "@/api/alerts";
 import { ApiError } from "@/api/client";
+import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
+import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { applyFilters, useColumnFilters } from "@/lib/table-filters";
 import { cn } from "@/lib/utils";
 import type { ProcessChainNode, TimelineEvent } from "@/types/api";
+
+const TIMELINE_COLUMNS: { id: string; label: string; accessor: (e: TimelineEvent) => unknown }[] = [
+  { id: "time", label: "time", accessor: (e) => e.timestamp },
+  { id: "action", label: "action", accessor: (e) => e.action ?? "" },
+  { id: "pid", label: "pid", accessor: (e) => e.pid ?? "" },
+  {
+    id: "target",
+    label: "target",
+    accessor: (e) => e.file_path ?? e.destination_ip ?? e.executable ?? e.command_line ?? "",
+  },
+];
+const TIMELINE_LABELS = Object.fromEntries(TIMELINE_COLUMNS.map((c) => [c.id, c.label]));
 
 interface Props {
   alertId: string;
@@ -392,6 +407,12 @@ function TimelinePanel({
   truncated: boolean;
   openedAt: string;
 }) {
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
+  const accessorMap = useMemo(() => new Map(TIMELINE_COLUMNS.map((c) => [c.id, c.accessor])), []);
+  const filteredEvents = useMemo(() => {
+    if (columnFilters.length === 0) return events;
+    return applyFilters(events, columnFilters, (row, col) => accessorMap.get(col)?.(row));
+  }, [events, columnFilters, accessorMap]);
   if (events.length === 0) {
     return (
       <Card>
@@ -407,27 +428,45 @@ function TimelinePanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">
           {fmt(windowStart)} → {fmt(windowEnd)}{" "}
-          <span className="text-muted-foreground">({events.length} events)</span>
+          <span className="text-muted-foreground">
+            ({filteredEvents.length}
+            {columnFilters.length > 0 ? ` of ${events.length}` : ""} events)
+          </span>
         </CardTitle>
         {truncated && (
           <p className="text-xs text-amber-500">
             Truncated to first {events.length} events — narrow the window to see more.
           </p>
         )}
+        <div className="mt-2">
+          <FilterChipBar
+            tableId="alert-timeline"
+            filters={columnFilters}
+            columnLabels={TIMELINE_LABELS}
+            onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
+            onClear={() => setColumnFilters([])}
+            onApply={setColumnFilters}
+          />
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="max-h-[600px] overflow-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b">
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">time</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">action</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">pid</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">target</th>
+                {TIMELINE_COLUMNS.map((c) => (
+                  <th key={c.id} className="px-3 py-2 text-left font-medium text-muted-foreground">
+                    <ColumnHeaderFilter
+                      colId={c.id}
+                      label={c.label}
+                      onAdd={(f) => setColumnFilters([...columnFilters, f])}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {events.map((e) => (
+              {filteredEvents.map((e) => (
                 <tr
                   key={e.event_id}
                   className={cn(

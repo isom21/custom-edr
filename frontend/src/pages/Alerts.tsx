@@ -12,6 +12,7 @@ import { DetailDrawer } from "@/components/DetailDrawer";
 import { AlertDetailPanel } from "@/components/AlertDetailPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { useTableQuery } from "@/hooks/useTableQuery";
+import { useColumnFilters } from "@/lib/table-filters";
 import type { Alert, AlertState, Severity, StatBucket } from "@/types/api";
 
 const SEVERITIES: Severity[] = ["info", "low", "medium", "high", "critical"];
@@ -67,6 +68,7 @@ function stateBuckets(data: StatBucket[] | undefined) {
 
 export function Alerts() {
   const qc = useQueryClient();
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
   const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
     limit: TABLE_LIMIT,
   });
@@ -133,6 +135,7 @@ export function Alerts() {
       id: "summary",
       header: "Summary",
       sortable: false,
+      filterValue: (a) => `${a.summary} ${a.rule_name ?? ""}`,
       cell: (a) => (
         <div className="max-w-md">
           <div className="truncate font-medium">{a.summary}</div>
@@ -152,12 +155,14 @@ export function Alerts() {
       id: "severity",
       header: "Severity",
       sortable: true,
+      filterValue: (a) => a.severity,
       cell: (a) => <SeverityBadge severity={a.severity} />,
     },
     {
       id: "state",
       header: "State",
       sortable: true,
+      filterValue: (a) => a.state,
       cell: (a) => <AlertStateBadge state={a.state} />,
     },
     {
@@ -165,6 +170,7 @@ export function Alerts() {
       header: "Host",
       sortable: true,
       sortKey: "host_hostname",
+      filterValue: (a) => a.host_hostname ?? a.host_id,
       cell: (a) => (
         <Link
           to={`/hosts/${a.host_id}`}
@@ -179,6 +185,7 @@ export function Alerts() {
       id: "opened_at",
       header: "Opened",
       sortable: true,
+      filterValue: (a) => a.opened_at,
       cell: (a) => (
         <span className="text-sm text-muted-foreground">
           {new Date(a.opened_at).toLocaleString()}
@@ -189,6 +196,7 @@ export function Alerts() {
       id: "action_taken",
       header: "Action",
       hiddenByDefault: true,
+      filterValue: (a) => a.action_taken,
       cell: (a) => <span className="text-xs text-muted-foreground">{a.action_taken}</span>,
     },
     {
@@ -196,6 +204,7 @@ export function Alerts() {
       header: "Updated",
       sortable: true,
       hiddenByDefault: true,
+      filterValue: (a) => a.updated_at,
       cell: (a) => (
         <span className="text-sm text-muted-foreground">
           {new Date(a.updated_at).toLocaleString()}
@@ -206,6 +215,7 @@ export function Alerts() {
       id: "id",
       header: "ID",
       hiddenByDefault: true,
+      filterValue: (a) => a.id,
       cell: (a) => <span className="font-mono text-xs">{a.id.slice(0, 8)}</span>,
     },
   ];
@@ -318,6 +328,9 @@ export function Alerts() {
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
           bulkActions={bulkActions}
+          columnFilters={columnFilters}
+          onColumnFiltersChange={setColumnFilters}
+          savedFiltersTableId="alerts"
           toolbar={
             <FilterBar
               searchKey="q"

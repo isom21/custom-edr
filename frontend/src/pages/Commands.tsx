@@ -9,6 +9,7 @@ import { DataTable, FilterBar } from "@/components/data-table";
 import type { ColumnDef, FilterDef } from "@/components/data-table";
 import { PageHeader } from "@/components/PageHeader";
 import { useTableQuery } from "@/hooks/useTableQuery";
+import { useColumnFilters } from "@/lib/table-filters";
 import type { CommandKind, CommandStatus, StatBucket } from "@/types/api";
 
 const STATUSES: CommandStatus[] = ["pending", "dispatched", "succeeded", "failed"];
@@ -69,6 +70,7 @@ function payloadSummary(kind: CommandKind, payload: Record<string, unknown>): st
 
 export function Commands() {
   const navigate = useNavigate();
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
   const { state, setFilter, clearFilters, setSort, setOffset, setHiddenCols } = useTableQuery({
     limit: 50,
   });
@@ -119,6 +121,7 @@ export function Commands() {
         id: "created_at",
         header: "Created",
         sortable: true,
+        filterValue: (c) => c.created_at,
         cell: (c) => (
           <span className="font-mono text-xs">{new Date(c.created_at).toLocaleString()}</span>
         ),
@@ -126,6 +129,7 @@ export function Commands() {
       {
         id: "host",
         header: "Host",
+        filterValue: (c) => c.host_id,
         cell: (c) => (
           <span className="font-mono text-xs hover:underline">{c.host_id.slice(0, 8)}…</span>
         ),
@@ -134,6 +138,7 @@ export function Commands() {
         id: "kind",
         header: "Kind",
         sortable: true,
+        filterValue: (c) => c.kind,
         cell: (c) => (
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {c.kind}
@@ -143,6 +148,7 @@ export function Commands() {
       {
         id: "payload",
         header: "Payload",
+        filterValue: (c) => payloadSummary(c.kind, c.payload),
         cell: (c) => (
           <span className="block max-w-md truncate font-mono text-xs">
             {payloadSummary(c.kind, c.payload)}
@@ -153,12 +159,14 @@ export function Commands() {
         id: "status",
         header: "Status",
         sortable: true,
+        filterValue: (c) => c.status,
         cell: (c) => <CommandStatusBadge status={c.status} />,
       },
       {
         id: "completed_at",
         header: "Completed",
         sortable: true,
+        filterValue: (c) => c.completed_at ?? "",
         cell: (c) => (
           <span className="text-xs text-muted-foreground">
             {c.completed_at ? new Date(c.completed_at).toLocaleString() : "—"}
@@ -169,6 +177,7 @@ export function Commands() {
         id: "error",
         header: "Error",
         hiddenByDefault: true,
+        filterValue: (c) => c.error ?? "",
         cell: (c) => (
           <span className="block max-w-xs truncate text-xs text-destructive">{c.error ?? ""}</span>
         ),
@@ -178,6 +187,7 @@ export function Commands() {
         header: "Dispatched",
         sortable: true,
         hiddenByDefault: true,
+        filterValue: (c) => c.dispatched_at ?? "",
         cell: (c) => (
           <span className="text-xs text-muted-foreground">
             {c.dispatched_at ? new Date(c.dispatched_at).toLocaleString() : "—"}
@@ -188,6 +198,7 @@ export function Commands() {
         id: "id",
         header: "ID",
         hiddenByDefault: true,
+        filterValue: (c) => c.id,
         cell: (c) => <span className="font-mono text-xs">{c.id.slice(0, 8)}</span>,
       },
     ],
@@ -252,6 +263,9 @@ export function Commands() {
           onOffsetChange={setOffset}
           hiddenCols={state.hiddenCols}
           onHiddenColsChange={setHiddenCols}
+          columnFilters={columnFilters}
+          onColumnFiltersChange={setColumnFilters}
+          savedFiltersTableId="commands"
           toolbar={
             <FilterBar
               filters={FILTERS}

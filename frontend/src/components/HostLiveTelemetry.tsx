@@ -14,11 +14,32 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Pause, Play, Trash } from "lucide-react";
 import { hostsApi } from "@/api/hosts";
+import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
+import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { applyFilters, useColumnFilters } from "@/lib/table-filters";
 import { cn } from "@/lib/utils";
 import type { LiveTelemetryEvent } from "@/types/api";
+
+// Column-id -> filterable value extractor + display label.
+// Mirrors the ColumnDef accessor pattern from the DataTable, but inline
+// because this table doesn't use DataTable.
+const LIVE_COLUMNS: { id: string; label: string; accessor: (e: LiveTelemetryEvent) => unknown }[] =
+  [
+    { id: "time", label: "time", accessor: (e) => e.timestamp },
+    { id: "category", label: "category", accessor: (e) => e.category.join(",") },
+    { id: "action", label: "action", accessor: (e) => e.action ?? "" },
+    { id: "pid", label: "pid", accessor: (e) => e.pid ?? "" },
+    {
+      id: "target",
+      label: "target",
+      accessor: (e) => e.file_path ?? e.destination_ip ?? e.executable ?? e.command_line ?? "",
+    },
+    { id: "rule", label: "rule", accessor: (e) => e.rule_name ?? "" },
+  ];
+const LIVE_LABELS = Object.fromEntries(LIVE_COLUMNS.map((c) => [c.id, c.label]));
 
 const POLL_MS = 2000;
 const BUFFER_CAP = 2000;
@@ -44,6 +65,10 @@ export function HostLiveTelemetry({ hostId }: Props) {
   const [category, setCategory] = useState<Category>("all");
   const [buffer, setBuffer] = useState<LiveTelemetryEvent[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Column filters share the same URL param + saved-set storage as the
+  // server-side tables. Live telemetry filters always run client-side.
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
+  const accessorMap = useMemo(() => new Map(LIVE_COLUMNS.map((c) => [c.id, c.accessor])), []);
 
   const { data, isError, error } = useQuery({
     queryKey: ["host-live-telemetry", hostId, since],
@@ -77,9 +102,11 @@ export function HostLiveTelemetry({ hostId }: Props) {
   }, [buffer]);
 
   const filtered = useMemo(() => {
-    if (category === "all") return buffer;
-    return buffer.filter((e) => e.category.includes(category));
-  }, [buffer, category]);
+    const byCategory =
+      category === "all" ? buffer : buffer.filter((e) => e.category.includes(category));
+    if (columnFilters.length === 0) return byCategory;
+    return applyFilters(byCategory, columnFilters, (row, col) => accessorMap.get(col)?.(row));
+  }, [buffer, category, columnFilters, accessorMap]);
 
   return (
     <Card>
@@ -133,18 +160,31 @@ export function HostLiveTelemetry({ hostId }: Props) {
             {error instanceof Error ? error.message : "telemetry feed error"}
           </p>
         )}
+        <div className="mt-2">
+          <FilterChipBar
+            tableId={`host-live-${hostId}`}
+            filters={columnFilters}
+            columnLabels={LIVE_LABELS}
+            onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
+            onClear={() => setColumnFilters([])}
+            onApply={setColumnFilters}
+          />
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div ref={scrollRef} className="max-h-[640px] overflow-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b text-left text-muted-foreground">
-                <th className="px-3 py-2 font-medium">time</th>
-                <th className="px-3 py-2 font-medium">category</th>
-                <th className="px-3 py-2 font-medium">action</th>
-                <th className="px-3 py-2 font-medium">pid</th>
-                <th className="px-3 py-2 font-medium">target</th>
-                <th className="px-3 py-2 font-medium">rule</th>
+                {LIVE_COLUMNS.map((c) => (
+                  <th key={c.id} className="px-3 py-2 font-medium">
+                    <ColumnHeaderFilter
+                      colId={c.id}
+                      label={c.label}
+                      onAdd={(f) => setColumnFilters([...columnFilters, f])}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

@@ -18,13 +18,25 @@ import { rulesApi } from "@/api/rules";
 import { ruleGroupsApi } from "@/api/ruleGroups";
 import { ApiError } from "@/api/client";
 import { RuleActionBadge, SeverityBadge } from "@/components/badges";
+import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
+import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { PageHeader } from "@/components/PageHeader";
 import { RuleGroupDialog } from "@/components/RuleGroupDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
+import { applyFilters, useColumnFilters } from "@/lib/table-filters";
 import { cn } from "@/lib/utils";
 import type { Rule, RuleAction, RuleGroup, RuleKind } from "@/types/api";
+
+// Filterable columns inside each rule group's inline table.
+const RULE_COLUMNS: { id: string; label: string; accessor: (r: Rule) => unknown }[] = [
+  { id: "name", label: "name", accessor: (r) => `${r.name} ${r.description ?? ""}` },
+  { id: "severity", label: "severity", accessor: (r) => r.severity },
+  { id: "action", label: "action", accessor: (r) => r.action },
+  { id: "enabled", label: "enabled", accessor: (r) => (r.enabled ? "enabled" : "disabled") },
+];
+const RULE_LABELS = Object.fromEntries(RULE_COLUMNS.map((c) => [c.id, c.label]));
 
 const KINDS: RuleKind[] = ["yara", "sigma", "ioc"];
 const KIND_LABEL: Record<RuleKind, string> = { yara: "YARA", sigma: "Sigma", ioc: "IOC" };
@@ -45,6 +57,9 @@ export function Rules() {
     { mode: "create"; kind: RuleKind } | { mode: "edit"; group: RuleGroup } | null
   >(null);
 
+  // Column filters apply to every group's rule table on the page.
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
+
   return (
     <>
       <PageHeader
@@ -62,11 +77,21 @@ export function Rules() {
         }
       />
       <div className="mx-auto w-full max-w-[1600px] space-y-8 px-6 py-6">
+        <FilterChipBar
+          tableId="rules"
+          filters={columnFilters}
+          columnLabels={RULE_LABELS}
+          onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
+          onClear={() => setColumnFilters([])}
+          onApply={setColumnFilters}
+        />
         {KINDS.map((kind) => (
           <KindSection
             key={kind}
             kind={kind}
             isAdmin={isAdmin}
+            columnFilters={columnFilters}
+            setColumnFilters={setColumnFilters}
             onCreateGroup={() => setDialogState({ mode: "create", kind })}
             onEditGroup={(group) => setDialogState({ mode: "edit", group })}
           />
@@ -87,11 +112,15 @@ export function Rules() {
 function KindSection({
   kind,
   isAdmin,
+  columnFilters,
+  setColumnFilters,
   onCreateGroup,
   onEditGroup,
 }: {
   kind: RuleKind;
   isAdmin: boolean;
+  columnFilters: import("@/lib/table-filters").Filter[];
+  setColumnFilters: (f: import("@/lib/table-filters").Filter[]) => void;
   onCreateGroup: () => void;
   onEditGroup: (g: RuleGroup) => void;
 }) {
@@ -146,6 +175,8 @@ function KindSection({
               group={g}
               rules={rules.filter((r) => r.group_id === g.id)}
               isAdmin={isAdmin}
+              columnFilters={columnFilters}
+              setColumnFilters={setColumnFilters}
               onEdit={() => onEditGroup(g)}
             />
           ))}
@@ -154,6 +185,8 @@ function KindSection({
               group={null}
               rules={ungrouped}
               isAdmin={isAdmin}
+              columnFilters={columnFilters}
+              setColumnFilters={setColumnFilters}
               onEdit={() => {
                 /* no-op for ungrouped pseudo-group */
               }}
@@ -176,11 +209,15 @@ function GroupCard({
   group,
   rules,
   isAdmin,
+  columnFilters,
+  setColumnFilters,
   onEdit,
 }: {
   group: RuleGroup | null;
   rules: Rule[];
   isAdmin: boolean;
+  columnFilters: import("@/lib/table-filters").Filter[];
+  setColumnFilters: (f: import("@/lib/table-filters").Filter[]) => void;
   onEdit: () => void;
 }) {
   const qc = useQueryClient();
@@ -273,7 +310,12 @@ function GroupCard({
           {rules.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">No rules in this group.</p>
           ) : (
-            <RuleRows rules={rules} ceiling={ceiling} />
+            <RuleRows
+              rules={rules}
+              ceiling={ceiling}
+              columnFilters={columnFilters}
+              setColumnFilters={setColumnFilters}
+            />
           )}
         </CardContent>
       )}
@@ -281,23 +323,54 @@ function GroupCard({
   );
 }
 
-function RuleRows({ rules, ceiling }: { rules: Rule[]; ceiling: RuleAction | null }) {
+function RuleRows({
+  rules,
+  ceiling,
+  columnFilters,
+  setColumnFilters,
+}: {
+  rules: Rule[];
+  ceiling: RuleAction | null;
+  columnFilters: import("@/lib/table-filters").Filter[];
+  setColumnFilters: (f: import("@/lib/table-filters").Filter[]) => void;
+}) {
   const navigate = useNavigate();
+  const accessorMap = new Map(RULE_COLUMNS.map((c) => [c.id, c.accessor]));
+  const filteredRules =
+    columnFilters.length === 0
+      ? rules
+      : applyFilters(rules, columnFilters, (row, col) => accessorMap.get(col)?.(row));
+  const filterHead = (id: string, label: string) => (
+    <th className="px-4 py-2 font-medium">
+      <ColumnHeaderFilter
+        colId={id}
+        label={label}
+        onAdd={(f) => setColumnFilters([...columnFilters, f])}
+      />
+    </th>
+  );
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-muted/20">
           <tr className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="px-4 py-2 font-medium">Name</th>
-            <th className="px-4 py-2 font-medium">Severity</th>
-            <th className="px-4 py-2 font-medium">Action</th>
+            {filterHead("name", "name")}
+            {filterHead("severity", "severity")}
+            {filterHead("action", "action")}
             <th className="px-4 py-2 font-medium">Effective</th>
-            <th className="px-4 py-2 font-medium">Enabled</th>
+            {filterHead("enabled", "enabled")}
             <th className="px-4 py-2 font-medium">Updated</th>
           </tr>
         </thead>
         <tbody>
-          {rules.map((r) => {
+          {filteredRules.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-3 text-center text-xs text-muted-foreground">
+                No rules in this group match the active filters.
+              </td>
+            </tr>
+          )}
+          {filteredRules.map((r) => {
             const eff = effectiveAction(r, ceiling);
             const clamped = eff !== r.action;
             return (

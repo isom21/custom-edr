@@ -7,13 +7,24 @@
  * by the backend quarantine worker), so the UI invalidates the list
  * and lets react-query refetch.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { quarantineApi } from "@/api/quarantine";
+import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
+import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { applyFilters, useColumnFilters } from "@/lib/table-filters";
 import type { QuarantinedFile, QuarantineStatus } from "@/types/api";
+
+const QF_COLUMNS: { id: string; label: string; accessor: (f: QuarantinedFile) => unknown }[] = [
+  { id: "path", label: "original path", accessor: (f) => f.original_path },
+  { id: "sha256", label: "sha-256", accessor: (f) => f.sha256 },
+  { id: "quarantined_at", label: "quarantined", accessor: (f) => f.quarantined_at },
+  { id: "status", label: "status", accessor: (f) => f.status },
+];
+const QF_LABELS = Object.fromEntries(QF_COLUMNS.map((c) => [c.id, c.label]));
 
 interface Props {
   hostId: string;
@@ -28,6 +39,8 @@ const STATUS_CLASS: Record<QuarantineStatus, string> = {
 export function HostQuarantinePanel({ hostId }: Props) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
+  const accessorMap = useMemo(() => new Map(QF_COLUMNS.map((c) => [c.id, c.accessor])), []);
 
   const { data, isLoading } = useQuery({
     queryKey: ["host-quarantined", hostId],
@@ -43,7 +56,11 @@ export function HostQuarantinePanel({ hostId }: Props) {
     onError: (err) => setError(err instanceof ApiError ? err.detail : String(err)),
   });
 
-  const items = data?.items ?? [];
+  const rawItems = data?.items ?? [];
+  const items =
+    columnFilters.length === 0
+      ? rawItems
+      : applyFilters(rawItems, columnFilters, (row, col) => accessorMap.get(col)?.(row));
 
   return (
     <Card>
@@ -60,19 +77,31 @@ export function HostQuarantinePanel({ hostId }: Props) {
             {error}
           </div>
         )}
-        {items.length > 0 && (
+        <FilterChipBar
+          tableId={`host-quarantined-${hostId}`}
+          filters={columnFilters}
+          columnLabels={QF_LABELS}
+          onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
+          onClear={() => setColumnFilters([])}
+          onApply={setColumnFilters}
+        />
+        {rawItems.length > 0 && (
           <div className="overflow-auto rounded-md border">
             <table className="w-full text-xs">
               <thead className="bg-muted/40">
                 <tr className="border-b">
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                    Original path
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">SHA-256</th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">
-                    Quarantined
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                  {QF_COLUMNS.map((c) => (
+                    <th
+                      key={c.id}
+                      className="px-3 py-2 text-left font-medium text-muted-foreground"
+                    >
+                      <ColumnHeaderFilter
+                        colId={c.id}
+                        label={c.label}
+                        onAdd={(f) => setColumnFilters([...columnFilters, f])}
+                      />
+                    </th>
+                  ))}
                   <th className="px-3 py-2 text-right font-medium text-muted-foreground">
                     Actions
                   </th>

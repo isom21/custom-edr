@@ -18,7 +18,9 @@ export interface TableState {
 
 const DEFAULT_LIMIT = 50;
 
-const RESERVED = new Set(["sort", "offset", "limit", "cols"]);
+// `cf` is the M20.k column-filter param owned by useColumnFilters; reserve
+// it so the legacy FilterBar doesn't render it as a free-floating chip.
+const RESERVED = new Set(["sort", "offset", "limit", "cols", "cf"]);
 
 function parseSort(v: string | null): { id: string; desc: boolean } | null {
   if (!v) return null;
