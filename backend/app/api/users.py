@@ -6,16 +6,30 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 
 from app.core.deps import DbSession, RequireAdmin
-from app.core.errors import conflict, not_found
+from app.core.errors import bad_request, conflict, not_found
 from app.core.security import hash_password
-from app.models import HostGroup, User, user_host_group
+from app.models import HostGroup, User, UserRole, user_host_group
 from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.services import audit
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+async def _enabled_admin_count(db: DbSession, *, exclude_user_id: UUID | None = None) -> int:
+    """How many admins would remain enabled if the user identified by
+    `exclude_user_id` were either deleted or had their role/disabled
+    flag flipped. Centralised so update + delete share the same gate
+    and can't drift on what "enabled admin" means."""
+    stmt = select(func.count(User.id)).where(
+        User.role == UserRole.ADMIN,
+        User.disabled.is_(False),
+    )
+    if exclude_user_id is not None:
+        stmt = stmt.where(User.id != exclude_user_id)
+    return int((await db.execute(stmt)).scalar_one())
 
 
 class UserGroupAssignment(BaseModel):
@@ -63,6 +77,25 @@ async def update_user(
     user = await db.get(User, user_id)
     if user is None:
         raise not_found("user", str(user_id))
+
+    # LOW #1: refuse the operation if it would drop the count of
+    # enabled admins to zero. Two paths get us there: demote the last
+    # admin to analyst/viewer, or disable the last admin. Both are
+    # reversible — but only by another admin, so they bricks the
+    # console.
+    would_become_non_admin = payload.role is not None and payload.role != UserRole.ADMIN
+    would_become_disabled = payload.disabled is True
+    if (
+        user.role == UserRole.ADMIN
+        and not user.disabled
+        and (would_become_non_admin or would_become_disabled)
+    ):
+        remaining = await _enabled_admin_count(db, exclude_user_id=user.id)
+        if remaining == 0:
+            raise bad_request(
+                "cannot disable or demote the last enabled admin; promote another admin first"
+            )
+
     if payload.role is not None:
         user.role = payload.role
     if payload.disabled is not None:
@@ -85,6 +118,16 @@ async def delete_user(user_id: UUID, db: DbSession, actor: RequireAdmin) -> None
     user = await db.get(User, user_id)
     if user is None:
         raise not_found("user", str(user_id))
+
+    # LOW #1: same lockout guard as update_user — deleting the last
+    # enabled admin bricks the console. Two SOC admins each clicking
+    # "delete me" at the same time get one through and one bounced;
+    # the loser sees a 400 with a clear message.
+    if user.role == UserRole.ADMIN and not user.disabled:
+        remaining = await _enabled_admin_count(db, exclude_user_id=user.id)
+        if remaining == 0:
+            raise bad_request("cannot delete the last enabled admin; promote another admin first")
+
     await db.delete(user)
     await audit.record(
         db, actor=actor, action="user.delete", resource_type="user", resource_id=str(user_id)
