@@ -517,6 +517,11 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 if h is not None:
                     h.status = HostStatus.OFFLINE
                     await db.commit()
+            # M-grpc-hygiene #3: drop the per-host token bucket so the
+            # global dict doesn't grow unbounded over the manager's
+            # lifetime. The previous comment on _GRPC_BUCKETS claimed
+            # "cleaned up on stream close" — no code did it.
+            _GRPC_BUCKETS.pop(host_id_str, None)
             log.info("grpc.host_stream.close", host_id=host_id_str)
 
     async def _consume_client(
