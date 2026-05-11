@@ -1,9 +1,12 @@
 /**
- * M20.d: alert investigation tabs.
+ * M20.d/f: alert investigation page tabs.
  *
- * Two sub-tabs hydrate from `GET /api/alerts/:id/context`:
+ * Two top-level tabs hydrate from `GET /api/alerts/:id/context`:
  *   - Process chain: ancestry walk back from the triggering event.
- *   - Timeline:      ±window_minutes of host telemetry around opened_at.
+ *   - Event log:     ±window_minutes of host telemetry around opened_at.
+ *
+ * Triage UX lives in a sibling rail rendered by AlertDetail; this
+ * component is purely the analyst's investigation surface.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -40,15 +43,15 @@ export function AlertInvestigation({ alertId }: Props) {
     <Tabs defaultValue="chain" className="w-full">
       <TabsList>
         <TabsTrigger value="chain">Process chain ({data.chain.length})</TabsTrigger>
-        <TabsTrigger value="timeline">
-          Timeline ({data.events.length}
+        <TabsTrigger value="events">
+          Event log ±15 min ({data.events.length}
           {data.events_truncated ? "+" : ""})
         </TabsTrigger>
       </TabsList>
       <TabsContent value="chain">
         <ProcessChainPanel chain={data.chain} hostId={data.host_id} />
       </TabsContent>
-      <TabsContent value="timeline">
+      <TabsContent value="events">
         <TimelinePanel
           events={data.events}
           windowStart={data.window_start}

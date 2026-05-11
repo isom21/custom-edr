@@ -6,7 +6,6 @@ import { AlertStateBadge, SeverityBadge } from "@/components/badges";
 import { AlertDetailPanel } from "@/components/AlertDetailPanel";
 import { AlertInvestigation } from "@/components/AlertInvestigation";
 import { PageHeader } from "@/components/PageHeader";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function AlertDetail() {
   const { id } = useParams<{ id: string }>();
@@ -55,21 +54,16 @@ export function AlertDetail() {
           </div>
         }
       />
-      <div className="mx-auto w-full max-w-7xl px-8 py-6">
-        <Tabs defaultValue="investigation" className="w-full">
-          <TabsList>
-            <TabsTrigger value="investigation">Investigation</TabsTrigger>
-            <TabsTrigger value="triage">Triage</TabsTrigger>
-          </TabsList>
-          <TabsContent value="investigation" className="mt-4">
-            <AlertInvestigation alertId={data.id} />
-          </TabsContent>
-          <TabsContent value="triage" className="mt-4">
-            <div className="mx-auto max-w-3xl">
-              <AlertDetailPanel alert={data} />
-            </div>
-          </TabsContent>
-        </Tabs>
+      {/* Two-column investigation layout:
+            main column   = process chain + event log (the two tabs)
+            triage rail   = state transitions, response actions, history */}
+      <div className="mx-auto grid w-full max-w-[1600px] grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0">
+          <AlertInvestigation alertId={data.id} />
+        </div>
+        <aside className="lg:sticky lg:top-6 lg:self-start">
+          <AlertDetailPanel alert={data} />
+        </aside>
       </div>
     </>
   );
