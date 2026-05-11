@@ -113,9 +113,16 @@ systemctl restart vigil-agent
 journalctl -u vigil-agent -f                  # watch takeover + reload
 ```
 
-The takeover protocol claims any pinned BPF objects from the running
-agent before the new one loads. Brief (<1s) protection gap during
-restart; documented in `threat-model.md`.
+Takeover protocol (post-M7.1.b): on agent exit the
+`sched_process_exit` tracepoint zeroes `agent_self[0]` from kernel
+context, so the new agent finds `self_tgid() == 0` and claims via
+the standard initial-load path. The "old agent's tgid written by
+the new agent" trick is gone — that route was the
+`bpftool map update`-based hijack the M7.1.b fix closes. If the
+exit auto-clear ever fails to fire (kernel quirk), the new agent
+logs `self_protection.takeover.stale_self_observed`, unlinks the
+old pins, and proceeds with a fresh load. Brief (<1s) protection
+gap during restart; documented in `threat-model.md`.
 
 ### Windows
 

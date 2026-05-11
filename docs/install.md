@@ -66,10 +66,13 @@ this section is the manual equivalent.
 4. **Proto bindings** — `make proto-python` generates
    `backend/app/proto_gen/` from `proto/edr/v1/*.proto`.
 5. **Secrets + .env** — if `backend/.env` doesn't exist, generates
-   random `VIGIL_JWT_SECRET`, `VIGIL_CA_MASTER_KEY`, and
-   `VIGIL_AUDIT_HMAC_KEY` (each 32 bytes hex) and writes them
-   alongside the standard service URLs. File mode 0600. Existing
-   `.env` is left alone.
+   random `VIGIL_JWT_SECRET`, `VIGIL_CA_MASTER_KEY`,
+   `VIGIL_AUDIT_HMAC_KEY` (each 32 bytes hex), plus the
+   `VIGIL_AUDIT_OWNER_PASSWORD` used by the M16.a (fixed) migration
+   to provision `vigil_audit_writer`. `VIGIL_PG_DSN_AUDIT` is
+   composed from that password so the chain verifier can connect.
+   All written alongside the standard service URLs. File mode 0600.
+   Existing `.env` is left alone.
 6. **Migrations** — `alembic upgrade head` against the just-started DB.
 7. **Admin user** — runs `python -m scripts.create_admin` with
    `VIGIL_ADMIN_EMAIL` (default `admin@vigil.local`) and
@@ -257,8 +260,16 @@ curl -s "$MANAGER_REST/api/enrollment/tokens" -X POST \
   | jq -r .token
 ```
 
-Tokens are single-use: once an agent enrolls with one, it's marked
-spent. Re-enrolling the same host requires a fresh token.
+Tokens are single-use, enforced atomically at the DB level — both
+the REST `/api/enrollment/enroll` and the gRPC `AgentService.Enroll`
+paths collapse the validity check + mark-spent into a single
+`UPDATE … WHERE used_at IS NULL RETURNING …`, so two agents racing
+the same token can't both succeed (see C1 / `services/enrollment.py
+::consume_token`). Re-enrolling the same host requires a fresh
+token. The M12.e re-enrollment detector fires a HIGH alert when a
+host with the same hostname re-enrolls inside
+`VIGIL_REENROLLMENT_WINDOW_SECONDS` (default 3600 s), so a
+compromise-then-reimage workflow shows up in the SOC console.
 
 ## Install the Linux agent
 

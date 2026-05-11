@@ -23,8 +23,9 @@ analog Roman society had to what an EDR does.
   Actions are kernel-enforced (BPF maps on Linux, IOCTL to the
   driver on Windows).
 * **Self-protection** — BPF LSM (Linux) and ObRegisterCallbacks
-  (Windows) reject same-box-root attempts to kill, ptrace, debug, or
-  unlink the agent. Tamper-evident audit log on the manager.
+  (Windows) reject same-box-root attempts to kill, ptrace, debug,
+  unlink, or hijack the agent's `agent_self` map. Tamper-evident
+  audit log on the manager (HMAC chain + INSERT-only DB role).
 * **RBAC** — admin / analyst / viewer roles, host-group scoping,
   per-user API tokens, full audit trail with HMAC chain.
 
