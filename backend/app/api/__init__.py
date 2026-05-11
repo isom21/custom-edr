@@ -11,6 +11,7 @@ from app.api import (
     enrollment,
     host_groups,
     hosts,
+    jobs,
     me,
     metrics,
     policies,
@@ -47,5 +48,9 @@ api_router.include_router(commands.all_router)
 # /api/hosts/:id/quarantined, mutations under /api/quarantined/:id.
 api_router.include_router(quarantine.per_host_router)
 api_router.include_router(quarantine.flat_router)
+# M23.b: Jobs engine — /api/jobs for the user-facing primitive,
+# /api/artifacts for download links.
+api_router.include_router(jobs.router)
+api_router.include_router(jobs.artifacts_router)
 
 __all__ = ["api_router"]

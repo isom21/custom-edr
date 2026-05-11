@@ -28,6 +28,10 @@ class CommandKind(str, enum.Enum):
     ISOLATE = "isolate"
     QUARANTINE_FILE = "quarantine_file"
     RELEASE_QUARANTINE = "release_quarantine"
+    # M23.b: bridge envelope used while Jobs fan out via the existing
+    # Commands pipeline. Payload carries job_id + run_id + the real
+    # JobKind + parameters; agents dispatch by JobKind.
+    RUN_JOB = "run_job"
 
 
 class CommandStatus(str, enum.Enum):

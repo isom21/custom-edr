@@ -56,3 +56,25 @@ async def host_visible_to(actor: Actor, host_id: UUID, db: AsyncSession) -> bool
         .where(user_host_group.c.user_id == actor.user.id)
     )
     return (await db.execute(q)).scalar_one()
+
+
+async def visible_host_ids(actor: Actor, db: AsyncSession) -> list[UUID] | None:
+    """Return the list of host ids visible to the actor, or None for
+    admins (admins see all → no caller-side filtering needed).
+
+    M23.b: the Jobs engine uses this to intersect resolved scopes with
+    the actor's group membership before fan-out.
+    """
+    if _is_admin(actor):
+        return None
+    stmt = (
+        select(host_in_group.c.host_id)
+        .join(
+            user_host_group,
+            user_host_group.c.host_group_id == host_in_group.c.host_group_id,
+        )
+        .where(user_host_group.c.user_id == actor.user.id)
+        .distinct()
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [UUID(str(r)) for r in rows]
