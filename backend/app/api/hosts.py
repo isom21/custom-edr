@@ -193,44 +193,85 @@ async def host_live_telemetry(
         if ts is None:
             continue
         latest = ts if latest is None or ts > latest else latest
-        event = src.get("event") or {}
-        proc = src.get("process") or {}
-        file_ = src.get("file") or {}
-        dest = src.get("destination") or {}
-        net = src.get("network") or {}
-        rule = src.get("rule") or {}
-        hashes = (
-            (proc.get("hash") if isinstance(proc.get("hash"), dict) else None)
-            or (file_.get("hash") if isinstance(file_.get("hash"), dict) else None)
-            or {}
-        )
-        pid_raw = proc.get("pid")
-        port_raw = dest.get("port")
-        events.append(
-            LiveTelemetryEvent(
-                event_id=event.get("id") or h.get("_id") or "",
-                timestamp=ts,
-                category=list(event.get("category") or []),
-                action=event.get("action"),
-                outcome=event.get("outcome"),
-                pid=pid_raw if isinstance(pid_raw, int) else None,
-                executable=proc.get("executable"),
-                command_line=proc.get("command_line"),
-                file_path=file_.get("path"),
-                file_action=file_.get("action") if isinstance(file_.get("action"), str) else None,
-                destination_ip=dest.get("ip"),
-                destination_port=port_raw if isinstance(port_raw, int) else None,
-                transport=net.get("transport"),
-                rule_name=rule.get("name"),
-                sha256=hashes.get("sha256") if isinstance(hashes, dict) else None,
-            )
-        )
+        events.append(_map_live_event(h, src, ts))
 
     return LiveTelemetryPage(
         host_id=host_id,
         events=events,
         latest_timestamp=latest,
         truncated=len(hits) >= limit,
+    )
+
+
+def _map_live_event(h: dict, src: dict, ts: datetime) -> LiveTelemetryEvent:
+    """Flatten one OpenSearch ECS doc into a LiveTelemetryEvent row.
+
+    The schema is intentionally wide enough to drive the per-category
+    tabs in the UI (Processes / Files / Network / Auth / Modules / Other)
+    without a follow-up roundtrip per row.
+    """
+    event: dict = src.get("event") or {}
+    proc: dict = src.get("process") or {}
+    parent: dict = proc.get("parent") or {} if isinstance(proc.get("parent"), dict) else {}
+    user: dict = src.get("user") or {}
+    file_: dict = src.get("file") or {}
+    sig: dict = (
+        file_.get("code_signature") or {} if isinstance(file_.get("code_signature"), dict) else {}
+    )
+    source: dict = src.get("source") or {}
+    dest: dict = src.get("destination") or {}
+    net: dict = src.get("network") or {}
+    dns: dict = src.get("dns") or {}
+    dns_q: dict = dns.get("question") or {} if isinstance(dns.get("question"), dict) else {}
+    rule: dict = src.get("rule") or {}
+    hashes = (
+        (proc.get("hash") if isinstance(proc.get("hash"), dict) else None)
+        or (file_.get("hash") if isinstance(file_.get("hash"), dict) else None)
+        or {}
+    )
+
+    def _int(v: object) -> int | None:
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    def _str(v: object) -> str | None:
+        return v if isinstance(v, str) else None
+
+    def _bool(v: object) -> bool | None:
+        return v if isinstance(v, bool) else None
+
+    categories = list(event.get("category") or [])
+    module_path = _str(file_.get("path")) if "library" in categories else None
+
+    return LiveTelemetryEvent(
+        event_id=event.get("id") or h.get("_id") or "",
+        timestamp=ts,
+        category=categories,
+        action=_str(event.get("action")),
+        outcome=_str(event.get("outcome")),
+        pid=_int(proc.get("pid")),
+        parent_pid=_int(parent.get("pid")),
+        executable=_str(proc.get("executable")),
+        command_line=_str(proc.get("command_line")),
+        working_directory=_str(proc.get("working_directory")),
+        user_name=_str(user.get("name")),
+        file_path=_str(file_.get("path")),
+        file_action=_str(file_.get("action")),
+        file_size=_int(file_.get("size")),
+        source_ip=_str(source.get("ip")),
+        source_port=_int(source.get("port")),
+        destination_ip=_str(dest.get("ip")),
+        destination_port=_int(dest.get("port")),
+        destination_domain=_str(dest.get("domain")),
+        transport=_str(net.get("transport")),
+        direction=_str(net.get("direction")),
+        dns_question_name=_str(dns_q.get("name")),
+        module_path=module_path,
+        module_signed=_bool(sig.get("signed")),
+        module_signer=_str(sig.get("subject_name")),
+        event_provider=_str(event.get("provider")),
+        event_code=_str(event.get("code")),
+        rule_name=_str(rule.get("name")),
+        sha256=hashes.get("sha256") if isinstance(hashes, dict) else None,
     )
 
 

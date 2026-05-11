@@ -239,14 +239,40 @@ export interface LiveTelemetryEvent {
   category: string[];
   action: string | null;
   outcome: string | null;
+
+  // process.*
   pid: number | null;
+  parent_pid: number | null;
   executable: string | null;
   command_line: string | null;
+  working_directory: string | null;
+  user_name: string | null;
+
+  // file.*
   file_path: string | null;
   file_action: string | null;
+  file_size: number | null;
+
+  // network.* / source / destination
+  source_ip: string | null;
+  source_port: number | null;
   destination_ip: string | null;
   destination_port: number | null;
+  destination_domain: string | null;
   transport: string | null;
+  direction: string | null;
+
+  // dns.*
+  dns_question_name: string | null;
+
+  // library / module load
+  module_path: string | null;
+  module_signed: boolean | null;
+  module_signer: string | null;
+
+  // event provider / code / rule attribution
+  event_provider: string | null;
+  event_code: string | null;
   rule_name: string | null;
   sha256: string | null;
 }

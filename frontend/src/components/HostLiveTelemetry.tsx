@@ -1,14 +1,15 @@
 /**
- * M20.j: per-host live telemetry feed.
+ * Per-host live telemetry feed.
  *
- * Polls `GET /api/hosts/:id/telemetry?since=<iso>` every 2s and
- * appends new events to a rolling client-side buffer (cap 2000) so
- * the table behaves like a tail without unbounded memory growth.
- * Pause toggle stops polling without dropping the buffer.
+ * Polls `GET /api/hosts/:id/telemetry?since=<iso>` every 2s and appends
+ * new events to a rolling client-side buffer (cap 2000) so the table
+ * tails without unbounded memory growth.
  *
- * Each row is a flattened ECS doc — pid, action, target — same shape
- * the investigation timeline uses, plus rule attribution and SHA-256
- * when the event was hashed. A category filter narrows the view.
+ * The feed is sliced into category tabs — Processes / Files / Network /
+ * Auth / Modules / Other — each rendering its own columns so analysts
+ * see the right fields per-event-type (parent pid + working dir for
+ * processes, signed/signer for modules, source/destination tuple for
+ * network, etc.) without packing every column into one wide table.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,42 +19,405 @@ import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
 import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { applyFilters, useColumnFilters } from "@/lib/table-filters";
 import { cn } from "@/lib/utils";
 import type { LiveTelemetryEvent } from "@/types/api";
 
-// Column-id -> filterable value extractor + display label.
-// Mirrors the ColumnDef accessor pattern from the DataTable, but inline
-// because this table doesn't use DataTable.
-const LIVE_COLUMNS: { id: string; label: string; accessor: (e: LiveTelemetryEvent) => unknown }[] =
-  [
-    { id: "time", label: "time", accessor: (e) => e.timestamp },
-    { id: "category", label: "category", accessor: (e) => e.category.join(",") },
-    { id: "action", label: "action", accessor: (e) => e.action ?? "" },
-    { id: "pid", label: "pid", accessor: (e) => e.pid ?? "" },
-    {
-      id: "target",
-      label: "target",
-      accessor: (e) => e.file_path ?? e.destination_ip ?? e.executable ?? e.command_line ?? "",
-    },
-    { id: "rule", label: "rule", accessor: (e) => e.rule_name ?? "" },
-  ];
-const LIVE_LABELS = Object.fromEntries(LIVE_COLUMNS.map((c) => [c.id, c.label]));
-
 const POLL_MS = 2000;
 const BUFFER_CAP = 2000;
-const CATEGORIES = [
-  "all",
-  "process",
-  "file",
-  "network",
-  "registry",
-  "authentication",
-  "intrusion_detection",
-] as const;
 
-type Category = (typeof CATEGORIES)[number];
+interface Column {
+  id: string;
+  label: string;
+  accessor: (e: LiveTelemetryEvent) => string | number | null | undefined;
+  render: (e: LiveTelemetryEvent) => React.ReactNode;
+  className?: string;
+}
+
+const TIME_COL: Column = {
+  id: "time",
+  label: "time",
+  accessor: (e) => e.timestamp,
+  render: (e) => (
+    <time
+      dateTime={e.timestamp}
+      className="whitespace-nowrap font-mono tabular-nums text-muted-foreground"
+      title={e.timestamp}
+    >
+      {new Date(e.timestamp).toLocaleTimeString()}
+    </time>
+  ),
+};
+
+const PID_COL: Column = {
+  id: "pid",
+  label: "pid",
+  accessor: (e) => e.pid ?? "",
+  render: (e) => (
+    <span className="font-mono tabular-nums text-muted-foreground">{e.pid ?? "—"}</span>
+  ),
+};
+
+const ACTION_COL: Column = {
+  id: "action",
+  label: "action",
+  accessor: (e) => e.action ?? "",
+  render: (e) => (
+    <span className="font-mono">
+      {e.action ?? "—"}
+      {e.outcome === "failure" && <span className="ml-1 text-sev-critical">✕</span>}
+    </span>
+  ),
+};
+
+const RULE_COL: Column = {
+  id: "rule",
+  label: "rule",
+  accessor: (e) => e.rule_name ?? "",
+  render: (e) => <span className="text-muted-foreground">{e.rule_name ?? "—"}</span>,
+};
+
+const PROCESS_COLUMNS: Column[] = [
+  TIME_COL,
+  PID_COL,
+  {
+    id: "parent_pid",
+    label: "parent",
+    accessor: (e) => e.parent_pid ?? "",
+    render: (e) => (
+      <span className="font-mono tabular-nums text-muted-foreground">{e.parent_pid ?? "—"}</span>
+    ),
+  },
+  ACTION_COL,
+  {
+    id: "user",
+    label: "user",
+    accessor: (e) => e.user_name ?? "",
+    render: (e) => (
+      <span className="truncate font-mono text-muted-foreground">{e.user_name ?? "—"}</span>
+    ),
+  },
+  {
+    id: "executable",
+    label: "executable",
+    accessor: (e) => e.executable ?? "",
+    render: (e) => (
+      <span className="block max-w-md truncate font-mono" title={e.executable ?? undefined}>
+        {e.executable ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "command_line",
+    label: "command line",
+    accessor: (e) => e.command_line ?? "",
+    render: (e) => (
+      <span
+        className="block max-w-xl truncate font-mono text-muted-foreground"
+        title={e.command_line ?? undefined}
+      >
+        {e.command_line ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "sha256",
+    label: "sha256",
+    accessor: (e) => e.sha256 ?? "",
+    render: (e) => (
+      <span className="font-mono text-muted-foreground" title={e.sha256 ?? undefined}>
+        {e.sha256 ? `${e.sha256.slice(0, 12)}…` : "—"}
+      </span>
+    ),
+  },
+];
+
+const FILE_COLUMNS: Column[] = [
+  TIME_COL,
+  PID_COL,
+  {
+    id: "file_action",
+    label: "action",
+    accessor: (e) => e.file_action ?? e.action ?? "",
+    render: (e) => <span className="font-mono">{e.file_action ?? e.action ?? "—"}</span>,
+  },
+  {
+    id: "file_path",
+    label: "path",
+    accessor: (e) => e.file_path ?? "",
+    render: (e) => (
+      <span className="block max-w-xl truncate font-mono" title={e.file_path ?? undefined}>
+        {e.file_path ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "file_size",
+    label: "size",
+    accessor: (e) => e.file_size ?? "",
+    render: (e) => (
+      <span className="font-mono tabular-nums text-muted-foreground">
+        {e.file_size != null ? e.file_size.toLocaleString() : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "sha256",
+    label: "sha256",
+    accessor: (e) => e.sha256 ?? "",
+    render: (e) => (
+      <span className="font-mono text-muted-foreground" title={e.sha256 ?? undefined}>
+        {e.sha256 ? `${e.sha256.slice(0, 12)}…` : "—"}
+      </span>
+    ),
+  },
+];
+
+const NETWORK_COLUMNS: Column[] = [
+  TIME_COL,
+  PID_COL,
+  {
+    id: "direction",
+    label: "direction",
+    accessor: (e) => e.direction ?? "",
+    render: (e) => (
+      <span className="font-mono uppercase tracking-wider text-muted-foreground">
+        {e.direction ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "transport",
+    label: "transport",
+    accessor: (e) => e.transport ?? "",
+    render: (e) => (
+      <span className="font-mono uppercase text-muted-foreground">{e.transport ?? "—"}</span>
+    ),
+  },
+  {
+    id: "source",
+    label: "source",
+    accessor: (e) => e.source_ip ?? "",
+    render: (e) => (
+      <span className="font-mono tabular-nums text-muted-foreground">
+        {e.source_ip ? `${e.source_ip}${e.source_port ? `:${e.source_port}` : ""}` : "—"}
+      </span>
+    ),
+  },
+  {
+    id: "destination",
+    label: "destination",
+    accessor: (e) => e.destination_domain ?? e.destination_ip ?? "",
+    render: (e) => {
+      if (!e.destination_ip && !e.destination_domain) return <span>—</span>;
+      const port = e.destination_port ? `:${e.destination_port}` : "";
+      return (
+        <span className="font-mono tabular-nums">
+          {e.destination_domain ? (
+            <>
+              {e.destination_domain}
+              {e.destination_ip && (
+                <span className="ml-1 text-muted-foreground">
+                  ({e.destination_ip}
+                  {port})
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {e.destination_ip}
+              {port}
+            </>
+          )}
+        </span>
+      );
+    },
+  },
+  {
+    id: "dns",
+    label: "dns",
+    accessor: (e) => e.dns_question_name ?? "",
+    render: (e) => (
+      <span className="font-mono text-muted-foreground">{e.dns_question_name ?? "—"}</span>
+    ),
+  },
+];
+
+const AUTH_COLUMNS: Column[] = [
+  TIME_COL,
+  ACTION_COL,
+  {
+    id: "outcome",
+    label: "outcome",
+    accessor: (e) => e.outcome ?? "",
+    render: (e) => (
+      <span
+        className={cn(
+          "font-mono uppercase",
+          e.outcome === "failure" ? "text-sev-critical" : "text-muted-foreground",
+        )}
+      >
+        {e.outcome ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "user",
+    label: "user",
+    accessor: (e) => e.user_name ?? "",
+    render: (e) => <span className="font-mono">{e.user_name ?? "—"}</span>,
+  },
+  {
+    id: "source_ip",
+    label: "source",
+    accessor: (e) => e.source_ip ?? "",
+    render: (e) => (
+      <span className="font-mono tabular-nums text-muted-foreground">{e.source_ip ?? "—"}</span>
+    ),
+  },
+  {
+    id: "provider",
+    label: "provider",
+    accessor: (e) => e.event_provider ?? "",
+    render: (e) => (
+      <span className="font-mono text-muted-foreground">{e.event_provider ?? "—"}</span>
+    ),
+  },
+];
+
+const MODULE_COLUMNS: Column[] = [
+  TIME_COL,
+  PID_COL,
+  {
+    id: "module_path",
+    label: "module",
+    accessor: (e) => e.module_path ?? e.file_path ?? "",
+    render: (e) => (
+      <span
+        className="block max-w-xl truncate font-mono"
+        title={e.module_path ?? e.file_path ?? undefined}
+      >
+        {e.module_path ?? e.file_path ?? "—"}
+      </span>
+    ),
+  },
+  {
+    id: "signed",
+    label: "signed",
+    accessor: (e) => (e.module_signed == null ? "" : e.module_signed ? "yes" : "no"),
+    render: (e) =>
+      e.module_signed == null ? (
+        <span className="text-muted-foreground">—</span>
+      ) : e.module_signed ? (
+        <span className="font-mono text-emerald-500">signed</span>
+      ) : (
+        <span className="font-mono text-sev-critical">unsigned</span>
+      ),
+  },
+  {
+    id: "signer",
+    label: "signer",
+    accessor: (e) => e.module_signer ?? "",
+    render: (e) => (
+      <span
+        className="block max-w-xs truncate font-mono text-muted-foreground"
+        title={e.module_signer ?? undefined}
+      >
+        {e.module_signer ?? "—"}
+      </span>
+    ),
+  },
+];
+
+const OTHER_COLUMNS: Column[] = [
+  TIME_COL,
+  {
+    id: "category",
+    label: "category",
+    accessor: (e) => e.category.join(","),
+    render: (e) => (
+      <span className="font-mono text-muted-foreground">{e.category.join(",") || "—"}</span>
+    ),
+  },
+  ACTION_COL,
+  PID_COL,
+  {
+    id: "target",
+    label: "target",
+    accessor: (e) => e.file_path ?? e.destination_ip ?? e.executable ?? e.command_line ?? "",
+    render: (e) => (
+      <span className="block max-w-xl truncate font-mono text-muted-foreground">
+        {describeTarget(e)}
+      </span>
+    ),
+  },
+  RULE_COL,
+];
+
+const ALL_COLUMNS: Column[] = [
+  TIME_COL,
+  {
+    id: "category",
+    label: "category",
+    accessor: (e) => e.category.join(","),
+    render: (e) => (
+      <span className="font-mono text-muted-foreground">{e.category.join(",") || "—"}</span>
+    ),
+  },
+  ACTION_COL,
+  PID_COL,
+  {
+    id: "target",
+    label: "target",
+    accessor: (e) => e.file_path ?? e.destination_ip ?? e.executable ?? e.command_line ?? "",
+    render: (e) => (
+      <span className="block max-w-xl truncate font-mono text-muted-foreground">
+        {describeTarget(e)}
+      </span>
+    ),
+  },
+  RULE_COL,
+];
+
+// Which events land in which tab. Order matters: "library" must win
+// over plain "file" because library loads ship under the file category
+// too on some platforms.
+type TabKey = "all" | "processes" | "files" | "network" | "auth" | "modules" | "other";
+
+const TABS: { key: TabKey; label: string; columns: Column[] }[] = [
+  { key: "all", label: "All", columns: ALL_COLUMNS },
+  { key: "processes", label: "Processes", columns: PROCESS_COLUMNS },
+  { key: "files", label: "Files", columns: FILE_COLUMNS },
+  { key: "network", label: "Network", columns: NETWORK_COLUMNS },
+  { key: "auth", label: "Auth", columns: AUTH_COLUMNS },
+  { key: "modules", label: "Modules", columns: MODULE_COLUMNS },
+  { key: "other", label: "Other", columns: OTHER_COLUMNS },
+];
+
+function tabFor(e: LiveTelemetryEvent): TabKey {
+  const cats = e.category;
+  if (cats.includes("library")) return "modules";
+  if (cats.includes("process")) return "processes";
+  if (cats.includes("network") || cats.includes("dns")) return "network";
+  if (cats.includes("authentication")) return "auth";
+  if (cats.includes("file")) return "files";
+  return "other";
+}
+
+function bucketize(events: LiveTelemetryEvent[]): Record<TabKey, LiveTelemetryEvent[]> {
+  const out: Record<TabKey, LiveTelemetryEvent[]> = {
+    all: events,
+    processes: [],
+    files: [],
+    network: [],
+    auth: [],
+    modules: [],
+    other: [],
+  };
+  for (const e of events) out[tabFor(e)].push(e);
+  return out;
+}
 
 interface Props {
   hostId: string;
@@ -62,13 +426,9 @@ interface Props {
 export function HostLiveTelemetry({ hostId }: Props) {
   const [paused, setPaused] = useState(false);
   const [since, setSince] = useState<string | null>(null);
-  const [category, setCategory] = useState<Category>("all");
+  const [tab, setTab] = useState<TabKey>("all");
   const [buffer, setBuffer] = useState<LiveTelemetryEvent[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // Column filters share the same URL param + saved-set storage as the
-  // server-side tables. Live telemetry filters always run client-side.
   const { filters: columnFilters, setFilters: setColumnFilters } = useColumnFilters();
-  const accessorMap = useMemo(() => new Map(LIVE_COLUMNS.map((c) => [c.id, c.accessor])), []);
 
   const { data, isError, error } = useQuery({
     queryKey: ["host-live-telemetry", hostId, since],
@@ -78,8 +438,6 @@ export function HostLiveTelemetry({ hostId }: Props) {
   });
 
   // Merge new events into the rolling buffer + advance `since`.
-  // Keying on data.latest_timestamp prevents re-applying the same
-  // batch when react-query returns the cached result on a stale tick.
   useEffect(() => {
     if (!data || !data.events.length) return;
     setBuffer((prev) => {
@@ -91,22 +449,16 @@ export function HostLiveTelemetry({ hostId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.latest_timestamp]);
 
-  // Auto-scroll to bottom when new events arrive — but only if the
-  // user is already near the bottom, so they can scroll up to inspect
-  // without being yanked back every tick.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
-  }, [buffer]);
-
-  const filtered = useMemo(() => {
-    const byCategory =
-      category === "all" ? buffer : buffer.filter((e) => e.category.includes(category));
-    if (columnFilters.length === 0) return byCategory;
-    return applyFilters(byCategory, columnFilters, (row, col) => accessorMap.get(col)?.(row));
-  }, [buffer, category, columnFilters, accessorMap]);
+  const buckets = useMemo(() => bucketize(buffer), [buffer]);
+  const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
+  const columnLabels = useMemo(
+    () => Object.fromEntries(activeTab.columns.map((c) => [c.id, c.label])),
+    [activeTab],
+  );
+  const accessorMap = useMemo(
+    () => new Map(activeTab.columns.map((c) => [c.id, c.accessor])),
+    [activeTab],
+  );
 
   return (
     <Card>
@@ -114,31 +466,20 @@ export function HostLiveTelemetry({ hostId }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">
             Live telemetry
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {filtered.length} of {buffer.length} buffered
+            <span className="ml-2 text-xs font-normal tabular-nums text-muted-foreground">
+              {buffer.length} buffered
               {paused ? " · paused" : ` · polling every ${POLL_MS / 1000}s`}
             </span>
           </CardTitle>
           <div className="flex items-center gap-2">
-            <Select
-              value={category}
-              onChange={(e) => setCategory(e.target.value as Category)}
-              className="h-8 w-44"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
             <Button size="sm" variant="outline" onClick={() => setPaused((v) => !v)}>
               {paused ? (
                 <>
-                  <Play className="h-3.5 w-3.5" /> Resume
+                  <Play className="h-3.5 w-3.5" aria-hidden="true" /> Resume
                 </>
               ) : (
                 <>
-                  <Pause className="h-3.5 w-3.5" /> Pause
+                  <Pause className="h-3.5 w-3.5" aria-hidden="true" /> Pause
                 </>
               )}
             </Button>
@@ -151,97 +492,127 @@ export function HostLiveTelemetry({ hostId }: Props) {
               }}
               title="Clear buffer + reseed from the recent backlog on next poll"
             >
-              <Trash className="h-3.5 w-3.5" /> Clear
+              <Trash className="h-3.5 w-3.5" aria-hidden="true" /> Clear
             </Button>
           </div>
         </div>
         {isError && (
-          <p className="mt-1 text-xs text-destructive">
+          <p className="mt-1 text-xs text-destructive" role="alert">
             {error instanceof Error ? error.message : "telemetry feed error"}
           </p>
         )}
-        <div className="mt-2">
-          <FilterChipBar
-            tableId={`host-live-${hostId}`}
-            filters={columnFilters}
-            columnLabels={LIVE_LABELS}
-            onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
-            onClear={() => setColumnFilters([])}
-            onApply={setColumnFilters}
-          />
-        </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div ref={scrollRef} className="max-h-[640px] overflow-auto">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 z-10 bg-card">
-              <tr className="border-b text-left text-muted-foreground">
-                {LIVE_COLUMNS.map((c) => (
-                  <th key={c.id} className="px-3 py-2 font-medium">
-                    <ColumnHeaderFilter
-                      colId={c.id}
-                      label={c.label}
-                      onAdd={(f) => setColumnFilters([...columnFilters, f])}
-                    />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
-                    {buffer.length === 0
-                      ? "waiting for telemetry…"
-                      : `no events match the "${category}" filter`}
-                  </td>
-                </tr>
-              )}
-              {filtered.map((e) => (
-                <TelemetryRow key={e.event_id} event={e} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
+          <TabsList className="mx-3 mt-1">
+            {TABS.map((t) => (
+              <TabsTrigger key={t.key} value={t.key}>
+                <span>{t.label}</span>
+                <span className="ml-1.5 rounded-sm bg-muted px-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {buckets[t.key].length}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {TABS.map((t) => (
+            <TabsContent key={t.key} value={t.key} className="mt-0">
+              <div className="px-3 py-2">
+                <FilterChipBar
+                  tableId={`host-live-${hostId}-${t.key}`}
+                  filters={columnFilters}
+                  columnLabels={columnLabels}
+                  onRemove={(i) => setColumnFilters(columnFilters.filter((_, j) => j !== i))}
+                  onClear={() => setColumnFilters([])}
+                  onApply={setColumnFilters}
+                />
+              </div>
+              <TelemetryTable
+                events={buckets[t.key]}
+                columns={t.columns}
+                accessorMap={accessorMap}
+                columnFilters={columnFilters}
+                onAddFilter={(f) => setColumnFilters([...columnFilters, f])}
+              />
+            </TabsContent>
+          ))}
+        </Tabs>
       </CardContent>
     </Card>
   );
 }
 
-function TelemetryRow({ event }: { event: LiveTelemetryEvent }) {
-  const isFailure = event.outcome === "failure";
-  const isAlert = event.category.includes("intrusion_detection");
+interface TableProps {
+  events: LiveTelemetryEvent[];
+  columns: Column[];
+  accessorMap: Map<string, Column["accessor"]>;
+  columnFilters: ReturnType<typeof useColumnFilters>["filters"];
+  onAddFilter: (f: ReturnType<typeof useColumnFilters>["filters"][number]) => void;
+}
+
+function TelemetryTable({ events, columns, accessorMap, columnFilters, onAddFilter }: TableProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const filtered = useMemo(() => {
+    if (columnFilters.length === 0) return events;
+    return applyFilters(events, columnFilters, (row, col) => accessorMap.get(col)?.(row));
+  }, [events, columnFilters, accessorMap]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [filtered.length]);
+
   return (
-    <tr
-      className={cn(
-        "border-b border-border/40 align-top",
-        isAlert && "bg-sev-critical/5",
-        isFailure && !isAlert && "bg-sev-medium/5",
-      )}
-    >
-      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-muted-foreground">
-        {new Date(event.timestamp).toLocaleTimeString()}
-      </td>
-      <td className="px-3 py-1.5 font-mono text-muted-foreground">
-        {event.category.join(",") || "—"}
-      </td>
-      <td className="px-3 py-1.5 font-mono">
-        {event.action ?? "—"}
-        {isFailure && <span className="ml-1 text-sev-critical">✕</span>}
-      </td>
-      <td className="whitespace-nowrap px-3 py-1.5 font-mono text-muted-foreground">
-        {event.pid ?? "—"}
-      </td>
-      <td className="px-3 py-1.5 font-mono break-all text-muted-foreground">
-        {describeTarget(event)}
-      </td>
-      <td className="px-3 py-1.5 text-muted-foreground">{event.rule_name ?? "—"}</td>
-    </tr>
+    <div ref={scrollRef} className="max-h-[640px] overflow-auto" aria-live="polite">
+      <table className="w-full text-xs">
+        <thead className="sticky top-0 z-10 bg-card">
+          <tr className="border-b text-left text-muted-foreground">
+            {columns.map((c) => (
+              <th key={c.id} className={cn("px-3 py-2 font-medium", c.className)}>
+                <ColumnHeaderFilter colId={c.id} label={c.label} onAdd={onAddFilter} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-6 text-center text-muted-foreground">
+                {events.length === 0 ? "Waiting for telemetry…" : "No events match the filters."}
+              </td>
+            </tr>
+          )}
+          {filtered.map((e) => {
+            const isFailure = e.outcome === "failure";
+            const isAlert = e.category.includes("intrusion_detection");
+            return (
+              <tr
+                key={e.event_id}
+                className={cn(
+                  "border-b border-border/40 align-top",
+                  isAlert && "bg-sev-critical/5",
+                  isFailure && !isAlert && "bg-sev-medium/5",
+                )}
+              >
+                {columns.map((c) => (
+                  <td key={c.id} className="px-3 py-1.5">
+                    {c.render(e)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function describeTarget(e: LiveTelemetryEvent): string {
   if (e.file_path) return e.file_path;
+  if (e.destination_domain) return e.destination_domain;
   if (e.destination_ip) {
     const port = e.destination_port ? `:${e.destination_port}` : "";
     const proto = e.transport ? `${e.transport} ` : "";
