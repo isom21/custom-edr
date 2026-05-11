@@ -23,12 +23,10 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.core.security import hash_enrollment_token
 from app.models import (
     Command,
     CommandKind,
     CommandStatus,
-    EnrollmentToken,
     Host,
     HostStatus,
     IocEntry,
@@ -49,6 +47,11 @@ from app.proto_gen.edr.v1 import (
 from app.services import audit
 from app.services import minio as minio_svc  # noqa: F401 — kept for legacy callers
 from app.services.ca import CaService
+from app.services.enrollment import (
+    EnrollmentTokenInvalid,
+    bind_token_to_host,
+    consume_token,
+)
 from app.services.jobs import (
     aggregate_status,
     artifact_bucket_for,
@@ -271,13 +274,14 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         if not request.hostname:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "missing hostname")
 
-        th = hash_enrollment_token(request.enrollment_token)
-        token = (
-            await db.execute(select(EnrollmentToken).where(EnrollmentToken.token_hash == th))
-        ).scalar_one_or_none()
-        now = datetime.now(UTC)
-        if token is None or token.used_at is not None or token.expires_at < now:
+        # Atomic UPDATE ... WHERE used_at IS NULL RETURNING — see
+        # services/enrollment.py. Same gate the REST path uses, so the
+        # two never disagree about which call wins under contention.
+        try:
+            token_id = await consume_token(db, request.enrollment_token)
+        except EnrollmentTokenInvalid:
             await context.abort(grpc.StatusCode.PERMISSION_DENIED, "invalid or expired token")
+        now = datetime.now(UTC)
 
         os_family = PB_OS_FAMILY.get(request.os.family.lower())
         if os_family is None:
@@ -300,8 +304,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         issued = await ca.sign_csr(request.csr_pem, host_id=str(host.id), hostname=request.hostname)
         host.cert_fingerprint = issued.fingerprint_sha256
 
-        token.used_at = now
-        token.used_by_host_id = host.id
+        await bind_token_to_host(db, token_id, host.id)
 
         await audit.record(
             db,

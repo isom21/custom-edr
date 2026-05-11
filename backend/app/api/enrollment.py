@@ -40,6 +40,11 @@ from app.schemas.enrollment import (
 )
 from app.services import audit
 from app.services.ca import CaService
+from app.services.enrollment import (
+    EnrollmentTokenInvalid,
+    bind_token_to_host,
+    consume_token,
+)
 
 router = APIRouter(prefix="/api/enrollment", tags=["enrollment"])
 
@@ -130,17 +135,14 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
 
     Anonymous TLS — no client cert required (the agent doesn't have one yet).
     """
-    th = hash_enrollment_token(payload.enrollment_token)
-    token = (
-        await db.execute(select(EnrollmentToken).where(EnrollmentToken.token_hash == th))
-    ).scalar_one_or_none()
-    if token is None:
-        raise bad_request("invalid enrollment token")
+    # Atomic UPDATE ... WHERE used_at IS NULL RETURNING — see
+    # services/enrollment.py. Two concurrent enroll calls with the same
+    # token cannot both pass this gate.
+    try:
+        token_id = await consume_token(db, payload.enrollment_token)
+    except EnrollmentTokenInvalid as exc:
+        raise bad_request("invalid or expired token") from exc
     now = datetime.now(UTC)
-    if token.used_at is not None:
-        raise bad_request("token already used")
-    if token.expires_at < now:
-        raise bad_request("token expired")
 
     # M12.e: detect re-enrollment under an existing hostname within
     # a short window — that's the signature of an attacker who wiped
@@ -214,8 +216,7 @@ async def enroll(payload: EnrollRequest, request: Request, db: DbSession) -> Enr
     )
     host.cert_fingerprint = issued.fingerprint_sha256
 
-    token.used_at = now
-    token.used_by_host_id = host.id
+    await bind_token_to_host(db, token_id, host.id)
 
     await audit.record(
         db,
