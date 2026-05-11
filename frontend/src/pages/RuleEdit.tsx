@@ -3,7 +3,9 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { rulesApi } from "@/api/rules";
+import { ruleGroupsApi } from "@/api/ruleGroups";
 import { ApiError } from "@/api/client";
+import { RuleActionBadge } from "@/components/badges";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +19,9 @@ import type { IocKind, RuleAction, RuleCreate, RuleKind, Severity } from "@/type
 const SEVERITIES: Severity[] = ["info", "low", "medium", "high", "critical"];
 const ACTIONS: RuleAction[] = ["alert", "block", "quarantine"];
 const IOC_KINDS: IocKind[] = ["hash_sha256", "hash_md5", "hash_sha1", "filename", "filepath"];
+const ACTION_ORDER: Record<RuleAction, number> = { alert: 0, block: 1, quarantine: 2 };
+// Backend sentinel for "unassign group" on PATCH — see api/rules.py.
+const NULL_GROUP_SENTINEL = "00000000-0000-0000-0000-000000000000";
 
 export function RuleEdit() {
   const { id } = useParams<{ id: string }>();
@@ -36,10 +41,22 @@ export function RuleEdit() {
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<Severity>("medium");
   const [action, setAction] = useState<RuleAction>("alert");
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [body, setBody] = useState("");
   const [iocs, setIocs] = useState<{ kind: IocKind; value: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Groups list scoped to the current kind — cross-kind assignment is
+  // rejected by the backend, so we just hide those entries client-side.
+  const groupsQ = useQuery({
+    queryKey: ["rule-groups", kind],
+    queryFn: () => ruleGroupsApi.list({ kind, limit: 100 }),
+  });
+  const groups = groupsQ.data?.items ?? [];
+  const selectedGroup = groups.find((g) => g.id === groupId) ?? null;
+  const ceiling = selectedGroup?.max_action ?? null;
+  const clamped = ceiling != null && ACTION_ORDER[action] > ACTION_ORDER[ceiling] ? ceiling : null;
 
   useEffect(() => {
     if (existing.data) {
@@ -49,6 +66,7 @@ export function RuleEdit() {
       setDescription(r.description ?? "");
       setSeverity(r.severity);
       setAction(r.action);
+      setGroupId(r.group_id);
       setEnabled(r.enabled);
       setBody(r.body ?? "");
       setIocs(r.iocs.map((e) => ({ kind: e.kind, value: e.value })));
@@ -67,7 +85,18 @@ export function RuleEdit() {
         body: kind === "ioc" ? null : body,
         iocs: kind === "ioc" ? iocs : undefined,
       };
-      return isNew ? rulesApi.create(payload) : rulesApi.update(id!, payload);
+      if (isNew) {
+        // Create accepts a real UUID or null; sentinel only matters on PATCH.
+        payload.group_id = groupId;
+        return rulesApi.create(payload);
+      }
+      // Update: send sentinel when the user cleared the group so the
+      // backend writes NULL (passing null would be treated as "no change").
+      const updatePayload = {
+        ...payload,
+        group_id: groupId ?? NULL_GROUP_SENTINEL,
+      };
+      return rulesApi.update(id!, updatePayload);
     },
     onSuccess: (rule) => {
       qc.invalidateQueries({ queryKey: ["rules"] });
@@ -113,7 +142,13 @@ export function RuleEdit() {
               <Label>Kind</Label>
               <Select
                 value={kind}
-                onChange={(e) => setKind(e.target.value as RuleKind)}
+                onChange={(e) => {
+                  setKind(e.target.value as RuleKind);
+                  // Groups are kind-scoped — selecting a yara rule into
+                  // a sigma group is a 400 from the backend, so we drop
+                  // the current selection whenever kind changes.
+                  setGroupId(null);
+                }}
                 disabled={!isNew}
               >
                 <option value="yara">YARA</option>
@@ -148,6 +183,32 @@ export function RuleEdit() {
                   </option>
                 ))}
               </Select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Group</Label>
+              <Select value={groupId ?? ""} onChange={(e) => setGroupId(e.target.value || null)}>
+                <option value="">(none — ungrouped)</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name} · max action: {g.max_action}
+                  </option>
+                ))}
+              </Select>
+              {clamped ? (
+                <p className="text-xs text-muted-foreground">
+                  Group ceiling clamps this rule's effective action to{" "}
+                  <RuleActionBadge action={clamped} /> at fire time.
+                </p>
+              ) : selectedGroup ? (
+                <p className="text-xs text-muted-foreground">
+                  Group ceiling allows the configured action — fires as{" "}
+                  <RuleActionBadge action={action} />.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No group selected — action runs unclamped.
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2 md:col-span-2">
               <input
