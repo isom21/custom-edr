@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vigil-mcp"
+version = "0.1.0"
+description = "Model Context Protocol server for the Vigil EDR manager"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Vigil contributors" }]
+dependencies = [
+    "mcp>=1.4.0",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.scripts]
+vigil-mcp = "vigil_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["vigil_mcp*"]
