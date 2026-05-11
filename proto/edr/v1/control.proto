@@ -17,6 +17,14 @@ service AgentService {
 
   // One-shot: agent submits CSR with enrollment token, gets cert back.
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
+
+  // M23.c: Jobs engine. Agent asks for a short-lived presigned MinIO
+  // PUT URL when it needs to upload an artifact (host_sweep emits many
+  // files of unknown count up front, so we don't pre-allocate URLs in
+  // RunJobCmd). Upload happens out-of-band over HTTPS to MinIO; once
+  // the PUT succeeds the agent sends a JobArtifactReport on the
+  // existing stream so the manager records the metadata.
+  rpc RequestArtifactUpload(ArtifactUploadRequest) returns (ArtifactUploadGrant);
 }
 
 // =============== Agent → Manager ===============
@@ -28,6 +36,12 @@ message ClientMessage {
     Heartbeat heartbeat = 3;
     CommandResult command_result = 4;
     ScanReport scan_report = 5;
+    // M23.c: Jobs progress + artifact reports. JobCompleted is folded
+    // into CommandResult (RUN_JOB rides the existing Command path)
+    // — these two carry the *richer* mid-flight info that doesn't fit
+    // a CommandResult.
+    JobProgress job_progress = 6;
+    JobArtifactReport job_artifact = 7;
   }
 }
 
@@ -165,7 +179,22 @@ message Command {
     UnblockFileCmd unblock_file = 18;
     QuarantineFileCmd quarantine_file = 19;
     ReleaseQuarantineCmd release_quarantine = 20;
+    RunJobCmd run_job = 21;
   }
+}
+
+// M23.c: Jobs engine — generic envelope. The agent uses `job_kind`
+// (matches the JobKind enum on the manager) to pick a handler from
+// its dispatch table; `parameters_json` carries kind-specific config.
+// Keeping the wire layout generic means new job kinds don't need a
+// new proto message.
+message RunJobCmd {
+  string job_id = 1;
+  string run_id = 2;
+  string job_kind = 3;
+  // JSON-encoded parameters dict. Schema is enforced at the
+  // dispatcher level (Rust handlers parse with serde_json).
+  string parameters_json = 4;
 }
 
 // M11.f: agent moves the file to a SYSTEM-only quarantine directory,
@@ -256,4 +285,67 @@ message EnrollResponse {
   bytes client_cert_pem = 2;            // signed by manager CA
   bytes ca_chain_pem = 3;               // CA cert(s) for trust anchor
   google.protobuf.Timestamp cert_not_after = 4;
+}
+
+// =============== Jobs engine (M23) ===============
+
+enum JobRunStatus {
+  JOB_RUN_STATUS_UNSPECIFIED = 0;
+  JOB_RUN_STATUS_DISPATCHED = 1;
+  JOB_RUN_STATUS_RUNNING = 2;
+  JOB_RUN_STATUS_COMPLETED = 3;
+  JOB_RUN_STATUS_FAILED = 4;
+  JOB_RUN_STATUS_CANCELED = 5;
+  JOB_RUN_STATUS_TIMEOUT = 6;
+}
+
+// Mid-flight progress ping from agent to manager. Optional — only
+// long-running jobs (yara_fs_scan, host_sweep) need it; one-shot kinds
+// (kill_process) can skip straight to CommandResult.
+message JobProgress {
+  string run_id = 1;
+  JobRunStatus status = 2;
+  uint32 progress_pct = 3;             // 0..100
+  string progress_message = 4;         // optional human-readable note
+  string error = 5;                    // populated only on FAILED
+}
+
+// Agent reports an artifact upload completed. The agent first PUT the
+// blob to MinIO using a presigned URL from RequestArtifactUpload; this
+// message tells the manager to write the JobArtifact row.
+message JobArtifactReport {
+  string run_id = 1;
+  string bucket = 2;
+  string object_key = 3;
+  // Artifact taxonomy. Matches JobArtifactKind on the manager:
+  //   json | file | yara_matches | ioc_matches | hash_list |
+  //   shell_output | diagnostic_bundle.
+  string artifact_kind = 4;
+  uint64 size_bytes = 5;
+  string sha256 = 6;
+  // JSON-encoded metadata (e.g. {"file_count": 12, "match_count": 3}).
+  string metadata_json = 7;
+}
+
+// Ask the manager for a presigned PUT URL. Returned URL is short-lived
+// (default 15 min) — agents should PUT immediately.
+message ArtifactUploadRequest {
+  string run_id = 1;
+  string original_filename = 2;
+  // Hint for the manager so it can validate quota / pick the right
+  // bucket. Required.
+  string artifact_kind = 3;
+  uint64 expected_size_bytes = 4;
+}
+
+message ArtifactUploadGrant {
+  string url = 1;                      // HTTPS PUT URL
+  string bucket = 2;
+  string object_key = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  // Required HTTP headers the agent must send with the PUT. MinIO's
+  // presigned URL accepts a content-length and standard headers; this
+  // field exists so we can extend (e.g. SSE-C) without re-rolling
+  // the protocol.
+  map<string, string> required_headers = 5;
 }

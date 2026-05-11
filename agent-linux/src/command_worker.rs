@@ -281,6 +281,17 @@ async fn dispatch(
         Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
         }
+        Body::RunJob(cmd) => {
+            // M23.c: protocol wired but no handlers registered yet
+            // (M23.d–g add them). Reply with a clear error so the
+            // JobRun flips to FAILED on the manager side and the UI
+            // doesn't spin forever.
+            anyhow::bail!(
+                "run_job: no handler for kind '{}' on linux yet (run_id={})",
+                cmd.job_kind,
+                cmd.run_id
+            );
+        }
     }
     Ok(())
 }

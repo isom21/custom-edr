@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import grpc
@@ -32,6 +32,12 @@ from app.models import (
     Host,
     HostStatus,
     IocEntry,
+    Job,
+    JobArtifact,
+    JobArtifactKind,
+    JobKind,
+    JobRun,
+    JobRunStatus,
     Rule,
     RuleKind,
 )
@@ -41,7 +47,13 @@ from app.proto_gen.edr.v1 import (
     control_pb2_grpc,
 )
 from app.services import audit
+from app.services import minio as minio_svc
 from app.services.ca import CaService
+from app.services.jobs import (
+    aggregate_status,
+    artifact_bucket_for,
+    artifact_object_key,
+)
 from app.services.kafka import producer
 
 log = structlog.get_logger()
@@ -190,6 +202,23 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             return None
         pb.release_quarantine.sha256 = sha256
         pb.release_quarantine.target_path = str(payload.get("target_path") or "")
+        return pb
+    if cmd.kind == CommandKind.RUN_JOB:
+        # Jobs engine envelope. Payload shape was written by
+        # services.jobs.fanout and contains job_id / run_id / job_kind /
+        # parameters. The agent's JobDispatcher (agent-core::jobs)
+        # routes by job_kind.
+        import json as _json
+
+        job_id = str(payload.get("job_id") or "")
+        run_id = str(payload.get("run_id") or "")
+        job_kind = str(payload.get("job_kind") or "")
+        if not (job_id and run_id and job_kind):
+            return None
+        pb.run_job.job_id = job_id
+        pb.run_job.run_id = run_id
+        pb.run_job.job_kind = job_kind
+        pb.run_job.parameters_json = _json.dumps(payload.get("parameters") or {})
         return pb
     return None
 
@@ -518,14 +547,234 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                             cmd.completed_at = datetime.now(UTC)
                             if msg.command_result.error:
                                 cmd.error = msg.command_result.error[:512]
+                            # M23.c: mirror onto the JobRun so the Jobs
+                            # page reflects terminal status, then
+                            # re-aggregate the parent Job.
+                            if cmd.kind == CommandKind.RUN_JOB:
+                                run_stmt = select(JobRun).where(JobRun.command_id == cmd.id)
+                                run = (await db.execute(run_stmt)).scalar_one_or_none()
+                                if run is not None:
+                                    run.status = (
+                                        JobRunStatus.COMPLETED
+                                        if msg.command_result.success
+                                        else JobRunStatus.FAILED
+                                    )
+                                    run.completed_at = datetime.now(UTC)
+                                    if msg.command_result.error:
+                                        run.error = msg.command_result.error[:1024]
+                                    await db.flush()
+                                    job_status = await aggregate_status(db, run.job_id)
+                                    job = await db.get(Job, run.job_id)
+                                    if job is not None:
+                                        job.status = job_status
                             await db.commit()
                 except (ValueError, Exception):
                     log.exception(
                         "grpc.command_result.persist_failed",
                         command_id=msg.command_result.command_id,
                     )
+            elif kind == "job_progress":
+                await self._handle_job_progress(host_id, msg.job_progress)
+            elif kind == "job_artifact":
+                await self._handle_job_artifact(host_id, msg.job_artifact)
             else:
                 log.debug("grpc.host_stream.unknown_payload", host_id=str(host_id), kind=kind)
+
+    # M23.c -----------------------------------------------------------
+    # Jobs progress + artifact + presigned-upload glue.
+
+    async def _handle_job_progress(
+        self,
+        host_id: UUID,
+        progress: control_pb2.JobProgress,
+    ) -> None:
+        try:
+            run_uuid = UUID(progress.run_id)
+        except ValueError:
+            log.warning("grpc.job_progress.bad_run_id", run_id=progress.run_id)
+            return
+        async with SessionLocal() as db:
+            run = await db.get(JobRun, run_uuid)
+            if run is None or run.host_id != host_id:
+                log.warning(
+                    "grpc.job_progress.unknown_run",
+                    run_id=progress.run_id,
+                    host_id=str(host_id),
+                )
+                return
+            # Wire status → ORM status. JOB_RUN_STATUS_UNSPECIFIED keeps
+            # the current value (agents can pulse progress without
+            # restating the status field).
+            wire = progress.status
+            ALL = control_pb2.JobRunStatus  # type: ignore[attr-defined]  # noqa: N806 — wire enum constant
+            if wire == ALL.JOB_RUN_STATUS_RUNNING:
+                run.status = JobRunStatus.RUNNING
+            elif wire == ALL.JOB_RUN_STATUS_DISPATCHED:
+                run.status = JobRunStatus.DISPATCHED
+            elif wire == ALL.JOB_RUN_STATUS_COMPLETED:
+                run.status = JobRunStatus.COMPLETED
+                run.completed_at = datetime.now(UTC)
+            elif wire == ALL.JOB_RUN_STATUS_FAILED:
+                run.status = JobRunStatus.FAILED
+                run.completed_at = datetime.now(UTC)
+            elif wire == ALL.JOB_RUN_STATUS_CANCELED:
+                run.status = JobRunStatus.CANCELED
+                run.completed_at = datetime.now(UTC)
+            elif wire == ALL.JOB_RUN_STATUS_TIMEOUT:
+                run.status = JobRunStatus.TIMEOUT
+                run.completed_at = datetime.now(UTC)
+            run.progress_pct = max(0, min(100, int(progress.progress_pct)))
+            if progress.progress_message:
+                run.progress_message = progress.progress_message[:256]
+            if progress.error:
+                run.error = progress.error[:1024]
+            run.last_progress_at = datetime.now(UTC)
+            # Roll up the parent Job if the run reached a terminal
+            # state — list/list-runs pages should reflect it.
+            if run.status in {
+                JobRunStatus.COMPLETED,
+                JobRunStatus.FAILED,
+                JobRunStatus.CANCELED,
+                JobRunStatus.TIMEOUT,
+            }:
+                await db.flush()
+                job_status = await aggregate_status(db, run.job_id)
+                job = await db.get(Job, run.job_id)
+                if job is not None:
+                    job.status = job_status
+            await db.commit()
+
+    async def _handle_job_artifact(
+        self,
+        host_id: UUID,
+        report: control_pb2.JobArtifactReport,
+    ) -> None:
+        try:
+            run_uuid = UUID(report.run_id)
+        except ValueError:
+            log.warning("grpc.job_artifact.bad_run_id", run_id=report.run_id)
+            return
+        kind_str = report.artifact_kind or "file"
+        try:
+            kind = JobArtifactKind(kind_str)
+        except ValueError:
+            log.warning("grpc.job_artifact.bad_kind", kind=kind_str)
+            return
+        async with SessionLocal() as db:
+            run = await db.get(JobRun, run_uuid)
+            if run is None or run.host_id != host_id:
+                log.warning(
+                    "grpc.job_artifact.unknown_run",
+                    run_id=report.run_id,
+                    host_id=str(host_id),
+                )
+                return
+            # Cross-check that the bucket the agent reports matches one
+            # we own. Refuse arbitrary buckets so a compromised agent
+            # can't make us index objects in unrelated buckets.
+            if report.bucket not in {
+                settings.minio_bucket_artifacts,
+                settings.minio_bucket_snapshots,
+            }:
+                log.warning(
+                    "grpc.job_artifact.unknown_bucket",
+                    bucket=report.bucket,
+                    run_id=report.run_id,
+                )
+                return
+            metadata: dict = {}
+            if report.metadata_json:
+                try:
+                    import json as _json
+
+                    metadata = _json.loads(report.metadata_json) or {}
+                    if not isinstance(metadata, dict):
+                        metadata = {"value": metadata}
+                except (ValueError, TypeError):
+                    metadata = {"raw": report.metadata_json[:1024]}
+            artifact = JobArtifact(
+                job_run_id=run.id,
+                kind=kind,
+                bucket=report.bucket,
+                object_key=report.object_key[:512],
+                size_bytes=int(report.size_bytes),
+                sha256=report.sha256[:64] if report.sha256 else None,
+                artifact_metadata=metadata,
+            )
+            db.add(artifact)
+            await audit.record(
+                db,
+                actor=None,
+                action="artifact.upload",
+                resource_type="artifact",
+                resource_id=str(artifact.id),
+                payload={
+                    "run_id": str(run.id),
+                    "host_id": str(host_id),
+                    "size_bytes": int(report.size_bytes),
+                    "kind": kind_str,
+                },
+            )
+            await db.commit()
+
+    async def RequestArtifactUpload(  # noqa: N802 - gRPC method
+        self,
+        request: control_pb2.ArtifactUploadRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> control_pb2.ArtifactUploadGrant:
+        host_id_str = _peer_host_id(context)
+        if not host_id_str:
+            await context.abort(grpc.StatusCode.UNAUTHENTICATED, "no client cert")
+        try:
+            host_uuid = UUID(host_id_str)
+            run_uuid = UUID(request.run_id)
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "bad uuid")
+            raise
+
+        try:
+            JobArtifactKind(request.artifact_kind or "file")
+        except ValueError:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unknown artifact_kind")
+            raise
+
+        async with SessionLocal() as db:
+            run = await db.get(JobRun, run_uuid)
+            if run is None or run.host_id != host_uuid:
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "run not on this host")
+            assert run is not None  # for type narrowing past abort()
+            job = await db.get(Job, run.job_id)
+            if job is None:
+                await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "job gone")
+            assert job is not None
+            bucket = artifact_bucket_for(JobKind(job.kind.value))
+
+        object_key = artifact_object_key(
+            run_id=run_uuid,
+            original_name=request.original_filename or "artifact.bin",
+        )
+        url = await minio_svc.presigned_put(bucket=bucket, key=object_key)
+        expires_pb = timestamp_pb2.Timestamp()
+        expires_pb.FromDatetime(
+            (datetime.now(UTC) + timedelta(seconds=settings.minio_presign_put_ttl_seconds))
+            .replace(tzinfo=None)
+        )
+        log.info(
+            "grpc.artifact_upload.granted",
+            host_id=str(host_uuid),
+            run_id=request.run_id,
+            artifact_kind=request.artifact_kind,
+            bucket=bucket,
+            object_key=object_key,
+        )
+        return control_pb2.ArtifactUploadGrant(
+            url=url,
+            bucket=bucket,
+            object_key=object_key,
+            expires_at=expires_pb,
+        )
+
+    # End M23.c -------------------------------------------------------
 
     async def _build_rule_sync(self, db: AsyncSession) -> control_pb2.RuleSync:
         """Snapshot enabled YARA + IOC rules and pack into a RuleSync message.

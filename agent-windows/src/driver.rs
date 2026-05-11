@@ -489,6 +489,16 @@ async fn dispatch_one(cmd: &p::Command) -> Result<()> {
         | Body::ReleaseQuarantine(_) => {
             anyhow::bail!("command kind not implemented on Windows yet");
         }
+        Body::RunJob(cmd) => {
+            // M23.c: protocol wired but no handlers registered yet
+            // (M23.d–g add them). Reply with a clear error so the
+            // JobRun flips to FAILED on the manager side.
+            anyhow::bail!(
+                "run_job: no handler for kind '{}' on windows yet (run_id={})",
+                cmd.job_kind,
+                cmd.run_id
+            );
+        }
     }
     Ok(())
 }
