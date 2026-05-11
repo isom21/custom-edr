@@ -18,6 +18,8 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    import asyncio
+
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
         processors=[
@@ -32,9 +34,26 @@ async def lifespan(_app: FastAPI):
     from app.services.alert_broker import broker
 
     await broker.start()
+
+    # M-audit-and-auth #6: audit-chain verifier as a background task.
+    # `VIGIL_AUDIT_VERIFIER_INTERVAL_S=0` opts out (CI, tests).
+    import os as _os
+
+    verifier_task: asyncio.Task | None = None
+    if _os.environ.get("VIGIL_AUDIT_VERIFIER_INTERVAL_S", "300") != "0":
+        from app.workers.audit_verifier_loop import run_forever as _verifier_loop
+
+        verifier_task = asyncio.create_task(_verifier_loop())
+
     try:
         yield
     finally:
+        if verifier_task is not None:
+            verifier_task.cancel()
+            try:
+                await verifier_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await broker.stop()
         log.info("edr.backend.stopping")
 

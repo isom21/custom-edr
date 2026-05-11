@@ -59,3 +59,21 @@ commands_queued_total: Final[Counter] = Counter(
     "Commands queued via /api/hosts/{id}/commands or auto-action.",
     labelnames=("kind",),
 )
+
+# Audit-chain integrity (M-audit-and-auth #6). The background
+# verifier worker updates these on every pass; the values flatline at
+# 0 / 1 if a break is ever detected, which is what alerting should
+# care about. Last-success timestamp is the trip-wire for "the
+# verifier itself has stopped running" (gauge stale -> alarm).
+audit_chain_breaks: Final[Gauge] = Gauge(
+    "edr_manager_audit_chain_breaks",
+    "Number of HMAC-chain breaks observed in the most recent audit-log scan.",
+)
+audit_chain_rows_examined: Final[Gauge] = Gauge(
+    "edr_manager_audit_chain_rows_examined",
+    "Rows scanned in the most recent audit-log integrity pass.",
+)
+audit_chain_last_run_timestamp: Final[Gauge] = Gauge(
+    "edr_manager_audit_chain_last_run_timestamp",
+    "Unix timestamp of the most recent audit-log integrity pass.",
+)
