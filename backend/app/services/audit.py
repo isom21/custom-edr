@@ -60,6 +60,15 @@ def _load_hmac_key() -> bytes | None:
 
 # Cache the key at import time. Rotating the key requires a process
 # restart, which is desired — silent rotation could mask a break.
+#
+# Operational note (LOW #2): the key load is per-process. If you
+# rotate `VIGIL_AUDIT_HMAC_KEY` without restarting every manager
+# worker (FastAPI process + each long-lived background task that
+# imports this module), some processes keep computing HMACs under
+# the old key and the chain verifier will report a break at the
+# rotation point. Recipe: stop all manager processes, swap the
+# secret, start everything back up. The verifier's "first break"
+# row is then row N of the new chain.
 _HMAC_KEY = _load_hmac_key()
 
 
