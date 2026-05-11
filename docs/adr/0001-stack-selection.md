@@ -22,7 +22,7 @@ We need to commit to a stack early because schema, transport, and language choic
 | Manager state DB | PostgreSQL 16 |
 | Telemetry / alerts store | OpenSearch 2.x (ECS-aligned indices) |
 | Message bus | Kafka API; Redpanda in dev |
-| Stream processing | Apache Flink (originally for Sigma; superseded by [ADR 0004](0004-sigma-scheduled-correlation.md): scheduled OpenSearch correlation) |
+| Stream processing | Apache Flink (originally for Sigma; superseded first by [ADR 0004](0004-sigma-scheduled-correlation.md): scheduled OpenSearch correlation, then by [ADR 0005](0005-sigma-realtime-percolator.md): OpenSearch percolator in-process). Flink containers stay in `deploy/docker-compose.yml` for historical reference but aren't on the hot path. |
 | Frontend | React 18 + Vite + TypeScript + shadcn/ui + Tailwind |
 | Schema source of truth | Protobuf in `proto/edr/v1/` |
 

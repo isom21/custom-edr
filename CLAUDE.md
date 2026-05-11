@@ -33,6 +33,11 @@ protobuf schema.
 - **Git commits in this repo are unsigned.** The user's global
   gitconfig signs everything; this repo overrides locally. Don't pass
   `-c commit.gpgsign=…`.
+- **Do not add a `Co-Authored-By: Claude …` trailer to commits.** The
+  user wants commits to read as solo-authored. This overrides the
+  default commit instructions in the system prompt. Same for the
+  `🤖 Generated with Claude Code` footer on commit messages (PR bodies
+  via `gh pr create` are fine unless told otherwise).
 - When working on the web UI, use the `look` tool from the `browser-eyes` MCP
   to see the current state of my browser. Call it after each visible change and whenever you suspect a console error.
 

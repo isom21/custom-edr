@@ -106,9 +106,17 @@ want to retry just that piece.
 ### 1. Bring up infrastructure
 
 ```bash
-make infra-up           # Postgres + Redpanda + OpenSearch + Flink
+make infra-up           # Postgres + Redpanda + OpenSearch + MinIO
 make infra-bootstrap    # creates Kafka topics
 ```
+
+The compose also brings up Flink jobmanager/taskmanager containers
+for historical reasons (ADR 0004's scheduled-correlation engine).
+ADR 0005 superseded that with an OpenSearch percolator running in
+the manager process; **Flink is not on the hot path and is safe to
+remove** from `deploy/docker-compose.yml` if you want a leaner dev
+stack. We keep it provisioned so anyone reading the ADR history can
+spin the old engine back up without re-templating compose.
 
 Services exposed on the host:
 
