@@ -114,7 +114,7 @@ Services exposed on the host:
 
 | Service | URL |
 |---|---|
-| Postgres | `localhost:5432` (cluster superuser `postgres`, runtime user `edr`, db `edr`) |
+| Postgres | `localhost:5432` (cluster superuser `postgres`, runtime user `vigil_manager`, db `vigil`) |
 | Redpanda Kafka | `localhost:19092` |
 | Redpanda Console | http://localhost:8080 |
 | OpenSearch | http://localhost:9200 |
@@ -125,17 +125,18 @@ Two Postgres roles, on purpose:
 - `postgres` — cluster superuser, used only for the initial schema
   bootstrap and any future operation that needs cluster-wide
   privileges. The compose creates it via `POSTGRES_USER: postgres`.
-- `edr` — non-superuser runtime role the manager connects as. Owner
-  of the `edr` database; can create tables, INSERT into
+- `vigil_manager` — non-superuser runtime role the manager connects
+  as. Owner of the `vigil` database; can create tables, INSERT into
   `audit_log` but not UPDATE/DELETE/TRUNCATE it. Provisioned by
   `deploy/postgres-init.sql` on first DB init.
 
 The split is load-bearing: the M16.a audit-log INSERT-only guarantee
 relies on the runtime user not being a superuser (PG superusers
 bypass GRANT/REVOKE checks). Older dev installs that bootstrapped
-with `POSTGRES_USER: edr` carry a superuser `edr` in the data dir
-and the guarantee silently fails — `docker compose down -v` then
-re-run `install.sh` to get the role split in place.
+with `POSTGRES_USER: edr` (or `POSTGRES_USER: vigil_manager`) carry
+a superuser as the runtime user in the data dir and the guarantee
+silently fails — `docker compose down -v` then re-run `install.sh`
+to get the role split in place.
 
 ### 2. Configure the backend
 
@@ -152,10 +153,10 @@ $EDITOR .env          # see "Required env" below
 Required env (`backend/.env`):
 
 ```
-# Runtime DSN — manager connects as the non-superuser `edr` role.
-VIGIL_PG_DSN=postgresql+asyncpg://edr:<password>@localhost:5432/edr
+# Runtime DSN — manager connects as the non-superuser `vigil_manager`.
+VIGIL_PG_DSN=postgresql+asyncpg://vigil_manager:<password>@localhost:5432/vigil
 # Audit-writer DSN — verifier connects as the table-owner role.
-VIGIL_PG_DSN_AUDIT=postgresql+asyncpg://vigil_audit_writer:<password>@localhost:5432/edr
+VIGIL_PG_DSN_AUDIT=postgresql+asyncpg://vigil_audit_writer:<password>@localhost:5432/vigil
 # Same password as VIGIL_PG_DSN_AUDIT — the M16.a (fixed) migration
 # uses it to create / rotate the vigil_audit_writer role.
 VIGIL_AUDIT_OWNER_PASSWORD=<openssl rand -base64 32>

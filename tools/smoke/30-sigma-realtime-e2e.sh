@@ -22,7 +22,7 @@ BASE="${BASE:-http://127.0.0.1:8000}"
 OS_URL="${OS_URL:-http://localhost:9200}"
 AGENT_BIN="${AGENT_BIN:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)/target/release/vigil-agent}"
 STATE_DIR=$(mktemp -d /tmp/vigil-agent-state.XXXXXX)
-LOG=/tmp/edr-sigma-realtime.log
+LOG=/tmp/vigil-sigma-realtime.log
 
 cleanup() {
   if [ -n "${AGENT_PID:-}" ]; then kill "$AGENT_PID" 2>/dev/null || true; fi

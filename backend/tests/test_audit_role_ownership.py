@@ -1,10 +1,11 @@
 """M16.a (fixed): assert audit_log is INSERT-only from the runtime user.
 
 The reviewer's CRITICAL finding was that the old M16.a migration's
-``REVOKE … FROM PUBLIC`` had no effect — the runtime user ``edr`` owned
-``audit_log`` and was also a superuser, so PG silently allowed every
-write. The fix transfers ownership to ``vigil_audit_writer`` and the
-dev compose now bootstraps as ``postgres`` so ``edr`` is no longer a
+``REVOKE … FROM PUBLIC`` had no effect — the runtime user (historically
+``edr``, now ``vigil_manager``) owned ``audit_log`` and was also a
+Postgres superuser, so PG silently allowed every write. The fix
+transfers ownership to ``vigil_audit_writer`` and the dev compose now
+bootstraps as ``postgres`` so the runtime user is no longer a
 superuser. These tests prove both legs are real:
 
   * INSERT from the runtime DSN still works (the manager keeps writing).

@@ -10,7 +10,7 @@ create_topic() {
   local partitions="${2:-4}"
   local retention_ms="${3:-604800000}"  # 7d default
   echo "creating topic ${name} (partitions=${partitions}, retention=${retention_ms}ms)"
-  docker exec edr-redpanda rpk topic create "$name" \
+  docker exec vigil-redpanda rpk topic create "$name" \
     --partitions "$partitions" \
     --replicas 1 \
     --topic-config "retention.ms=${retention_ms}" || true

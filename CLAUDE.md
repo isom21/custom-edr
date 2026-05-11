@@ -47,11 +47,11 @@ protobuf schema.
   `cleanup_or_takeover` to claim them rather than refusing to start.
 - The audit log is INSERT-only at the DB role level *and* tamper-
   evident via an HMAC chain. The role split: `audit_log` is owned by
-  `vigil_audit_writer`; the manager's runtime user `edr` is non-
+  `vigil_audit_writer`; the manager's runtime user `vigil_manager` is non-
   superuser and has only SELECT + INSERT. Superusers bypass GRANT/
   REVOKE checks, which is why the dev docker-compose now bootstraps
   as `postgres` (the cluster superuser) and an init script creates
-  `edr` separately. Setup details: `deploy/postgres-init.sql` +
+  `vigil_manager` separately. Setup details: `deploy/postgres-init.sql` +
   migration `c41d5b7e9f02` (M16.a fixed). The HMAC chain is keyed off
   `VIGIL_AUDIT_HMAC_KEY`; rotation requires a manager restart and
   invalidates every row written under the old key. Don't try to "fix"

@@ -1,6 +1,6 @@
-name: edr-dev
+name: vigil-dev
 
-# Local dev infrastructure for the EDR manager.
+# Local dev infrastructure for the Vigil manager.
 # Usage:
 #   cd deploy && docker compose up -d
 #
@@ -19,32 +19,32 @@ name: edr-dev
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: edr-postgres
+    container_name: vigil-postgres
     restart: unless-stopped
     # Bootstrap as `postgres` (the default superuser). The init script
-    # mounted below provisions `edr` as a non-superuser runtime role
-    # and makes it the owner of the `edr` database. Without this split,
-    # the manager's GRANT/REVOKE-based hardening on audit_log (M16.a)
-    # is decorative — a superuser bypasses those checks. See
-    # docs/install.md and the M16.a (fixed) migration.
+    # mounted below provisions `vigil_manager` as a non-superuser
+    # runtime role and makes it the owner of the `vigil` database.
+    # Without this split, the manager's GRANT/REVOKE-based hardening
+    # on audit_log (M16.a) is decorative — a superuser bypasses those
+    # checks. See docs/install.md and the M16.a (fixed) migration.
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: vigil_dev_postgres_password
-      POSTGRES_DB: edr
+      POSTGRES_DB: vigil
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init.sql:/docker-entrypoint-initdb.d/01-vigil-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d edr"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vigil"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redpanda:
     image: redpandadata/redpanda:v24.3.1
-    container_name: edr-redpanda
+    container_name: vigil-redpanda
     restart: unless-stopped
     command:
       - redpanda
@@ -72,7 +72,7 @@ services:
 
   redpanda-console:
     image: redpandadata/console:v2.7.2
-    container_name: edr-redpanda-console
+    container_name: vigil-redpanda-console
     restart: unless-stopped
     environment:
       KAFKA_BROKERS: redpanda:9092
@@ -84,11 +84,11 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:2.18.0
-    container_name: edr-opensearch
+    container_name: vigil-opensearch
     restart: unless-stopped
     environment:
-      - cluster.name=edr-dev
-      - node.name=edr-opensearch-0
+      - cluster.name=vigil-dev
+      - node.name=vigil-opensearch-0
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
@@ -114,7 +114,7 @@ services:
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.18.0
-    container_name: edr-opensearch-dashboards
+    container_name: vigil-opensearch-dashboards
     restart: unless-stopped
     environment:
       OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
@@ -127,7 +127,7 @@ services:
 
   flink-jobmanager:
     image: flink:1.20.0-scala_2.12-java17
-    container_name: edr-flink-jobmanager
+    container_name: vigil-flink-jobmanager
     restart: unless-stopped
     command: jobmanager
     environment:
@@ -143,7 +143,7 @@ services:
 
   flink-taskmanager:
     image: flink:1.20.0-scala_2.12-java17
-    container_name: edr-flink-taskmanager
+    container_name: vigil-flink-taskmanager
     restart: unless-stopped
     command: taskmanager
     environment:
@@ -160,7 +160,7 @@ services:
   # only the manager ever holds long-lived credentials.
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
-    container_name: edr-minio
+    container_name: vigil-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -179,7 +179,7 @@ services:
 
   minio-init:
     image: minio/mc:RELEASE.2025-01-17T23-25-50Z
-    container_name: edr-minio-init
+    container_name: vigil-minio-init
     depends_on:
       minio:
         condition: service_healthy

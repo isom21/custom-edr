@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # Postgres
-    pg_dsn: str = "postgresql+asyncpg://edr:vigil_dev_password@localhost:5432/edr"
+    pg_dsn: str = "postgresql+asyncpg://vigil_manager:vigil_dev_password@localhost:5432/vigil"
     # Owner-role DSN for audit_log. After M16.a (fixed), audit_log is
-    # owned by `vigil_audit_writer` and the runtime user `edr` keeps
-    # only SELECT + INSERT. Audit schema migrations and the chain
+    # owned by `vigil_audit_writer` and the runtime user `vigil_manager`
+    # keeps only SELECT + INSERT. Audit schema migrations and the chain
     # verifier connect through this DSN so they have the privileges
     # they need without granting the runtime pool a path to mutate
     # the log. Defaults to `pg_dsn` so dev environments that haven't

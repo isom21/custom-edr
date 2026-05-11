@@ -33,12 +33,12 @@ done
 
 # Windows driver (only present if cross-built).
 if [ -f "$REPO/kernel-windows/vigil.sys" ]; then
-    run_if_present syft "$REPO/kernel-windows/vigil.sys" -o cyclonedx-json --file "$OUT/edr-driver.cdx.json"
+    run_if_present syft "$REPO/kernel-windows/vigil.sys" -o cyclonedx-json --file "$OUT/vigil-driver.cdx.json"
 fi
 
 # Backend Python deps.
-if [ -d "$HOME/edr-venvs/backend" ]; then
-    run_if_present cyclonedx-py environment "$HOME/edr-venvs/backend" -o "$OUT/manager.cdx.json"
+if [ -d "$HOME/vigil-venvs/backend" ]; then
+    run_if_present cyclonedx-py environment "$HOME/vigil-venvs/backend" -o "$OUT/manager.cdx.json"
 fi
 
 # Frontend npm deps.

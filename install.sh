@@ -77,8 +77,8 @@ if [ -z "${VIGIL_INSTALL_SKIP_INFRA:-}" ]; then
     # docker compose --wait would be cleaner but isn't on every host.
     deadline=$(( $(date +%s) + 120 ))
     # The compose bootstraps as `postgres` (the cluster superuser); the
-    # init script in deploy/postgres-init.sql creates `edr` as a
-    # non-superuser runtime role. Healthcheck talks to `postgres`.
+    # init script in deploy/postgres-init.sql creates `vigil_manager`
+    # as a non-superuser runtime role. Healthcheck talks to `postgres`.
     until docker compose -f deploy/docker-compose.yml exec -T postgres \
               pg_isready -U postgres >/dev/null 2>&1; do
         [ "$(date +%s)" -lt "$deadline" ] || fatal "postgres did not become ready in 120s"
@@ -117,7 +117,7 @@ if [ ! -f "$ENV_FILE" ]; then
     CA_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     HMAC_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     # M16.a (fixed): vigil_audit_writer is a separate PG role that owns
-    # audit_log. The manager's runtime role `edr` keeps only SELECT +
+    # audit_log. The manager's runtime role `vigil_manager` keeps only SELECT +
     # INSERT. The migration creates/rotates this role with the password
     # below; the chain verifier connects through the same DSN.
     AUDIT_OWNER_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
@@ -128,8 +128,8 @@ if [ ! -f "$ENV_FILE" ]; then
 # and every audit-log row written before that point to fail HMAC
 # verification (intentional).
 VIGIL_DEBUG=false
-VIGIL_PG_DSN=postgresql+asyncpg://edr:vigil_dev_password@localhost:5432/edr
-VIGIL_PG_DSN_AUDIT=postgresql+asyncpg://vigil_audit_writer:${AUDIT_OWNER_PASSWORD}@localhost:5432/edr
+VIGIL_PG_DSN=postgresql+asyncpg://vigil_manager:vigil_dev_password@localhost:5432/vigil
+VIGIL_PG_DSN_AUDIT=postgresql+asyncpg://vigil_audit_writer:${AUDIT_OWNER_PASSWORD}@localhost:5432/vigil
 VIGIL_AUDIT_OWNER_PASSWORD=$AUDIT_OWNER_PASSWORD
 VIGIL_OPENSEARCH_URL=http://localhost:9200
 VIGIL_KAFKA_BROKERS=localhost:19092

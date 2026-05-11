@@ -27,13 +27,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: edr
-          POSTGRES_PASSWORD: edr
-          POSTGRES_DB: edr_test
+          POSTGRES_USER: vigil_manager
+          POSTGRES_PASSWORD: vigil_manager
+          POSTGRES_DB: vigil_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U edr"
+          --health-cmd "pg_isready -U vigil_manager"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -68,7 +68,7 @@ jobs:
       # at migration time so we keep the same DSN shape used in
       # production. Kafka + OpenSearch settings names also match the
       # Settings field names.
-      VIGIL_PG_DSN: postgresql+asyncpg://edr:edr@localhost:5432/edr_test
+      VIGIL_PG_DSN: postgresql+asyncpg://vigil_manager:vigil_manager@localhost:5432/vigil_test
       VIGIL_KAFKA_BROKERS: localhost:9092
       VIGIL_OPENSEARCH_URL: http://localhost:9200
       VIGIL_TEST_ENV: "1"

@@ -27,9 +27,9 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # The manager's effective DB user (whoever Alembic runs as) is
     # what we lock down. We can't introspect it without elevating; for
-    # the dev workflow this is "edr". Production overrides via the
-    # VIGIL_DATABASE_URL env var, and the operator runs alembic with a
-    # superuser DSN to apply this migration once.
+    # the dev workflow this is "vigil_manager". Production overrides
+    # via the VIGIL_DATABASE_URL env var, and the operator runs alembic
+    # with a superuser DSN to apply this migration once.
     # All operations are wrapped in DO blocks so the migration is a
     # no-op on systems where the operator doesn't have CREATE ROLE.
     op.execute(

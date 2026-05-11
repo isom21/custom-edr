@@ -117,11 +117,11 @@ Today the log is append-only at the **DB role level**. Two independent
 defenses:
 
 1. **Role split.** `audit_log` is owned by `vigil_audit_writer`. The
-   manager's runtime user `edr` is non-superuser and has only
-   `SELECT, INSERT` on the table and `USAGE, SELECT` on
+   manager's runtime user `vigil_manager` is non-superuser and has
+   only `SELECT, INSERT` on the table and `USAGE, SELECT` on
    `audit_log_seq`. `UPDATE`, `DELETE`, `TRUNCATE` from the runtime
    pool raise `InsufficientPrivilege` (PG SQLSTATE 42501). See
-   `deploy/postgres-init.sql` (which provisions `edr` as
+   `deploy/postgres-init.sql` (which provisions `vigil_manager` as
    non-superuser) and migration `c41d5b7e9f02` (which moves
    ownership). Operators who built dev environments before this fix
    need to `docker compose down -v` and re-run `install.sh`.

@@ -13,7 +13,7 @@ PASSWORD="${PASSWORD:-change-me-please-12chars}"
 BASE="${BASE:-http://127.0.0.1:8000}"
 AGENT_BIN="${AGENT_BIN:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)/target/release/vigil-agent}"
 STATE_DIR=$(mktemp -d /tmp/vigil-agent-state.XXXXXX)
-LOG=/tmp/edr-sigma-scheduled.log
+LOG=/tmp/vigil-sigma-scheduled.log
 
 cleanup() {
   if [ -n "${AGENT_PID:-}" ]; then kill "$AGENT_PID" 2>/dev/null || true; fi
