@@ -467,6 +467,14 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
 
         # Command dispatcher — polls PG for pending commands for this host
         # at 500ms cadence, pushes them onto out_queue, marks DISPATCHED.
+        #
+        # LOW #5: ~2 PG queries per host per second is fine for a fleet
+        # of a hundred hosts but visible at a thousand. We're already
+        # on PG 16 (LISTEN/NOTIFY-capable) — when M15 multi-instance
+        # work lands, switch to LISTEN on a per-host channel (or a
+        # Kafka `agent.commands.<host_id>` topic the dispatcher
+        # consumes), so a queued command flips a notification rather
+        # than waiting for the next poll tick.
         async def _command_dispatcher(out: asyncio.Queue):
             try:
                 while True:
@@ -589,8 +597,19 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                         ]
                         await asyncio.gather(*sends)
             elif kind == "heartbeat":
-                # Throttle DB writes — once per ~30s.
+                # LOW #6: observe the heartbeat-to-heartbeat gap as a
+                # Prometheus histogram so operators can alert on
+                # sub-silence-worker gaps (the silence worker is 10
+                # min by default; the restart takeover gap is <1 s,
+                # so anything between is "the gRPC stream survived
+                # but the agent stopped talking" — interesting).
                 now = datetime.now(UTC)
+                from app.core.metrics import agent_heartbeat_lag_seconds
+
+                agent_heartbeat_lag_seconds.observe(
+                    (now - last_seen_update).total_seconds()
+                )
+                # Throttle DB writes — once per ~30s.
                 if (now - last_seen_update).total_seconds() >= 30:
                     async with SessionLocal() as db:
                         h = await db.get(Host, host_id)

@@ -77,3 +77,16 @@ audit_chain_last_run_timestamp: Final[Gauge] = Gauge(
     "edr_manager_audit_chain_last_run_timestamp",
     "Unix timestamp of the most recent audit-log integrity pass.",
 )
+
+# LOW #6: heartbeat-gap surface. The Linux agent's self-protection
+# takeover takes <1 s during restart; that's too short for the
+# silence worker (10-min threshold). Operators who want to detect
+# unexpected gaps in the seconds-range alert on a percentile of this
+# histogram (e.g. p99 > 5 s = suspicious). Unlabelled to avoid the
+# host-id cardinality explosion on a multi-thousand-host fleet —
+# operators who need per-host can pivot on `last_seen_at` directly.
+agent_heartbeat_lag_seconds: Final[Histogram] = Histogram(
+    "edr_manager_agent_heartbeat_lag_seconds",
+    "Seconds between consecutive agent heartbeats (across all hosts).",
+    buckets=(0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600),
+)
