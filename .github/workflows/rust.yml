@@ -31,6 +31,24 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  check:
+    # Wider net than clippy. Builds every crate in the workspace so
+    # an unresolved import or missing-dep regression — like the one
+    # the reviewer flagged in agent-linux/src/command_worker.rs:29
+    # against a M23.b snapshot — blocks the PR before clippy is even
+    # reached. clippy is a strict superset for the crates it touches
+    # but skips bins on some toolchain versions when --no-deps is set,
+    # which is what let the agent-linux break through previously.
+    name: cargo check (linux)
+    runs-on: ubuntu-latest
+    env:
+      VIGIL_SKIP_EBPF_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --all-features
+
   clippy:
     name: clippy (linux)
     runs-on: ubuntu-latest
