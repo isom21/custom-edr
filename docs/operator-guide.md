@@ -76,6 +76,28 @@ curl -s "$MANAGER_REST/api/hosts/$HOST_ID/commands" -X POST \
 `unblock_process`, `unblock_file`. Payload is `{"pid": N}` for
 `kill_process`, `{"pattern": "..."}` for the rest.
 
+### Auto-block fallback {#auto-block-fallback}
+
+When a Sigma / IOC rule with `action=block` matches, the manager
+queues both a kill-by-pid (if the event has a live pid) and a
+preventive block-by-path. The block pattern is the resolved full
+executable / file path from the matched event (`process.executable`
+or `file.path` in ECS). The agent pushes that exact string into the
+kernel-side block map, which is keyed by the full path the kernel
+sees on exec / file_open. So the pattern and the lookup key match
+and future invocations of the same binary return EPERM.
+
+If the matched event only carries a basename (`process.name` /
+`file.name`) — older events, or normalizers that drop the path — the
+manager falls back to queueing the basename. The kernel will not
+match it on future invocations (`"mimikatz.exe"` vs
+`"/usr/local/bin/mimikatz.exe"`); the kill-by-pid limb is the only
+effective response. The UI surfaces this as a normal "block queued"
+status because the IOCTL succeeded — the kernel map row was added,
+just keyed by a string that the resolver will never produce. If you
+need a preventive block against a basename-only event, re-queue the
+block manually with the path you actually want denied.
+
 ## Upgrading
 
 ### Linux

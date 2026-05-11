@@ -27,7 +27,8 @@ LOG=/tmp/edr-sigma-realtime.log
 cleanup() {
   if [ -n "${AGENT_PID:-}" ]; then kill "$AGENT_PID" 2>/dev/null || true; fi
   if [ -n "${MIM_PID:-}" ]; then kill "$MIM_PID" 2>/dev/null || true; fi
-  rm -f /tmp/sliver.exe
+  if [ -n "${TRIPPER_PID:-}" ]; then kill "$TRIPPER_PID" 2>/dev/null || true; fi
+  rm -f /tmp/sliver.exe /tmp/sliver-block.exe /tmp/sigma-reexec.err
 }
 trap cleanup EXIT
 
@@ -120,10 +121,15 @@ for i in $(seq 1 75); do
   python3 -c "import time;time.sleep(0.2)"
 done
 
-if [ -n "$ELAPSED_MS" ]; then
-  echo "[9] sigma realtime alert latency: ${ELAPSED_MS}ms"
-  curl -fsS -H "Authorization: Bearer $ACCESS" "$BASE/api/alerts?rule_id=$RULE_ID&limit=1" \
-    | python3 -c '
+if [ -z "$ELAPSED_MS" ]; then
+  echo "[10] FAIL — no alert within 15s"
+  echo "--- agent log ---"; tail -30 "$LOG"
+  exit 1
+fi
+
+echo "[9] sigma realtime alert latency: ${ELAPSED_MS}ms"
+curl -fsS -H "Authorization: Bearer $ACCESS" "$BASE/api/alerts?rule_id=$RULE_ID&limit=1" \
+  | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 a = d["items"][0]
@@ -133,10 +139,68 @@ det = a.get("details") or {}
 print("  engine    = {}".format(det.get("engine")))
 print("  mode      = {}".format(det.get("mode")))
 '
-  echo "[10] PASS"
-  exit 0
-fi
 
-echo "[10] FAIL — no alert within 15s"
-echo "--- agent log ---"; tail -30 "$LOG"
-exit 1
+# [10] auto-block follow-up — pin H7's full-path block fix. Create a
+# second rule with action=block, fire a matching exec, then re-exec
+# the same path and assert it returns Permission denied (EPERM from
+# the BPF block list). Pre-fix, the manager queued a basename and
+# the kernel's full-path lookup missed; the re-exec succeeded.
+echo "[10] auto-block follow-up: create action=block rule"
+BLOCK_YAML='title: Block sliver-block on full path
+id: 33333333-4444-5555-6666-777777777777
+status: experimental
+description: Auto-blocks /tmp/sliver-block.exe by full path.
+logsource:
+    category: process_creation
+    product: linux
+detection:
+    selection:
+        process.name|contains: sliver-block
+    condition: selection
+'
+BLOCK_RULE=$(curl -fsS -X POST $BASE/api/rules -H "Authorization: Bearer $ACCESS" \
+  -H 'Content-Type: application/json' \
+  -d "$(python3 -c "
+import json, sys
+body = sys.stdin.read()
+print(json.dumps({
+    'kind': 'sigma',
+    'name': 'sigma_sliver_block_realtime',
+    'severity': 'critical',
+    'action': 'block',
+    'enabled': True,
+    'body': body,
+}))" <<<"$BLOCK_YAML")")
+BLOCK_RULE_ID=$(printf '%s' "$BLOCK_RULE" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+echo "    rule_id=$BLOCK_RULE_ID"
+sleep 1.0
+
+echo "[11] spawn /tmp/sliver-block.exe to trip the block rule"
+cp /usr/bin/sleep /tmp/sliver-block.exe
+/tmp/sliver-block.exe 5 &
+TRIPPER_PID=$!
+# Wait for the auto-block command to dispatch + the agent to push it
+# into the kernel block map. 10s upper bound is generous (sigma
+# realtime is sub-second; block dispatch + IOCTL is a few hundred ms).
+sleep 10
+wait "$TRIPPER_PID" 2>/dev/null || true
+
+echo "[12] re-exec /tmp/sliver-block.exe — expect Permission denied"
+if /tmp/sliver-block.exe 0 2>/tmp/sigma-reexec.err; then
+  echo "    FAIL: re-exec succeeded; preventive block missed."
+  echo "    This is the basename-vs-full-path regression from H7."
+  echo "--- agent log tail ---"; tail -30 "$LOG"
+  rm -f /tmp/sliver-block.exe /tmp/sigma-reexec.err
+  exit 1
+elif grep -qi -E 'permission denied|operation not permitted' /tmp/sigma-reexec.err; then
+  echo "    ok — re-exec blocked by EPERM"
+else
+  echo "    FAIL: re-exec failed but not with EPERM:"
+  cat /tmp/sigma-reexec.err
+  rm -f /tmp/sliver-block.exe /tmp/sigma-reexec.err
+  exit 1
+fi
+rm -f /tmp/sliver-block.exe /tmp/sigma-reexec.err
+
+echo "[13] PASS"
+exit 0

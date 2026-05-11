@@ -32,19 +32,38 @@ def _basename(path: str | None) -> str | None:
 
 
 def _pick_block_pattern(ecs: dict[str, Any]) -> tuple[CommandKind, str] | None:
-    """Pick a block target from an ECS event. Process events get the
-    executable basename; file events get the file basename. Returns
-    the kind + pattern, or None if neither is available."""
+    """Pick a block target from an ECS event.
+
+    Prefers the full executable / file path (e.g. ``/usr/local/bin/x``)
+    and falls back to ``process.name`` / ``file.name`` only when no path
+    is available. The kernel block lists (`process_block`, `file_block`
+    in `agent-linux/ebpf/vigil.bpf.c`) and the Windows driver's
+    `file_block` REG_MULTI_SZ are keyed by the resolved full path, so
+    shipping a basename for a process whose ECS event already has the
+    full path silently misses every exec — the kernel compares
+    ``"/usr/local/bin/mimikatz.exe"`` (the resolved path it sees) to
+    ``"mimikatz.exe"`` (what the manager queued) and the lookup fails.
+    The kill-by-pid limb of an auto-block still fires; only the
+    preventive future-exec limb breaks. See
+    `docs/operator-guide.md#auto-block-fallback` for the basename
+    fallback caveat operators need to know about.
+    """
     process = ecs.get("process") or {}
     file_ = ecs.get("file") or {}
 
-    proc_name = process.get("name") or _basename(process.get("executable"))
-    if proc_name:
-        return CommandKind.BLOCK_PROCESS, proc_name
+    proc_path = process.get("executable")
+    if isinstance(proc_path, str) and proc_path:
+        return CommandKind.BLOCK_PROCESS, proc_path
+    proc_basename = process.get("name") or _basename(process.get("executable"))
+    if proc_basename:
+        return CommandKind.BLOCK_PROCESS, proc_basename
 
-    file_name = file_.get("name") or _basename(file_.get("path"))
-    if file_name:
-        return CommandKind.BLOCK_FILE, file_name
+    file_path = file_.get("path")
+    if isinstance(file_path, str) and file_path:
+        return CommandKind.BLOCK_FILE, file_path
+    file_basename = file_.get("name") or _basename(file_.get("path"))
+    if file_basename:
+        return CommandKind.BLOCK_FILE, file_basename
 
     return None
 
