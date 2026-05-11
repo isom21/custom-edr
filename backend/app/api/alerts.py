@@ -69,7 +69,6 @@ def _alert_out(a: Alert, host_hostname: str | None, rule_name: str | None) -> Al
 async def stream_alerts(
     request: Request,
     actor: CurrentActorStream,
-    db: DbSession,
 ) -> EventSourceResponse:
     """SSE stream of newly-inserted alerts.
 
@@ -78,7 +77,17 @@ async def stream_alerts(
     connection. RBAC scoping is applied per-event using
     `host_visible_to` so analysts only get events for hosts in their
     groups.
+
+    M-grpc-hygiene #4: each visibility check opens its own short-lived
+    session (and commits/closes via `async with`). The previous shape
+    closed over a `DbSession` FastAPI dependency, which for an SSE
+    handler lives until the browser tab closes — at 20 concurrent
+    analyst tabs that's 20 pool checkouts held idle, plus a long-open
+    idle-in-transaction connection visible to ops. Per-event sessions
+    cost ~one connection-pool checkout per fresh alert, which is small
+    compared to the rate-limit ceiling we already enforce upstream.
     """
+    from app.core.db import SessionLocal
     from app.services.alert_broker import broker
     from app.services.scoping import host_visible_to
 
@@ -103,7 +112,9 @@ async def stream_alerts(
                     host_uuid = UUID(event["host_id"])
                 except (KeyError, ValueError):
                     continue
-                if not await host_visible_to(actor, host_uuid, db):
+                async with SessionLocal() as evdb:
+                    visible = await host_visible_to(actor, host_uuid, evdb)
+                if not visible:
                     continue
                 yield {"event": "alert", "data": json.dumps(event)}
 
