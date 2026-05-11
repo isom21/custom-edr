@@ -571,4 +571,6 @@ pub fn register_cross_platform_handlers(
     )));
     // M23.e acquisition handlers — analyst-readable bytes.
     crate::jobs_acquire::register_acquisition_handlers(dispatcher);
+    // M23.g diagnostic handlers — admin-only shell_command runner.
+    crate::jobs_diagnostic::register_diagnostic_handlers(dispatcher);
 }
