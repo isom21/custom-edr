@@ -18,4 +18,8 @@ class TokenPair(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Optional after M-frontend-auth #10 — the frontend now reads the
+    # refresh token from the HttpOnly `vigil_refresh` cookie, but
+    # existing scripted callers can still POST the body shape. One of
+    # the two must be present.
+    refresh_token: str | None = None

@@ -9,8 +9,9 @@ from threading import Lock
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Cookie, Request, Response
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.deps import DbSession
 from app.core.errors import unauthorized
@@ -21,6 +22,37 @@ from app.services import audit
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+# M-frontend-auth #10: the refresh token rides on a server-set
+# HttpOnly cookie so XSS in the SPA can't read it. We also keep
+# returning the refresh in the body so existing scripted clients
+# (smoke tests, ops tooling) don't break — the cookie is additive.
+# Frontend uses `credentials: "include"` on POST /refresh and never
+# reads the body's refresh_token.
+_REFRESH_COOKIE_NAME = "vigil_refresh"
+
+
+def _refresh_cookie_max_age() -> int:
+    return int(settings.jwt_refresh_ttl_days) * 24 * 3600
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    """HttpOnly + SameSite=Strict; secure flag follows `settings.debug`
+    so dev (HTTP localhost) doesn't drop the cookie."""
+    response.set_cookie(
+        key=_REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        max_age=_refresh_cookie_max_age(),
+        httponly=True,
+        secure=not settings.debug,
+        samesite="strict",
+        path="/api/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=_REFRESH_COOKIE_NAME, path="/api/auth")
 
 
 # M-audit-and-auth #8: per-email failed-login throttle.
@@ -74,7 +106,12 @@ def _clear_login_failures(email_key: str) -> None:
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, request: Request, db: DbSession) -> TokenPair:
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: DbSession,
+) -> TokenPair:
     ip = request.client.host if request.client else None
     email_key = payload.email.lower()
 
@@ -137,13 +174,26 @@ async def login(payload: LoginRequest, request: Request, db: DbSession) -> Token
         resource_id=str(user.id),
         ip=ip,
     )
-    return TokenPair(**auth_service.issue_token_pair(user))
+    pair = auth_service.issue_token_pair(user)
+    _set_refresh_cookie(response, pair["refresh_token"])
+    return TokenPair(**pair)
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
+async def refresh(
+    payload: RefreshRequest,
+    response: Response,
+    db: DbSession,
+    vigil_refresh: str | None = Cookie(default=None),
+) -> TokenPair:
+    # M-frontend-auth #10: prefer the HttpOnly cookie. Body-shape stays
+    # for scripted callers (smoke tests, ops tooling). If neither is
+    # present, that's a malformed request — 401 with a clear message.
+    token = payload.refresh_token or vigil_refresh
+    if not token:
+        raise unauthorized("missing refresh token")
     try:
-        decoded = decode_jwt(payload.refresh_token)
+        decoded = decode_jwt(token)
     except jwt.ExpiredSignatureError as exc:
         raise unauthorized("refresh token expired") from exc
     except jwt.PyJWTError as exc:
@@ -153,4 +203,18 @@ async def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     user = await db.get(User, UUID(decoded["sub"]))
     if user is None or user.disabled:
         raise unauthorized("user inactive")
-    return TokenPair(**auth_service.issue_token_pair(user))
+    pair = auth_service.issue_token_pair(user)
+    _set_refresh_cookie(response, pair["refresh_token"])
+    return TokenPair(**pair)
+
+
+@router.post("/logout", status_code=204)
+async def logout(response: Response) -> Response:
+    """Clear the refresh cookie. The access token is in-memory only
+    in the SPA so the client drops it by reload. Logout doesn't
+    invalidate the JWTs themselves (we don't operate a denylist) —
+    they just stop being reachable. Operators who need true
+    revocation should disable the user via /api/users."""
+    _clear_refresh_cookie(response)
+    response.status_code = 204
+    return response

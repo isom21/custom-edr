@@ -606,9 +606,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 now = datetime.now(UTC)
                 from app.core.metrics import agent_heartbeat_lag_seconds
 
-                agent_heartbeat_lag_seconds.observe(
-                    (now - last_seen_update).total_seconds()
-                )
+                agent_heartbeat_lag_seconds.observe((now - last_seen_update).total_seconds())
                 # Throttle DB writes — once per ~30s.
                 if (now - last_seen_update).total_seconds() >= 30:
                     async with SessionLocal() as db:

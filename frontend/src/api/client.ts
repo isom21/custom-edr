@@ -1,9 +1,14 @@
 /**
  * Tiny fetch wrapper with auth + JSON conventions.
  *
- * - Reads/writes tokens via tokenStore (localStorage-backed).
- * - On 401, attempts a one-shot refresh; on failure, clears tokens.
- * - Throws ApiError({ status, detail }) on non-2xx so callers can render messages.
+ * - Reads access token via tokenStore (in-memory after
+ *   M-frontend-auth #10).
+ * - On 401, attempts a one-shot refresh via the HttpOnly cookie; on
+ *   failure, clears the in-memory access token and the cookie via
+ *   /api/auth/logout. The SPA's router renders the login page when
+ *   the next render sees no access token.
+ * - Throws ApiError({ status, detail }) on non-2xx so callers can
+ *   render messages.
  */
 import { tokenStore } from "./tokens";
 
@@ -27,18 +32,23 @@ let refreshPromise: Promise<boolean> | null = null;
 
 async function refreshOnce(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
-  const refresh = tokenStore.getRefreshToken();
-  if (!refresh) return false;
   refreshPromise = (async () => {
     try {
+      // Refresh rides on the HttpOnly `vigil_refresh` cookie set by
+      // /login + /refresh on the server. `credentials: "include"` is
+      // what makes the browser attach the cookie cross-fetch — we're
+      // same-origin in dev (Vite proxy) and prod, but the explicit
+      // flag is required when the call site is `fetch` rather than
+      // a credentialed XHR.
       const res = await fetch("/api/auth/refresh", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refresh }),
+        body: "{}",
       });
       if (!res.ok) return false;
-      const data = (await res.json()) as { access_token: string; refresh_token: string };
-      tokenStore.setTokens(data.access_token, data.refresh_token);
+      const data = (await res.json()) as { access_token: string };
+      tokenStore.setTokens(data.access_token);
       return true;
     } catch {
       return false;
@@ -74,7 +84,11 @@ async function doFetch(path: string, opts: RequestOptions, retried: boolean): Pr
     signal: opts.signal,
   });
 
-  if (res.status === 401 && !retried && tokenStore.getRefreshToken()) {
+  if (res.status === 401 && !retried) {
+    // We don't have the refresh token in JS any more (M-frontend-auth
+    // #10); the cookie is the only thing that knows. Just try the
+    // refresh — if the cookie is missing/expired we'll get 401 back
+    // and fall through to clearing the in-memory access token.
     const ok = await refreshOnce();
     if (ok) return doFetch(path, opts, true);
     tokenStore.clear();
