@@ -141,9 +141,21 @@ curl -s "$MANAGER_REST/api/hosts/$HOST_ID" -X PATCH \
   -d '{"status":"decommissioned"}'
 ```
 
-This revokes the host's mTLS cert (cert-status check happens at gRPC
-connect time). Telemetry from that host_id from any future connection
-is rejected.
+This flips `Host.status` to `DECOMMISSIONED` and the manager's gRPC
+service rejects every future `HostStream` open from that host id with
+`UNAUTHENTICATED: host decommissioned` — verified at the
+`_check_host_admission` gate in `backend/app/grpc/services.py`. The
+heartbeat tick on an already-open stream catches the same flip within
+~30s and aborts mid-stream. The mTLS cert itself stays
+cryptographically valid until its 90-day expiry (we don't operate a
+CRL), so the decommission is enforced by the manager, not by the TLS
+layer. If you need the cert to stop validating outright before its
+expiry — say, for a stolen-laptop scenario — rotate the internal CA
+and re-issue every other agent's cert.
+
+Cert-pinning sits at the same gate: the SHA-256 of the presented PEM
+is compared against `Host.cert_fingerprint`, so a second host that
+somehow ended up with the same CN can't take over the slot.
 
 ## Troubleshooting
 

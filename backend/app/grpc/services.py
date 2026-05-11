@@ -239,6 +239,61 @@ def _peer_host_id(context: grpc.aio.ServicerContext) -> str | None:
     return None
 
 
+def _check_host_admission(
+    host: Host, peer_fingerprint: str | None
+) -> tuple[bool, str | None]:
+    """Decide whether the host is allowed on the gRPC stream.
+
+    Returns ``(True, None)`` to admit, or ``(False, reason)`` for the
+    caller to abort with UNAUTHENTICATED. Two gates:
+
+      * status == DECOMMISSIONED — the operator's PATCH /api/hosts/<id>
+        promised this would reject future connections; without this
+        the cert keeps working until expiry.
+      * cert fingerprint mismatch — if the host row's
+        cert_fingerprint disagrees with the peer's, only the cert we
+        actually issued can stream. The host row's value is missing
+        for pre-fingerprint enrollments; we skip the compare in that
+        case rather than lock the fleet out.
+    """
+    if host.status == HostStatus.DECOMMISSIONED:
+        return False, "host decommissioned"
+    if (
+        peer_fingerprint
+        and host.cert_fingerprint
+        and peer_fingerprint != host.cert_fingerprint
+    ):
+        return False, "cert revoked"
+    return True, None
+
+
+def _peer_cert_fingerprint(context: grpc.aio.ServicerContext) -> str | None:
+    """Return SHA-256 fingerprint (lowercase hex) of the peer cert, matching
+    the format `CaService.sign_csr` writes to `Host.cert_fingerprint`.
+
+    Returns None for plaintext channels or any failure to parse — caller
+    must decide whether to abort. We don't raise from here so the
+    fingerprint compare can sit alongside the existing CN read without
+    forcing every test path through cert parsing.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    auth_ctx = context.auth_context()
+    pem_iter = auth_ctx.get("x509_pem_cert", [])
+    if not pem_iter:
+        return None
+    pem = next(iter(pem_iter), None)
+    if pem is None:
+        return None
+    pem_bytes = pem.encode() if isinstance(pem, str) else pem
+    try:
+        cert = x509.load_pem_x509_certificate(pem_bytes)
+    except ValueError:
+        return None
+    return cert.fingerprint(hashes.SHA256()).hex()
+
+
 class AgentService(control_pb2_grpc.AgentServiceServicer):
     """Server-side handlers. Each method gets its own DB session."""
 
@@ -341,6 +396,7 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client cert CN is not a UUID")
             return
 
+        peer_fingerprint = _peer_cert_fingerprint(context)
         log.info("grpc.host_stream.open", host_id=host_id_str)
 
         async with SessionLocal() as db:
@@ -348,6 +404,22 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             if host is None:
                 log.warning("grpc.host_stream.unknown_host", host_id=host_id_str)
                 await context.abort(grpc.StatusCode.UNAUTHENTICATED, "unknown host")
+                return
+            # M24.a: a decommissioned host's cert stays cryptographically
+            # valid for the rest of its lifetime; the docs claimed the
+            # decommission PATCH revokes future connections but nothing
+            # actually checked. The cert-pin compare handles the parallel
+            # case where two hosts share a CN.
+            admitted, reason = _check_host_admission(host, peer_fingerprint)
+            if not admitted:
+                log.warning(
+                    "grpc.host_stream.rejected",
+                    host_id=host_id_str,
+                    reason=reason,
+                    presented_fingerprint=peer_fingerprint,
+                    expected_fingerprint=host.cert_fingerprint,
+                )
+                await context.abort(grpc.StatusCode.UNAUTHENTICATED, reason or "rejected")
                 return
             host.status = HostStatus.ONLINE
             host.last_seen_at = datetime.now(UTC)
@@ -493,9 +565,27 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
                 if (now - last_seen_update).total_seconds() >= 30:
                     async with SessionLocal() as db:
                         h = await db.get(Host, host_id)
-                        if h is not None:
-                            h.last_seen_at = now
-                            await db.commit()
+                        if h is None:
+                            continue
+                        # M24.a: catch decommission that happened
+                        # after the stream opened. The next heartbeat
+                        # tick is the soonest we can fail it. Cert
+                        # fingerprint can't change mid-stream (it's
+                        # pinned at TLS handshake), so we skip that leg
+                        # of admission here.
+                        admitted, reason = _check_host_admission(h, None)
+                        if not admitted:
+                            log.warning(
+                                "grpc.host_stream.rejected_mid_stream",
+                                host_id=str(host_id),
+                                reason=reason,
+                            )
+                            await context.abort(
+                                grpc.StatusCode.UNAUTHENTICATED, reason or "rejected"
+                            )
+                            return
+                        h.last_seen_at = now
+                        await db.commit()
                     last_seen_update = now
             elif kind == "hello":
                 # M9.5: enforce minimum protocol_version + record
