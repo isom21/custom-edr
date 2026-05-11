@@ -249,7 +249,17 @@ export function Commands() {
     <>
       <PageHeader
         title="Commands"
-        description={`${list.data?.total ?? 0} response actions across visible hosts`}
+        description={
+          <span>
+            {list.data?.total ?? 0} response actions across visible hosts.{" "}
+            <Link
+              to="/jobs"
+              className="text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            >
+              New work now flows through Jobs →
+            </Link>
+          </span>
+        }
       />
       <div className="space-y-6 px-8 py-6">
         <div className="grid gap-4 md:grid-cols-2">

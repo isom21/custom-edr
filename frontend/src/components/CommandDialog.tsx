@@ -12,9 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { commandsApi } from "@/api/commands";
+import { jobsApi } from "@/api/jobs";
 import { ApiError } from "@/api/client";
-import type { CommandKind } from "@/types/api";
+import type { CommandKind, JobKind } from "@/types/api";
 
 const KINDS: {
   value: CommandKind;
@@ -80,11 +80,19 @@ export function CommandDialog({ hostId, trigger, defaultKind, defaultPattern, de
         if (!pattern.trim()) throw new ApiError(400, "pattern is required");
         payload.pattern = pattern.trim();
       }
-      return commandsApi.queue(hostId, { kind, payload });
+      // M23.j: response actions now flow through Jobs. The CommandKind
+      // / JobKind enums share these labels on the wire, so the cast is
+      // a no-op at runtime.
+      return jobsApi.create({
+        kind: kind as JobKind,
+        parameters: payload,
+        scope: { kind: "host_ids", host_ids: [hostId] },
+      });
     },
     onSuccess: () => {
       setOpen(false);
       setError(null);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["commands"] });
       qc.invalidateQueries({ queryKey: ["host-commands", hostId] });
     },
