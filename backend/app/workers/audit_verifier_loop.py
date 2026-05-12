@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.db import SessionLocal
@@ -75,12 +76,18 @@ def _verifier_engine_factory():
     A subsequent test loop then fails pool_pre_ping with
     "Event loop is closed" when SQLAlchemy probes the stale
     connection. An owned-and-disposed engine sidesteps the pool entirely.
+
+    The owned engine uses NullPool because it lives for exactly one
+    verify_chain pass. Pooling adds nothing on a one-shot engine, and
+    pool_pre_ping under pytest-asyncio's per-test loops surfaces the
+    "Future attached to a different loop" / "Event loop is closed"
+    races that gave this code its name.
     """
     dsn = settings.pg_dsn_audit
     if dsn is None and os.environ.get("VIGIL_TEST_ENV") == "1":
         dsn = settings.pg_dsn
     if dsn:
-        eng = create_async_engine(dsn, pool_pre_ping=True, echo=False)
+        eng = create_async_engine(dsn, poolclass=NullPool, echo=False)
         return async_sessionmaker(eng, expire_on_commit=False), eng
     return SessionLocal, None
 
