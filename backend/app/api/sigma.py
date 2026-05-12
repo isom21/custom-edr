@@ -7,6 +7,7 @@ against historical telemetry before saving.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -23,6 +24,7 @@ from app.schemas.sigma import (
     SigmaTestSampleHit,
 )
 from app.services import opensearch as os_svc
+from app.services.scoping import visible_host_ids
 from app.services.sigma import SigmaCompileError, compile_yaml
 
 router = APIRouter(prefix="/api/sigma", tags=["sigma"])
@@ -45,10 +47,13 @@ async def compile_endpoint(
 
 
 @router.post("/test", response_model=SigmaTestResponse)
-async def test_adhoc(payload: SigmaTestRequest, _actor: RequireAnalyst) -> SigmaTestResponse:
+async def test_adhoc(
+    payload: SigmaTestRequest, actor: RequireAnalyst, db: DbSession
+) -> SigmaTestResponse:
     if not payload.body:
         raise bad_request("body required for ad-hoc test (or use /api/rules/{id}/test)")
-    return await _run_test(payload.body, payload.lookback_hours)
+    visible = await visible_host_ids(actor, db)
+    return await _run_test(payload.body, payload.lookback_hours, visible)
 
 
 @router.post("/rules/{rule_id}/test", response_model=SigmaTestResponse)
@@ -56,7 +61,7 @@ async def test_saved_rule(
     rule_id: UUID,
     payload: SigmaTestRequest,
     db: DbSession,
-    _actor: RequireAnalyst,
+    actor: RequireAnalyst,
 ) -> SigmaTestResponse:
     rule = (await db.execute(select(Rule).where(Rule.id == rule_id))).scalar_one_or_none()
     if rule is None:
@@ -66,10 +71,41 @@ async def test_saved_rule(
     body = payload.body or rule.body or ""
     if not body:
         raise bad_request("rule has no body")
-    return await _run_test(body, payload.lookback_hours)
+    visible = await visible_host_ids(actor, db)
+    return await _run_test(body, payload.lookback_hours, visible)
 
 
-async def _run_test(body: str, lookback_hours: int) -> SigmaTestResponse:
+def _build_search_body(
+    compiled_query: str,
+    lower: datetime,
+    upper: datetime,
+    visible_ids: list[UUID] | None,
+) -> dict[str, Any]:
+    """Compose the OpenSearch request body for a sigma test run.
+
+    `visible_ids` semantics match `visible_host_ids`: None means admin
+    pass-through (no extra filter), a list means restrict to those
+    host ids. The empty-list case is handled at the caller — that
+    actor sees no hosts, so we return zero results without hitting
+    OpenSearch at all.
+    """
+    filters: list[dict[str, Any]] = [
+        {"range": {"@timestamp": {"gte": lower.isoformat(), "lte": upper.isoformat()}}},
+        {"query_string": {"query": compiled_query}},
+    ]
+    if visible_ids is not None:
+        filters.append({"terms": {"host.id": [str(h) for h in visible_ids]}})
+    return {
+        "size": 25,
+        "track_total_hits": True,
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "query": {"bool": {"filter": filters}},
+    }
+
+
+async def _run_test(
+    body: str, lookback_hours: int, visible_ids: list[UUID] | None
+) -> SigmaTestResponse:
     try:
         compiled = compile_yaml(body)
     except SigmaCompileError as exc:
@@ -78,30 +114,17 @@ async def _run_test(body: str, lookback_hours: int) -> SigmaTestResponse:
     upper = datetime.now(UTC)
     lower = upper - timedelta(hours=lookback_hours)
 
+    # Non-admin actor with zero visible hosts → no hits are reachable.
+    # Short-circuit so we don't issue a search with an empty `terms`
+    # filter (which OpenSearch rejects as malformed).
+    if visible_ids is not None and not visible_ids:
+        return SigmaTestResponse(query=compiled.query, total=0, samples=[])
+
     client = os_svc._client()
     try:
         resp = await client.search(
             index="telemetry-*",
-            body={
-                "size": 25,
-                "track_total_hits": True,
-                "sort": [{"@timestamp": {"order": "desc"}}],
-                "query": {
-                    "bool": {
-                        "filter": [
-                            {
-                                "range": {
-                                    "@timestamp": {
-                                        "gte": lower.isoformat(),
-                                        "lte": upper.isoformat(),
-                                    }
-                                }
-                            },
-                            {"query_string": {"query": compiled.query}},
-                        ]
-                    }
-                },
-            },
+            body=_build_search_body(compiled.query, lower, upper, visible_ids),
             request_timeout=20,  # pyright: ignore[reportCallIssue]
         )
     finally:
