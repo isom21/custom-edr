@@ -150,9 +150,9 @@ export function Enrollment() {
                         description={
                           <>
                             This invalidates{" "}
-                            <span className="font-mono">{t.label ?? t.id.slice(0, 8)}</span>{" "}
-                            so the agent it was minted for can no longer complete first
-                            connection. Already-enrolled hosts are unaffected.
+                            <span className="font-mono">{t.label ?? t.id.slice(0, 8)}</span> so the
+                            agent it was minted for can no longer complete first connection.
+                            Already-enrolled hosts are unaffected.
                           </>
                         }
                         confirmLabel="Yes, revoke"

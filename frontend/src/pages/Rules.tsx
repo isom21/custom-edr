@@ -485,8 +485,8 @@ function RuleQuickActions({ rule, kindGroups }: { rule: Rule; kindGroups: RuleGr
           title="Disable rule?"
           description={
             <>
-              <span className="font-mono">{rule.name}</span> will stop firing for new events
-              until you re-enable it. Existing alerts are not affected.
+              <span className="font-mono">{rule.name}</span> will stop firing for new events until
+              you re-enable it. Existing alerts are not affected.
             </>
           }
           confirmLabel="Yes, disable"
