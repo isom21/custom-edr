@@ -139,7 +139,8 @@ class AlertBroker:
                 for r in (await db.execute(select(Rule).where(Rule.id.in_(rule_ids)))).scalars()
             }
             for alert in rows:
-                event = _alert_to_event(alert, hosts.get(alert.host_id), rules.get(alert.rule_id))
+                host = hosts.get(alert.host_id) if alert.host_id is not None else None
+                event = _alert_to_event(alert, host, rules.get(alert.rule_id))
                 self._broadcast(event)
             self._last_seen = rows[-1].created_at
 

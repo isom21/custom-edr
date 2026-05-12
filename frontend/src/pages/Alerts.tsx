@@ -197,9 +197,7 @@ export function Alerts() {
             onClick={(e) => e.stopPropagation()}
             className="truncate text-sm underline-offset-2 hover:underline"
           >
-            {a.host_hostname ?? (
-              <span className="font-mono text-xs">{a.host_id.slice(0, 8)}…</span>
-            )}
+            {a.host_hostname ?? <span className="font-mono text-xs">{a.host_id.slice(0, 8)}…</span>}
           </Link>
         );
       },

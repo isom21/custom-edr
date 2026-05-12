@@ -70,8 +70,8 @@ export function AlertDetail() {
         <div className="min-w-0">
           {isSynthetic ? (
             <div className="rounded-md border border-dashed bg-muted/30 p-6 text-sm text-muted-foreground">
-              No host telemetry to investigate — this is a manager-internal alert. See the
-              alert details panel for the break payload.
+              No host telemetry to investigate — this is a manager-internal alert. See the alert
+              details panel for the break payload.
             </div>
           ) : (
             <AlertInvestigation alertId={data.id} />
