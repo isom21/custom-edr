@@ -6,6 +6,7 @@ import { rulesApi } from "@/api/rules";
 import { ruleGroupsApi } from "@/api/ruleGroups";
 import { ApiError } from "@/api/client";
 import { RuleActionBadge } from "@/components/badges";
+import { ConfirmDestructive } from "@/components/ConfirmDestructive";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -126,9 +127,23 @@ export function RuleEdit() {
         title={isNew ? "New rule" : name || "Edit rule"}
         actions={
           !isNew && (
-            <Button variant="destructive" onClick={() => remove.mutate()}>
-              <Trash2 className="h-4 w-4" /> Delete
-            </Button>
+            <ConfirmDestructive
+              title="Delete rule?"
+              description={
+                <>
+                  <span className="font-mono">{name || id}</span> will be removed permanently.
+                  Existing alerts it produced remain, but the rule won't fire again.
+                </>
+              }
+              confirmLabel="Yes, delete"
+              onConfirm={() => remove.mutate()}
+              pending={remove.isPending}
+              trigger={
+                <Button variant="destructive">
+                  <Trash2 className="h-4 w-4" /> Delete
+                </Button>
+              }
+            />
           )
         }
       />

@@ -18,6 +18,7 @@ import { rulesApi } from "@/api/rules";
 import { ruleGroupsApi } from "@/api/ruleGroups";
 import { ApiError } from "@/api/client";
 import { RuleActionBadge, SeverityBadge } from "@/components/badges";
+import { ConfirmDestructive } from "@/components/ConfirmDestructive";
 import { ColumnHeaderFilter } from "@/components/data-table/ColumnHeaderFilter";
 import { FilterChipBar } from "@/components/data-table/FilterChipBar";
 import { PageHeader } from "@/components/PageHeader";
@@ -477,14 +478,37 @@ function RuleQuickActions({ rule, kindGroups }: { rule: Rule; kindGroups: RuleGr
 
   return (
     <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        variant={rule.enabled ? "outline" : "secondary"}
-        onClick={() => update.mutate({ enabled: !rule.enabled })}
-        disabled={update.isPending}
-      >
-        {rule.enabled ? "Disable" : "Enable"}
-      </Button>
+      {rule.enabled ? (
+        // Disabling a rule (especially a self-protection one) is one
+        // stray click away from breaking a detection — confirm.
+        <ConfirmDestructive
+          title="Disable rule?"
+          description={
+            <>
+              <span className="font-mono">{rule.name}</span> will stop firing for new events
+              until you re-enable it. Existing alerts are not affected.
+            </>
+          }
+          confirmLabel="Yes, disable"
+          onConfirm={() => update.mutate({ enabled: false })}
+          pending={update.isPending}
+          trigger={
+            <Button size="sm" variant="outline" disabled={update.isPending}>
+              Disable
+            </Button>
+          }
+        />
+      ) : (
+        // Re-enabling isn't destructive — go straight through.
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => update.mutate({ enabled: true })}
+          disabled={update.isPending}
+        >
+          Enable
+        </Button>
+      )}
       <div className="relative" ref={menuRef}>
         <Button
           size="sm"

@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ConfirmDestructive } from "@/components/ConfirmDestructive";
 import { PageHeader } from "@/components/PageHeader";
 
 export function Enrollment() {
@@ -144,14 +145,25 @@ export function Enrollment() {
                       {t.used_at ? new Date(t.used_at).toLocaleString() : "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => revoke.mutate(t.id)}
-                        disabled={!!t.used_at}
-                      >
-                        revoke
-                      </Button>
+                      <ConfirmDestructive
+                        title="Revoke enrollment token?"
+                        description={
+                          <>
+                            This invalidates{" "}
+                            <span className="font-mono">{t.label ?? t.id.slice(0, 8)}</span>{" "}
+                            so the agent it was minted for can no longer complete first
+                            connection. Already-enrolled hosts are unaffected.
+                          </>
+                        }
+                        confirmLabel="Yes, revoke"
+                        onConfirm={() => revoke.mutate(t.id)}
+                        pending={revoke.isPending}
+                        trigger={
+                          <Button size="sm" variant="ghost" disabled={!!t.used_at}>
+                            Revoke
+                          </Button>
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
