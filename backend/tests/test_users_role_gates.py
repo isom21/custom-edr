@@ -134,9 +134,7 @@ async def test_get_user_groups_admin_only_analyst_403(http_client, target_user, 
 
 
 @pytest.mark.asyncio
-async def test_replace_user_groups_admin_only_viewer_403(
-    http_client, target_user, viewer_headers
-):
+async def test_replace_user_groups_admin_only_viewer_403(http_client, target_user, viewer_headers):
     resp = await http_client.post(
         f"/api/users/{target_user.id}/groups",
         json={"host_group_ids": []},
