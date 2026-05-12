@@ -8,6 +8,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { CheckCircle2, AlertOctagon, Loader2 } from "lucide-react";
 import { auditApi } from "@/api/audit";
 import { ApiError } from "@/api/client";
 import { DataTable } from "@/components/data-table";
@@ -15,6 +16,7 @@ import type { ColumnDef } from "@/components/data-table";
 import { PageHeader } from "@/components/PageHeader";
 import { useTableQuery } from "@/hooks/useTableQuery";
 import { useColumnFilters } from "@/lib/table-filters";
+import { cn } from "@/lib/utils";
 import type { AuditEntry } from "@/types/api";
 
 // Resource-type → detail-page route prefix. The detail page resolves
@@ -33,6 +35,17 @@ export function Audit() {
     queryKey: ["audit", { offset: state.offset, limit: state.limit }],
     queryFn: () => auditApi.list({ limit: state.limit, offset: state.offset }),
     placeholderData: (prev) => prev,
+  });
+
+  // M22.d.b: render the HMAC chain status alongside the table so the
+  // page actually shows what its subtitle promises. Refetch every 60s
+  // so a chain break shows up within a minute without operator action.
+  const verify = useQuery({
+    queryKey: ["audit-verify"],
+    queryFn: () => auditApi.verify(),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 
   const columns: ColumnDef<AuditEntry>[] = [
@@ -133,6 +146,7 @@ export function Audit() {
         description="Every privileged action is recorded with a tamper-evident HMAC chain. Admins only."
       />
       <div className="space-y-4 px-8 py-6">
+        <ChainStatusBadge query={verify} />
         <DataTable<AuditEntry>
           tableId="audit"
           columns={columns}
@@ -157,5 +171,88 @@ export function Audit() {
         />
       </div>
     </>
+  );
+}
+
+interface VerifyQuery {
+  data?: { ok: boolean; rows_examined: number; chain_rows: number; breaks: unknown[] };
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  dataUpdatedAt: number;
+}
+
+function ChainStatusBadge({ query }: { query: VerifyQuery }) {
+  // Three states. Loading + error render small + neutral; ok/broken
+  // get the actual semantic colours.
+  if (query.isLoading && !query.data) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="inline-flex items-center gap-2 rounded-md border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Verifying HMAC chain…
+      </div>
+    );
+  }
+  if (query.isError || !query.data) {
+    const msg =
+      query.error instanceof ApiError ? query.error.detail : "chain verify request failed";
+    return (
+      <div
+        role="status"
+        className="inline-flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500"
+      >
+        <AlertOctagon className="h-3.5 w-3.5" />
+        HMAC chain status unavailable: {msg}
+      </div>
+    );
+  }
+  const v = query.data;
+  const updated = new Date(query.dataUpdatedAt);
+  const time = updated.toLocaleTimeString();
+  if (v.ok) {
+    // Empty log is also "ok" from the verifier's perspective (no rows
+    // to walk). Phrase the badge so it isn't actively misleading.
+    const tail =
+      v.chain_rows > 0
+        ? `through seq ${v.chain_rows}`
+        : v.rows_examined > 0
+          ? `(${v.rows_examined} pre-HMAC rows)`
+          : "(no rows yet)";
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs",
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
+        )}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        <span className="font-medium">Chain verified</span>
+        <span className="text-emerald-500/80">
+          {tail} · checked at {time}
+        </span>
+      </div>
+    );
+  }
+  // Chain broken — render in destructive colour and name the first
+  // break's sequence number so the operator can jump to it.
+  const firstBreak = v.breaks[0] as { seq?: number } | undefined;
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+    >
+      <AlertOctagon className="h-3.5 w-3.5" />
+      <span className="font-medium">
+        Chain broken{typeof firstBreak?.seq === "number" ? ` at seq ${firstBreak.seq}` : ""}
+      </span>
+      <span className="text-destructive/80">— investigate · checked at {time}</span>
+    </div>
   );
 }
