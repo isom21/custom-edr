@@ -232,9 +232,7 @@ const KIND_META: Partial<Record<JobKind, KindMeta>> = {
     group: "Containment",
     hint: "Admin-only.",
     adminOnly: true,
-    fields: [
-      { key: "pid", label: "PID", kind: "number", defaultValue: 0, min: 1, required: true },
-    ],
+    fields: [{ key: "pid", label: "PID", kind: "number", defaultValue: 0, min: 1, required: true }],
   },
   delete_file: {
     label: "Delete file",
@@ -411,11 +409,7 @@ export function JobCreateModal({
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="job-kind">Kind</Label>
-            <Select
-              id="job-kind"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as JobKind)}
-            >
+            <Select id="job-kind" value={kind} onChange={(e) => setKind(e.target.value as JobKind)}>
               {Object.entries(grouped).map(([group, ks]) => (
                 <optgroup key={group} label={group}>
                   {ks.map((k) => (
@@ -569,7 +563,10 @@ function StringListField({
             onChange={(e) => {
               const text = e.target.value;
               if (text.includes(",")) {
-                const parts = text.split(",").map((s) => s.trim()).filter(Boolean);
+                const parts = text
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean);
                 const next = [...entries];
                 next.splice(i, 1, ...parts);
                 onChange(next);
