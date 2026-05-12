@@ -128,7 +128,7 @@ async def create_job(
 @router.get("", response_model=Page[JobOut])
 async def list_jobs(
     db: DbSession,
-    actor: RequireAnalyst,  # noqa: ARG001 — actor used implicitly via scoping
+    actor: RequireAnalyst,
     kind: JobKind | None = None,
     status_: JobStatus | None = None,
     limit: int = 50,
@@ -142,6 +142,21 @@ async def list_jobs(
     if status_:
         stmt = stmt.where(Job.status == status_)
         count_stmt = count_stmt.where(Job.status == status_)
+
+    # Host-group scope. Restrict Job.id to those that have at least one
+    # JobRun whose host is visible to the actor. `apply_host_scope` is a
+    # no-op for admins (they see all jobs); for non-admins the inner
+    # subquery walks user_host_group ∩ host_in_group via JobRun.host_id.
+    # Jobs with zero runs are invisible to non-admins by design — only
+    # the creator (and admins) see a still-fanning-out job.
+    visible_run_subq = apply_host_scope(
+        select(JobRun.job_id).distinct(),
+        actor,
+        host_column=JobRun.host_id,
+    )
+    if not actor.has_role(UserRole.ADMIN):
+        stmt = stmt.where(Job.id.in_(visible_run_subq))
+        count_stmt = count_stmt.where(Job.id.in_(visible_run_subq))
 
     stmt = stmt.order_by(desc(Job.created_at)).limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
@@ -183,13 +198,27 @@ async def list_jobs(
 async def get_job(
     job_id: UUID,
     db: DbSession,
-    actor: RequireAnalyst,  # noqa: ARG001
+    actor: RequireAnalyst,
 ) -> JobDetail:
-    job = await db.get(Job, job_id, options=[selectinload(Job.runs)])
+    job = (
+        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+    ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))
 
-    runs = list(job.runs)
+    # Host-group scope. Admins see every run; non-admins only see runs
+    # whose host they're in a group with. Per the 403/404 unification:
+    # if there's no intersection, return 404 (never confirm existence).
+    visible = await visible_host_ids(actor, db)
+    all_runs = list(job.runs)
+    if visible is None:
+        runs = all_runs
+    else:
+        visible_set = set(visible)
+        runs = [r for r in all_runs if r.host_id in visible_set]
+        if not runs:
+            raise not_found("job", str(job_id))
+
     host_ids = [r.host_id for r in runs]
     hostnames: dict[UUID, str] = {}
     if host_ids:
@@ -204,14 +233,27 @@ async def get_job(
 async def list_job_runs(
     job_id: UUID,
     db: DbSession,
-    actor: RequireAnalyst,  # noqa: ARG001
+    actor: RequireAnalyst,
     status_: JobRunStatus | None = None,
     limit: int = 200,
     offset: int = 0,
 ) -> Page[JobRunOut]:
-    job = await db.get(Job, job_id)
+    job = (
+        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+    ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))
+
+    # 403/404 unification: non-admins with no visible runs see 404 on the
+    # parent job itself, not just an empty runs list. The per-run scope
+    # below still filters the actual list — this check stops a non-admin
+    # from confirming a job's existence via the list endpoint when their
+    # group doesn't intersect any of its runs.
+    visible = await visible_host_ids(actor, db)
+    if visible is not None:
+        visible_set = set(visible)
+        if not any(r.host_id in visible_set for r in job.runs):
+            raise not_found("job", str(job_id))
 
     stmt = (
         select(JobRun, Host.hostname)
@@ -246,10 +288,18 @@ async def list_run_artifacts(
     job_id: UUID,
     run_id: UUID,
     db: DbSession,
-    actor: RequireAnalyst,  # noqa: ARG001
+    actor: RequireAnalyst,
 ) -> list[JobArtifactOut]:
     run = await db.get(JobRun, run_id)
     if run is None or run.job_id != job_id:
+        raise not_found("job_run", str(run_id))
+
+    # Host-group scope. Non-admins can only enumerate artifacts for runs
+    # against hosts they share a group with. 404 instead of 403 — see
+    # M-audit-and-auth #7 unification.
+    from app.services.scoping import host_visible_to
+
+    if not await host_visible_to(actor, run.host_id, db):
         raise not_found("job_run", str(run_id))
 
     stmt = (
@@ -265,9 +315,23 @@ async def cancel_job(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> JobDetail:
-    job = await db.get(Job, job_id, options=[selectinload(Job.runs)])
+    job = (
+        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+    ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))
+
+    # Host-group scope. Non-admins can only cancel jobs that have at
+    # least one run targeting a host they share a group with. Without
+    # this an analyst with one tiny group could cancel a fleet-wide
+    # admin-issued incident response. 404 (not 403) to avoid leaking
+    # existence (M-audit-and-auth #7).
+    visible = await visible_host_ids(actor, db)
+    if visible is not None:
+        visible_set = set(visible)
+        if not any(r.host_id in visible_set for r in job.runs):
+            raise not_found("job", str(job_id))
+
     if job.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELED}:
         raise bad_request(f"job already {job.status.value}")
 
@@ -324,13 +388,15 @@ async def download_artifact(
 
     # Host-scope check: verify the actor can see the host that produced
     # this artifact. Admins skip the check inside host_visible_to.
+    # 403 → 404 per M-audit-and-auth #7 (never confirm existence to a
+    # caller who isn't allowed to see the resource).
     run = await db.get(JobRun, art.job_run_id)
     if run is None:
         raise not_found("job_run", str(art.job_run_id))
     from app.services.scoping import host_visible_to
 
     if not await host_visible_to(actor, run.host_id, db):
-        raise forbidden("artifact's host is outside your groups")
+        raise not_found("artifact", str(artifact_id))
 
     # M23.k: hand back a manager-hosted URL. The manager's
     # `/api/downloads/{id}` route streams from MinIO server-side and
