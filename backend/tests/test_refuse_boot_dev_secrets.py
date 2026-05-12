@@ -18,6 +18,7 @@ import pytest
 from app.core.config import (
     CA_MASTER_KEY_DEV_PREFIX,
     JWT_SECRET_DEV_DEFAULT,
+    TOTP_KEY_DEV_DEFAULT,
     DevSecretsInProductionError,
     Settings,
     assert_production_secrets,
@@ -29,6 +30,7 @@ def _good_settings(**overrides: object) -> Settings:
         "debug": False,
         "jwt_secret": "prod-secret-rotated-from-install-sh",
         "ca_master_key": "prod-ca-master-key-rotated-32-bytes-long",
+        "totp_encryption_key": "prod-totp-key-44-chars-url-safe-base64-padded==",
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -73,6 +75,22 @@ def test_empty_audit_hmac_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "")
     with pytest.raises(DevSecretsInProductionError):
         assert_production_secrets(_good_settings())
+
+
+def test_dev_totp_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(totp_encryption_key=TOTP_KEY_DEV_DEFAULT)
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    assert "VIGIL_TOTP_ENCRYPTION_KEY" in str(exc.value)
+
+
+def test_missing_totp_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(totp_encryption_key="")
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    assert "VIGIL_TOTP_ENCRYPTION_KEY" in str(exc.value)
 
 
 def test_all_three_problems_report_together(monkeypatch: pytest.MonkeyPatch) -> None:

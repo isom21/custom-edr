@@ -174,6 +174,7 @@ VIGIL_JWT_SECRET=<openssl rand -hex 32>
 VIGIL_AUDIT_HMAC_KEY=<openssl rand -hex 32>
 VIGIL_CA_MASTER_KEY=<openssl rand -hex 32>
 VIGIL_UPLOAD_TOKEN_KEY=<openssl rand -hex 32>
+VIGIL_TOTP_ENCRYPTION_KEY=<python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
 ```
 
 `VIGIL_JWT_SECRET` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
@@ -188,15 +189,23 @@ doesn't compromise the other. When unset, the manager falls back to
 `VIGIL_JWT_SECRET` so older dev environments keep working —
 production installs should set both explicitly.
 
+`VIGIL_TOTP_ENCRYPTION_KEY` encrypts user TOTP secrets at rest
+(Fernet). Must be 32 raw bytes encoded url-safe base64 — generate
+with `Fernet.generate_key()`. Rotating this key without re-enrolling
+every 2FA-enabled user locks them out; if you must rotate, plan a
+maintenance window where admins force-disable then re-enroll each
+user via `/api/users/{id}/2fa/disable` + the standard setup flow.
+
 <a name="crypto-secrets"></a>**Refuse-to-boot guard.** When `VIGIL_DEBUG`
 is unset (production default), the manager refuses to start if any of
-the three crypto secrets is still at its dev default:
+the four crypto secrets is still at its dev default:
 
 - `VIGIL_JWT_SECRET == "dev-only-change-me"`
 - `VIGIL_CA_MASTER_KEY` starts with `"dev-only-"`
 - `VIGIL_AUDIT_HMAC_KEY` is unset or empty
+- `VIGIL_TOTP_ENCRYPTION_KEY` is unset or still the dev default
 
-`install.sh` rotates all three; operators building from compose alone
+`install.sh` rotates all four; operators building from compose alone
 must set them in `.env` (or the manager's process environment) before
 starting. The startup error message names which secret is missing.
 

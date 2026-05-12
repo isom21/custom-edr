@@ -39,6 +39,12 @@ def password_needs_rehash(hashed: str) -> bool:
 
 TokenType = Literal["access", "refresh"]
 
+# How long an mfa_pending token is valid for between /login and
+# /login/2fa. Short enough that a stolen pending token expires before
+# anyone could exploit it; long enough that a human typing a code
+# from their phone doesn't time out.
+MFA_PENDING_TTL_SECONDS = 300
+
 
 def issue_jwt(*, sub: UUID, role: str, token_type: TokenType) -> str:
     now = datetime.now(UTC)
@@ -50,6 +56,22 @@ def issue_jwt(*, sub: UUID, role: str, token_type: TokenType) -> str:
         "sub": str(sub),
         "role": role,
         "type": token_type,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def issue_mfa_pending_jwt(*, sub: UUID) -> str:
+    """Short-lived token issued after /login when the account has TOTP
+    enabled. The caller exchanges it at /login/2fa for the real
+    access+refresh pair after presenting a valid code. Distinct
+    `type` so it can't be used as an access token by accident."""
+    now = datetime.now(UTC)
+    exp = now + timedelta(seconds=MFA_PENDING_TTL_SECONDS)
+    payload = {
+        "sub": str(sub),
+        "type": "mfa_pending",
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }

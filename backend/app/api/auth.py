@@ -13,13 +13,25 @@ from fastapi import APIRouter, Cookie, Request, Response
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.core.deps import DbSession
-from app.core.errors import unauthorized
-from app.core.security import decode_jwt
+from app.core.deps import CurrentActor, DbSession
+from app.core.errors import bad_request, unauthorized
+from app.core.security import decode_jwt, issue_mfa_pending_jwt
 from app.models import User
-from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
+from app.schemas.auth import (
+    Login2FARequest,
+    LoginRequest,
+    LoginResponse,
+    RefreshRequest,
+    TokenPair,
+    TotpDisableRequest,
+    TotpSetupResponse,
+    TotpStatus,
+    TotpVerifySetupRequest,
+    TotpVerifySetupResponse,
+)
 from app.services import audit
 from app.services import auth as auth_service
+from app.services import totp as totp_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -105,13 +117,13 @@ def _clear_login_failures(email_key: str) -> None:
         _login_fails.pop(email_key, None)
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
     db: DbSession,
-) -> TokenPair:
+) -> LoginResponse:
     ip = request.client.host if request.client else None
     email_key = payload.email.lower()
 
@@ -166,6 +178,21 @@ async def login(
         raise unauthorized("invalid credentials") from exc
 
     _clear_login_failures(email_key)
+    if user.totp_enabled:
+        # Defer the token issuance to /login/2fa. Don't audit
+        # `user.login` yet — the login isn't complete until the
+        # second factor lands. Record the password-stage success so
+        # there's a trail if 2FA never finishes.
+        await audit.record(
+            db,
+            actor=None,
+            action="user.login.password_ok_mfa_required",
+            resource_type="user",
+            resource_id=str(user.id),
+            ip=ip,
+        )
+        return LoginResponse(mfa_required=True, mfa_token=issue_mfa_pending_jwt(sub=user.id))
+
     await audit.record(
         db,
         actor=None,
@@ -176,7 +203,7 @@ async def login(
     )
     pair = auth_service.issue_token_pair(user)
     _set_refresh_cookie(response, pair["refresh_token"])
-    return TokenPair(**pair)
+    return LoginResponse(**pair, mfa_required=False)
 
 
 @router.post("/refresh", response_model=TokenPair)
@@ -216,5 +243,173 @@ async def logout(response: Response) -> Response:
     they just stop being reachable. Operators who need true
     revocation should disable the user via /api/users."""
     _clear_refresh_cookie(response)
+    response.status_code = 204
+    return response
+
+
+# ---------- Two-step login (TOTP) -----------------------------------
+
+
+async def _consume_2fa_code(user: User, code: str, db: DbSession) -> bool:
+    """Try `code` first as a current TOTP, then as a recovery code.
+    On a recovery-code hit, persist the shortened list. Returns True
+    iff one path accepted the code."""
+    if user.totp_secret_encrypted is None:
+        return False
+    secret = totp_service.decrypt_secret(user.totp_secret_encrypted)
+    if totp_service.verify_code(secret, code):
+        return True
+    remaining = totp_service.consume_recovery_code(user.totp_recovery_codes_hashed or [], code)
+    if remaining is None:
+        return False
+    user.totp_recovery_codes_hashed = remaining
+    await audit.record(
+        db,
+        actor=None,
+        action="user.2fa.recovery_used",
+        resource_type="user",
+        resource_id=str(user.id),
+        payload={"remaining": len(remaining)},
+    )
+    return True
+
+
+@router.post("/login/2fa", response_model=TokenPair)
+async def login_2fa(
+    payload: Login2FARequest,
+    request: Request,
+    response: Response,
+    db: DbSession,
+) -> TokenPair:
+    ip = request.client.host if request.client else None
+    try:
+        decoded = decode_jwt(payload.mfa_token)
+    except jwt.ExpiredSignatureError as exc:
+        raise unauthorized("mfa token expired") from exc
+    except jwt.PyJWTError as exc:
+        raise unauthorized("invalid mfa token") from exc
+    if decoded.get("type") != "mfa_pending":
+        raise unauthorized("not an mfa token")
+
+    user = await db.get(User, UUID(decoded["sub"]))
+    if user is None or user.disabled or not user.totp_enabled:
+        raise unauthorized("user inactive or 2fa not enabled")
+
+    accepted = await _consume_2fa_code(user, payload.code, db)
+    if not accepted:
+        await audit.record(
+            db,
+            actor=None,
+            action="user.login.2fa_failed",
+            resource_type="user",
+            resource_id=str(user.id),
+            ip=ip,
+        )
+        _record_login_failure(user.email.lower())
+        raise unauthorized("invalid 2fa code")
+
+    await audit.record(
+        db,
+        actor=None,
+        action="user.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        payload={"via": "totp"},
+        ip=ip,
+    )
+    pair = auth_service.issue_token_pair(user)
+    _set_refresh_cookie(response, pair["refresh_token"])
+    return TokenPair(**pair)
+
+
+# ---------- Self-service enrollment / disable -----------------------
+
+
+def _require_interactive_user(actor: CurrentActor) -> User:
+    """2FA management is intentionally restricted to interactive users
+    (JWT bearer). API tokens are opaque machine credentials and live
+    on a different threat model."""
+    if actor.kind != "user":
+        raise unauthorized("2fa endpoints require an interactive user session")
+    return actor.user
+
+
+@router.get("/2fa/status", response_model=TotpStatus)
+async def totp_status(actor: CurrentActor) -> TotpStatus:
+    user = _require_interactive_user(actor)
+    return TotpStatus(
+        enabled=user.totp_enabled,
+        pending=user.totp_pending_secret_encrypted is not None and not user.totp_enabled,
+    )
+
+
+@router.post("/2fa/setup", response_model=TotpSetupResponse)
+async def totp_setup(actor: CurrentActor, db: DbSession) -> TotpSetupResponse:
+    user = _require_interactive_user(actor)
+    if user.totp_enabled:
+        raise bad_request("2fa already enabled; disable first to re-enroll")
+    secret = totp_service.generate_secret()
+    user.totp_pending_secret_encrypted = totp_service.encrypt_secret(secret)
+    await audit.record(
+        db,
+        actor=actor,
+        action="user.2fa.setup_started",
+        resource_type="user",
+        resource_id=str(user.id),
+    )
+    return TotpSetupResponse(
+        secret_base32=secret,
+        provisioning_uri=totp_service.provisioning_uri(secret, account_name=user.email),
+    )
+
+
+@router.post("/2fa/verify-setup", response_model=TotpVerifySetupResponse)
+async def totp_verify_setup(
+    payload: TotpVerifySetupRequest, actor: CurrentActor, db: DbSession
+) -> TotpVerifySetupResponse:
+    user = _require_interactive_user(actor)
+    if user.totp_enabled:
+        raise bad_request("2fa already enabled")
+    if user.totp_pending_secret_encrypted is None:
+        raise bad_request("no pending 2fa enrollment; call /2fa/setup first")
+    pending = totp_service.decrypt_secret(user.totp_pending_secret_encrypted)
+    if not totp_service.verify_code(pending, payload.code):
+        raise bad_request("code did not match — try again")
+
+    plaintext_codes, hashed_codes = totp_service.generate_recovery_codes()
+    user.totp_secret_encrypted = user.totp_pending_secret_encrypted
+    user.totp_pending_secret_encrypted = None
+    user.totp_enabled = True
+    user.totp_recovery_codes_hashed = hashed_codes
+    await audit.record(
+        db,
+        actor=actor,
+        action="user.2fa.enabled",
+        resource_type="user",
+        resource_id=str(user.id),
+    )
+    return TotpVerifySetupResponse(recovery_codes=plaintext_codes)
+
+
+@router.post("/2fa/disable", status_code=204)
+async def totp_disable(
+    payload: TotpDisableRequest, actor: CurrentActor, db: DbSession, response: Response
+) -> Response:
+    user = _require_interactive_user(actor)
+    if not user.totp_enabled:
+        raise bad_request("2fa is not enabled on this account")
+    if not await _consume_2fa_code(user, payload.code, db):
+        raise unauthorized("invalid 2fa code")
+    user.totp_enabled = False
+    user.totp_secret_encrypted = None
+    user.totp_pending_secret_encrypted = None
+    user.totp_recovery_codes_hashed = None
+    await audit.record(
+        db,
+        actor=actor,
+        action="user.2fa.disabled",
+        resource_type="user",
+        resource_id=str(user.id),
+    )
     response.status_code = 204
     return response

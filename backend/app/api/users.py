@@ -113,6 +113,30 @@ async def update_user(
     return UserOut.model_validate(user)
 
 
+@router.post("/{user_id}/2fa/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_disable_2fa(user_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
+    """Admin force-disable of another user's 2FA. Account-recovery
+    path for users who've lost both their authenticator and recovery
+    codes. The target user re-enrolls from scratch on their next
+    login. Always audited; never silent."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise not_found("user", str(user_id))
+    if not user.totp_enabled and user.totp_pending_secret_encrypted is None:
+        raise bad_request("2fa is not enabled on this account")
+    user.totp_enabled = False
+    user.totp_secret_encrypted = None
+    user.totp_pending_secret_encrypted = None
+    user.totp_recovery_codes_hashed = None
+    await audit.record(
+        db,
+        actor=actor,
+        action="user.2fa.admin_disabled",
+        resource_type="user",
+        resource_id=str(user_id),
+    )
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(user_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     user = await db.get(User, user_id)
