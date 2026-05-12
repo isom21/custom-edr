@@ -107,7 +107,10 @@ async def download_artifact(
     if run is None:
         raise not_found("job_run", str(art.job_run_id))
     if not await host_visible_to(actor, run.host_id, db):
-        raise forbidden("artifact's host is outside your groups")
+        # M-audit-and-auth #7: return 404 (not 403) so the response
+        # doesn't distinguish "this artifact exists on a host you
+        # can't see" from "this artifact id is bogus".
+        raise not_found("artifact", str(artifact_id))
 
     # Audit-log the access. We're streaming the bytes, so do this BEFORE
     # opening the upstream GET so the row is on disk even if MinIO
