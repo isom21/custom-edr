@@ -221,8 +221,40 @@ WHERE uhg.user_id = '<user_uuid>';
   assignment per host.
 - **Per-host policy still admin-managed** — the analyst role can
   queue commands but cannot edit the policy a host runs under.
-- **OIDC / SSO** — only password + future TOTP; no enterprise SSO
+- **OIDC / SSO** — only password + opt-in TOTP; no enterprise SSO
   integration yet. Tracked as a future polish item.
+
+## Two-factor authentication (TOTP)
+
+Per-user opt-in via the `/api/auth/2fa/*` endpoints. Not enforced —
+the project targets solo-developer / small-team operations and a
+hard mandate at the auth layer would lock out anyone whose
+authenticator drifts before recovery codes are saved.
+
+- Enrollment: `POST /api/auth/2fa/setup` → render the returned
+  `provisioning_uri` as a QR code → `POST /api/auth/2fa/verify-setup
+  { code }` to confirm. Server returns ten one-shot recovery codes
+  at this step; they're shown once.
+- Login on a 2FA-enabled account: `/api/auth/login` returns
+  `{ mfa_required: true, mfa_token }` instead of a token pair.
+  Client exchanges at `/api/auth/login/2fa { mfa_token, code }`
+  with either a current TOTP or one of the recovery codes.
+- Disable: `POST /api/auth/2fa/disable { code }`. Self-service
+  only, but requires a valid code so a stolen session can't
+  silently turn it off.
+- Admin recovery: if a user loses both their authenticator and
+  recovery codes, an admin can clear all 2FA state via
+  `POST /api/users/{id}/2fa/disable`. Audited as
+  `user.2fa.admin_disabled`.
+
+API tokens are out of scope — they're opaque machine credentials
+and the 2FA endpoints reject them explicitly.
+
+Secrets are stored Fernet-encrypted with `VIGIL_TOTP_ENCRYPTION_KEY`,
+kept separate from `jwt_secret` and `upload_token_key` so a leak
+in one auth path doesn't cross-contaminate the others. Recovery
+codes live as bcrypt hashes; only the one-shot plaintext leaves
+the server, only at enrollment.
 
 These gaps are documented in `threat-model.md` "What changes the
 calculus" and are slated for a future M7.x extension or M8.

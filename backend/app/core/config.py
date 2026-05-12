@@ -107,6 +107,14 @@ class Settings(BaseSettings):
     # manager rejects anything larger at the proxy layer.
     upload_max_bytes: int = 512 * 1024 * 1024  # 512 MiB
 
+    # Fernet key (URL-safe base64-encoded 32 bytes) used to encrypt
+    # users' TOTP secrets at rest. Kept separate from jwt_secret /
+    # upload_token_key so compromise of one auth path doesn't unlock
+    # the others. `install.sh` generates a fresh value; in dev it
+    # falls back to a deterministic dev string so local environments
+    # keep working without a fresh `.env`.
+    totp_encryption_key: str = ""
+
 
 settings = Settings()
 
@@ -119,6 +127,11 @@ settings = Settings()
 # environment before starting.
 JWT_SECRET_DEV_DEFAULT = "dev-only-change-me"
 CA_MASTER_KEY_DEV_PREFIX = "dev-only-"
+# Deterministic Fernet key used as a fallback in dev environments
+# that haven't run `install.sh`. Production refuses to boot with this
+# value (see `assert_production_secrets`). Generated once via
+# base64.urlsafe_b64encode(b"dev-only-vigil-totp-key-32bytes!").
+TOTP_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtdG90cC1rZXktMzJieXRlcyE="
 
 
 class DevSecretsInProductionError(RuntimeError):
@@ -140,6 +153,8 @@ def assert_production_secrets(s: Settings | None = None) -> None:
         problems.append("VIGIL_CA_MASTER_KEY is still the dev default")
     if not os.environ.get("VIGIL_AUDIT_HMAC_KEY"):
         problems.append("VIGIL_AUDIT_HMAC_KEY is unset (audit chain would be dormant)")
+    if not s.totp_encryption_key or s.totp_encryption_key == TOTP_KEY_DEV_DEFAULT:
+        problems.append("VIGIL_TOTP_ENCRYPTION_KEY is unset or still the dev default")
     if problems:
         raise DevSecretsInProductionError(
             "Refusing to start: production secrets must be rotated. "

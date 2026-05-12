@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import JSON, DateTime, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin, pg_enum
@@ -27,3 +27,15 @@ class User(UuidPkMixin, TimestampMixin, Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     disabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    # Opt-in TOTP 2FA. `totp_enabled` only flips True after the user
+    # confirms a fresh code matches the pending secret — so a half-
+    # finished setup doesn't lock anyone out. `totp_pending_secret_*`
+    # holds the proposed secret between /setup and /verify-setup; it's
+    # cleared on success or on a fresh /setup that supersedes it.
+    # Recovery codes are bcrypt-hashed and consumed on use; the
+    # plaintext is shown to the user exactly once at generation.
+    totp_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
+    totp_pending_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
+    totp_recovery_codes_hashed: Mapped[list[str] | None] = mapped_column(JSON)

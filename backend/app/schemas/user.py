@@ -18,6 +18,7 @@ class UserOut(ORMModel):
     disabled: bool
     last_login_at: datetime | None
     created_at: datetime
+    totp_enabled: bool = False
 
 
 class UserCreate(BaseModel):
