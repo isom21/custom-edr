@@ -17,7 +17,7 @@ from uuid import UUID
 import grpc
 import structlog
 from google.protobuf import timestamp_pb2
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -449,8 +449,13 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             host.last_seen_at = datetime.now(UTC)
             await db.commit()
 
-            # Push initial rule sync to the agent.
+            # Push initial rule sync to the agent. Also remember the
+            # latest rule mtime so the resync dispatcher below knows
+            # what counts as "new edits since this stream opened".
             initial = await self._build_rule_sync(db)
+            initial_rule_mtime = (
+                await db.execute(select(func.max(Rule.updated_at)))
+            ).scalar_one_or_none()
 
         # Send rule sync first.
         yield control_pb2.ServerMessage(rules=initial)
@@ -508,9 +513,36 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
             except asyncio.CancelledError:
                 return
 
+        # Rule-resync dispatcher (review MEDIUM #15). Pre-fix, agents
+        # received RuleSync exactly once at stream open and never again
+        # — toggling a YARA / IOC rule in the UI did not reach
+        # already-connected agents until they reconnected. We poll
+        # `MAX(Rule.updated_at)` at 2 s cadence and push a fresh
+        # RuleSync whenever it advances. Simpler than wiring asyncpg
+        # LISTEN through the SQLAlchemy pool and good enough for the
+        # low-hundreds fleet size we target. Latency ≤ 2 s.
+        async def _rule_resync_dispatcher(out: asyncio.Queue, last_mtime):
+            try:
+                while True:
+                    await asyncio.sleep(2.0)
+                    try:
+                        async with SessionLocal() as cdb:
+                            current = (
+                                await cdb.execute(select(func.max(Rule.updated_at)))
+                            ).scalar_one_or_none()
+                            if current is not None and current != last_mtime:
+                                fresh = await self._build_rule_sync(cdb)
+                                await out.put(control_pb2.ServerMessage(rules=fresh))
+                                last_mtime = current
+                    except Exception:
+                        log.exception("grpc.rule_resync.error", host_id=host_id_str)
+            except asyncio.CancelledError:
+                return
+
         out_queue: asyncio.Queue = asyncio.Queue()
         ping_task = asyncio.create_task(_pinger(out_queue))
         cmd_task = asyncio.create_task(_command_dispatcher(out_queue))
+        resync_task = asyncio.create_task(_rule_resync_dispatcher(out_queue, initial_rule_mtime))
 
         try:
             consume_task = asyncio.create_task(
@@ -530,10 +562,13 @@ class AgentService(control_pb2_grpc.AgentServiceServicer):
         finally:
             ping_task.cancel()
             cmd_task.cancel()
+            resync_task.cancel()
             with contextlib.suppress(BaseException):
                 await ping_task
             with contextlib.suppress(BaseException):
                 await cmd_task
+            with contextlib.suppress(BaseException):
+                await resync_task
             async with SessionLocal() as db:
                 h = await db.get(Host, host_id)
                 if h is not None:
