@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 
 from app.core.deps import DbSession, RequireAdmin, RequireAnalyst
-from app.core.errors import bad_request, forbidden, not_found
+from app.core.errors import bad_request, not_found
 from app.models import Command, CommandKind, CommandStatus, Host, QuarantinedFile, QuarantineStatus
 from app.schemas.common import ORMModel, Page
 from app.services import audit
@@ -65,7 +65,8 @@ async def list_quarantined_for_host(
     if host is None:
         raise not_found("host", str(host_id))
     if not await host_visible_to(actor, host_id, db):
-        raise forbidden("host not in any of your groups")
+        # M-audit-and-auth #7: 404 (not 403) for cross-team host ids.
+        raise not_found("host", str(host_id))
 
     stmt = select(QuarantinedFile).where(QuarantinedFile.host_id == host_id)
     count_stmt = select(func.count(QuarantinedFile.id)).where(QuarantinedFile.host_id == host_id)
@@ -141,7 +142,10 @@ async def release_quarantined_file(
     if row.status != QuarantineStatus.ACTIVE:
         raise bad_request(f"quarantined file already {row.status.value}")
     if not await host_visible_to(actor, row.host_id, db):
-        raise forbidden("host not in any of your groups")
+        # M-audit-and-auth #7: 404 (not 403) so a non-admin can't
+        # probe for the existence of quarantined files on hosts
+        # outside their groups.
+        raise not_found("quarantined_file", str(quarantine_id))
 
     cmd = Command(
         host_id=row.host_id,
