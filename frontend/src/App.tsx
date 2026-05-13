@@ -30,6 +30,7 @@ import { Rules } from "./pages/Rules";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SequenceRules } from "./pages/SequenceRules";
 import { SiemForwarders } from "./pages/SiemForwarders";
+import { Tenants } from "./pages/Tenants";
 import { Users } from "./pages/Users";
 import { Vulnerabilities } from "./pages/Vulnerabilities";
 
@@ -73,6 +74,10 @@ export default function App() {
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/users" element={<Users />} />
+                {/* Phase 3 #3.1: tenant CRUD. The page itself returns a
+                    "super-admin only" placeholder for everyone else,
+                    matching the backend's RequireSuperAdmin gate. */}
+                <Route path="/tenants" element={<Tenants />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>
