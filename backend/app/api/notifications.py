@@ -49,9 +49,7 @@ def _hydrate(ch: NotificationChannel) -> NotificationChannelOut:
 
 
 @router.get("", response_model=list[NotificationChannelOut])
-async def list_channels(
-    db: DbSession, actor: RequireAnalyst
-) -> list[NotificationChannelOut]:
+async def list_channels(db: DbSession, actor: RequireAnalyst) -> list[NotificationChannelOut]:
     rows = (
         (await db.execute(select(NotificationChannel).order_by(NotificationChannel.name)))
         .scalars()
@@ -167,9 +165,7 @@ async def update_channel(
 
 
 @router.delete("/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_channel(
-    channel_id: UUID, db: DbSession, actor: RequireAdmin
-) -> None:
+async def delete_channel(channel_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     ch = await db.get(NotificationChannel, channel_id)
     if ch is None:
         raise not_found("notification_channel", str(channel_id))

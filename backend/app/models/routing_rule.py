@@ -47,7 +47,5 @@ class RoutingRule(UuidPkMixin, TimestampMixin, Base):
     # Ordered list of NotificationChannel ids to fire. Order is
     # preserved on update so operators can express priority (the
     # dispatcher fans out concurrently but logs in this order).
-    channel_ids: Mapped[list[UUID]] = mapped_column(
-        PG_ARRAY(Uuid()), default=list, nullable=False
-    )
+    channel_ids: Mapped[list[UUID]] = mapped_column(PG_ARRAY(Uuid()), default=list, nullable=False)
     enabled: Mapped[bool] = mapped_column(default=True, nullable=False)

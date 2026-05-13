@@ -35,9 +35,7 @@ async def _validate_refs(
         found = (
             (
                 await db.execute(
-                    select(NotificationChannel.id).where(
-                        NotificationChannel.id.in_(channel_ids)
-                    )
+                    select(NotificationChannel.id).where(NotificationChannel.id.in_(channel_ids))
                 )
             )
             .scalars()
@@ -45,9 +43,7 @@ async def _validate_refs(
         )
         missing = set(channel_ids) - set(found)
         if missing:
-            raise bad_request(
-                f"unknown notification channel(s): {sorted(str(m) for m in missing)}"
-            )
+            raise bad_request(f"unknown notification channel(s): {sorted(str(m) for m in missing)}")
     if host_group_id is not None:
         g = await db.get(HostGroup, host_group_id)
         if g is None:
@@ -56,11 +52,7 @@ async def _validate_refs(
 
 @router.get("", response_model=list[RoutingRuleOut])
 async def list_rules(db: DbSession, actor: RequireAnalyst) -> list[RoutingRuleOut]:
-    rows = (
-        (await db.execute(select(RoutingRule).order_by(RoutingRule.name)))
-        .scalars()
-        .all()
-    )
+    rows = (await db.execute(select(RoutingRule).order_by(RoutingRule.name))).scalars().all()
     return [RoutingRuleOut.model_validate(r) for r in rows]
 
 
@@ -114,9 +106,7 @@ async def create_rule(
 
 
 @router.get("/{rule_id}", response_model=RoutingRuleOut)
-async def get_rule(
-    rule_id: UUID, db: DbSession, actor: RequireAnalyst
-) -> RoutingRuleOut:
+async def get_rule(rule_id: UUID, db: DbSession, actor: RequireAnalyst) -> RoutingRuleOut:
     r = await db.get(RoutingRule, rule_id)
     if r is None:
         raise not_found("routing_rule", str(rule_id))

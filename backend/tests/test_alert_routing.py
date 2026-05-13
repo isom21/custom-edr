@@ -54,9 +54,7 @@ async def _make_channel(http_client, headers, *, name, kind, config, enabled=Tru
 
 
 async def _make_rule(http_client, headers, **body) -> dict[str, Any]:
-    resp = await http_client.post(
-        "/api/notifications/rules", json=body, headers=headers
-    )
+    resp = await http_client.post("/api/notifications/rules", json=body, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
@@ -102,9 +100,7 @@ async def test_list_channel_analyst_can_read(http_client, admin_headers, analyst
         kind="pagerduty",
         config={"integration_key": "abcdef0123"},
     )
-    resp = await http_client.get(
-        "/api/notifications/channels", headers=analyst_headers
-    )
+    resp = await http_client.get("/api/notifications/channels", headers=analyst_headers)
     assert resp.status_code == 200
     items = resp.json()
     assert any(c["name"] == "pd-prod" for c in items)
@@ -192,9 +188,7 @@ async def test_channel_delete(http_client, admin_headers):
     )
     assert resp.status_code == 204
     # Now gone.
-    resp = await http_client.get(
-        f"/api/notifications/channels/{ch['id']}", headers=admin_headers
-    )
+    resp = await http_client.get(f"/api/notifications/channels/{ch['id']}", headers=admin_headers)
     assert resp.status_code == 404
 
 
@@ -256,13 +250,9 @@ async def test_routing_rule_admin_only(http_client, admin_headers, analyst_heade
         "channel_ids": [ch["id"]],
     }
     # Analyst can list but not create.
-    resp = await http_client.post(
-        "/api/notifications/rules", json=body, headers=analyst_headers
-    )
+    resp = await http_client.post("/api/notifications/rules", json=body, headers=analyst_headers)
     assert resp.status_code == 403
-    resp = await http_client.get(
-        "/api/notifications/rules", headers=analyst_headers
-    )
+    resp = await http_client.get("/api/notifications/rules", headers=analyst_headers)
     assert resp.status_code == 200
 
     rule = await _make_rule(http_client, admin_headers, **body)
@@ -492,9 +482,7 @@ async def test_dispatch_pagerduty_retry_on_5xx_then_success(db_session, seeded_a
                 httpx.Response(202, json={"status": "success"}),
             ]
             async with httpx.AsyncClient() as client:
-                succ, fail = await dispatch_for_alert(
-                    db_session, seeded_alert, client=client
-                )
+                succ, fail = await dispatch_for_alert(db_session, seeded_alert, client=client)
             assert succ == 1, f"expected success after retry, got fail={fail}"
             assert fail == 0
             # Two calls — one 5xx + one success.
@@ -536,9 +524,7 @@ async def test_dispatch_4xx_does_not_retry(db_session, seeded_alert):
         with respx.mock() as mock:
             route = mock.post(webhook).respond(404, text="bad webhook")
             async with httpx.AsyncClient() as client:
-                succ, fail = await dispatch_for_alert(
-                    db_session, seeded_alert, client=client
-                )
+                succ, fail = await dispatch_for_alert(db_session, seeded_alert, client=client)
             assert succ == 0 and fail == 1
             # Exactly one call — no retry on permanent 4xx.
             assert route.call_count == 1
@@ -719,11 +705,7 @@ async def test_routing_rule_update_and_delete(http_client, admin_headers):
     assert body["name"] == new_name
 
     # Delete.
-    resp = await http_client.delete(
-        f"/api/notifications/rules/{rule['id']}", headers=admin_headers
-    )
+    resp = await http_client.delete(f"/api/notifications/rules/{rule['id']}", headers=admin_headers)
     assert resp.status_code == 204
-    resp = await http_client.get(
-        f"/api/notifications/rules/{rule['id']}", headers=admin_headers
-    )
+    resp = await http_client.get(f"/api/notifications/rules/{rule['id']}", headers=admin_headers)
     assert resp.status_code == 404

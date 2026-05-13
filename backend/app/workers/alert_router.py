@@ -62,9 +62,7 @@ class AlertRouterWorker:
     def __init__(self) -> None:
         self._stop = asyncio.Event()
         self._tick_s = float(os.environ.get("VIGIL_ALERT_ROUTER_TICK_S", _DEFAULT_TICK_S))
-        self._backfill_s = int(
-            os.environ.get("VIGIL_ALERT_ROUTER_BACKFILL_S", _DEFAULT_BACKFILL_S)
-        )
+        self._backfill_s = int(os.environ.get("VIGIL_ALERT_ROUTER_BACKFILL_S", _DEFAULT_BACKFILL_S))
         self._batch = int(os.environ.get("VIGIL_ALERT_ROUTER_BATCH", _DEFAULT_BATCH))
         self._last_seen: datetime | None = None
         self._client: httpx.AsyncClient | None = None
@@ -115,13 +113,9 @@ class AlertRouterWorker:
 
             for alert in rows:
                 try:
-                    succeeded, failed = await dispatch_for_alert(
-                        db, alert, client=self._client
-                    )
+                    succeeded, failed = await dispatch_for_alert(db, alert, client=self._client)
                 except Exception:
-                    log.exception(
-                        "alert_router.dispatch_crashed", alert_id=str(alert.id)
-                    )
+                    log.exception("alert_router.dispatch_crashed", alert_id=str(alert.id))
                     # Don't advance — retry on the next pass.
                     return
                 if succeeded or failed:

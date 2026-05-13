@@ -152,9 +152,7 @@ def validate_config(kind: NotificationChannelKind, config: dict[str, Any]) -> No
     if kind is NotificationChannelKind.SLACK:
         url = config.get("webhook_url")
         if not isinstance(url, str) or not url.startswith(("https://", "http://")):
-            raise ChannelConfigError(
-                "slack channel: 'webhook_url' must be an http(s) URL"
-            )
+            raise ChannelConfigError("slack channel: 'webhook_url' must be an http(s) URL")
     elif kind is NotificationChannelKind.PAGERDUTY:
         key = config.get("integration_key")
         if not isinstance(key, str) or not key.strip():
@@ -169,17 +167,11 @@ def validate_config(kind: NotificationChannelKind, config: dict[str, Any]) -> No
         if not isinstance(host, str) or not host.strip():
             raise ChannelConfigError("email channel: 'smtp_host' is required")
         if not isinstance(port, int) or not (0 < port < 65536):
-            raise ChannelConfigError(
-                "email channel: 'smtp_port' must be an integer 1..65535"
-            )
+            raise ChannelConfigError("email channel: 'smtp_port' must be an integer 1..65535")
         if not isinstance(from_addr, str) or "@" not in from_addr:
-            raise ChannelConfigError(
-                "email channel: 'from_addr' must be a valid email address"
-            )
+            raise ChannelConfigError("email channel: 'from_addr' must be a valid email address")
         if not isinstance(to_addr, str) or "@" not in to_addr:
-            raise ChannelConfigError(
-                "email channel: 'to_addr' must be a valid email address"
-            )
+            raise ChannelConfigError("email channel: 'to_addr' must be a valid email address")
     else:  # pragma: no cover - exhaustive
         raise ChannelConfigError(f"unknown channel kind: {kind!r}")
 
@@ -207,9 +199,7 @@ def _severity_at_least(actual: Severity, minimum: Severity) -> bool:
     return SEVERITY_ORDER[actual] >= SEVERITY_ORDER[minimum]
 
 
-async def matching_rules(
-    db: AsyncSession, envelope: AlertEnvelope
-) -> list[RoutingRule]:
+async def matching_rules(db: AsyncSession, envelope: AlertEnvelope) -> list[RoutingRule]:
     """Return enabled routing rules that match this envelope. Pure
     SQLAlchemy + a single membership probe per rule with a
     host_group_id filter."""
