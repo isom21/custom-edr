@@ -5,7 +5,7 @@ a tx that already touched the type. Mirrors the
 `m23b_command_kind_run_job` and `m20c_command_kind_release` pattern.
 
 Revision ID: d8b5f31a6c47
-Revises: 2c91a4f08b5d
+Revises: d2b3c4d5e6f7
 Create Date: 2026-05-13
 """
 
@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "d8b5f31a6c47"
-down_revision: str | None = "2c91a4f08b5d"
+down_revision: str | None = "d2b3c4d5e6f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
