@@ -21,6 +21,7 @@ import {
   Share2,
   Shield,
   Terminal,
+  Usb,
   Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -78,6 +79,8 @@ const SECTIONS: NavSection[] = [
       // open to analyst+, but in practice operators don't need to read
       // the per-group state unless they're managing it).
       { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
+      // Phase 3 #3.10: USB device control policies (admin-only).
+      { to: "/device-control", label: "Device control", icon: Usb, adminOnly: true },
     ],
   },
   {

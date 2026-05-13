@@ -10,6 +10,7 @@ from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.dashboard import Dashboard
+from app.models.device_policy import DevicePolicy, DevicePolicyKind
 from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
@@ -72,6 +73,8 @@ __all__ = [
     "Command",
     "CommandKind",
     "CommandStatus",
+    "DevicePolicy",
+    "DevicePolicyKind",
     "DEFAULT_TENANT_ID",
     "Dashboard",
     "DnsBlockAction",
