@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -54,6 +54,18 @@ class Policy(UuidPkMixin, TimestampMixin, Base):
     sweep_categories: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=lambda: list(DEFAULT_SWEEP_CATEGORIES)
     )
+
+    # Phase 3 #3.3: rollout cohort gating. The cohort *label* is purely
+    # cosmetic — the gate is the percentage. ``cohort_target_version``
+    # is the version operators want hosts under this policy to converge
+    # toward; the response layer compares it to ``host.agent_version``
+    # before queuing a ``JobKind.UPDATE``. When the rollout monitor sees
+    # too many failures in the configured window it slams the percentage
+    # to 0; operators inspect ``rollout_event`` rows + reissue once the
+    # root cause is fixed.
+    rollout_cohort: Mapped[str | None] = mapped_column(Text)
+    cohort_target_version: Mapped[str | None] = mapped_column(Text)
+    cohort_rolled_out_pct: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
 
     rule_links: Mapped[list[PolicyRule]] = relationship(
         back_populates="policy", cascade="all, delete-orphan"

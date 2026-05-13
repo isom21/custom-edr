@@ -13,6 +13,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  Rocket,
   Rss,
   Search,
   Send,
@@ -61,6 +62,8 @@ const SECTIONS: NavSection[] = [
     items: [
       { to: "/hosts", label: "Hosts", icon: Server },
       { to: "/enrollment", label: "Enrollment", icon: KeyRound },
+      // Phase 3 #3.3 — per-policy agent update rollouts + auto-rollback.
+      { to: "/rollouts", label: "Rollouts", icon: Rocket },
     ],
   },
   {
