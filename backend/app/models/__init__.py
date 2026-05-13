@@ -51,6 +51,7 @@ from app.models.rule import (
 from app.models.saved_hunt import HuntRun, SavedHunt
 from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
+from app.models.tenant import DEFAULT_TENANT_ID, Tenant
 from app.models.user import User, UserRole
 from app.models.vulnerability import HostSoftware, HostVulnerability, Vulnerability
 
@@ -71,6 +72,7 @@ __all__ = [
     "Command",
     "CommandKind",
     "CommandStatus",
+    "DEFAULT_TENANT_ID",
     "Dashboard",
     "DnsBlockAction",
     "DnsBlockEntry",
@@ -120,6 +122,7 @@ __all__ = [
     "SequenceRule",
     "SiemDestination",
     "SiemKind",
+    "Tenant",
     "clamp_action",
     "Severity",
     "TimestampMixin",

@@ -10,7 +10,7 @@ Two indices serve the UI: the status feed ordered by ``created_at`` and
 a per-index lookup for "is this index already frozen?".
 
 Revision ID: e2b3c4d5e6f7
-Revises: d5e6f7a8b9c0
+Revises: e1a2b3c4d5e6
 Create Date: 2026-05-13
 """
 
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e2b3c4d5e6f7"
-down_revision: str | None = "d5e6f7a8b9c0"
+down_revision: str | None = "e1a2b3c4d5e6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

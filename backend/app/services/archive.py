@@ -85,8 +85,7 @@ async def _scroll_all(index_name: str) -> tuple[bytes, int]:
         resp = await client.search(
             index=index_name,
             body={"query": {"match_all": {}}},
-            scroll=_SCROLL_KEEPALIVE,
-            size=_SCROLL_SIZE,
+            params={"scroll": _SCROLL_KEEPALIVE, "size": _SCROLL_SIZE},
         )
         while True:
             hits = resp.get("hits", {}).get("hits", [])
@@ -101,7 +100,10 @@ async def _scroll_all(index_name: str) -> tuple[bytes, int]:
             scroll_id = resp.get("_scroll_id")
             if not scroll_id:
                 break
-            resp = await client.scroll(scroll_id=scroll_id, scroll=_SCROLL_KEEPALIVE)
+            resp = await client.scroll(
+                body={"scroll_id": scroll_id},
+                params={"scroll": _SCROLL_KEEPALIVE},
+            )
         writer.flush(zstd.FLUSH_FRAME)
     finally:
         await client.close()
@@ -245,7 +247,7 @@ async def rehydrate(job: ArchiveJob, db: AsyncSession) -> str:
             if bulk_lines:
                 # Trailing newline is mandatory per the _bulk wire format.
                 body = "\n".join(bulk_lines) + "\n"
-                await client.bulk(body=body, refresh="wait_for")
+                await client.bulk(body=body, params={"refresh": "wait_for"})
 
             # Alias mirrors the original index name. Existing queries
             # that hit `telemetry-*` automatically include rehydrated
@@ -280,7 +282,7 @@ async def list_cold_indices() -> list[str]:
     """
     client = os_svc._client()
     try:
-        cats = await client.cat.indices(format="json", index="telemetry-*,alerts-*")
+        cats = await client.cat.indices(index="telemetry-*,alerts-*", params={"format": "json"})
     finally:
         await client.close()
     cutoff_days = settings.ilm_cold_days

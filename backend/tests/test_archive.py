@@ -138,7 +138,14 @@ class _FakeCat:
     def __init__(self, parent: _FakeOS) -> None:
         self.parent = parent
 
-    async def indices(self, *, format: str = "json", index: str = "") -> list[dict[str, Any]]:
+    async def indices(
+        self,
+        *,
+        index: str = "",
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        del params  # accepted for signature compat
+        del index
         return [{"index": name} for name in self.parent.indices_data]
 
 
@@ -174,18 +181,30 @@ class _FakeOS:
         *,
         index: str,
         body: dict[str, Any],
-        scroll: str | None = None,
-        size: int | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        del body, params
         docs = self.indices_data.get(index, [])
         scroll_id = f"scroll-{index}"
         return {"_scroll_id": scroll_id, "hits": {"hits": docs}}
 
-    async def scroll(self, *, scroll_id: str, scroll: str) -> dict[str, Any]:
+    async def scroll(
+        self,
+        *,
+        body: dict[str, Any],
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del params
         # Second call returns no more docs — tests use single-batch indices.
-        return {"_scroll_id": scroll_id, "hits": {"hits": []}}
+        return {"_scroll_id": body.get("scroll_id"), "hits": {"hits": []}}
 
-    async def bulk(self, *, body: str, refresh: str | None = None) -> dict[str, Any]:
+    async def bulk(
+        self,
+        *,
+        body: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del params
         # _bulk wire format: alternating action / source NDJSON lines.
         lines = [ln for ln in body.splitlines() if ln]
         for i in range(0, len(lines), 2):

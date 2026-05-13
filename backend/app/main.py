@@ -308,6 +308,8 @@ async def lifespan(_app: FastAPI):
             archive_worker_task.cancel()
             try:
                 await archive_worker_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         if rollout_monitor_task is not None:
             rollout_monitor_task.cancel()
             try:
