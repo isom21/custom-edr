@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Rss,
   Server,
+  Share2,
   Shield,
   Terminal,
   Users,
@@ -57,7 +58,11 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Operations",
-    items: [{ to: "/intel", label: "Threat intel", icon: Rss }],
+    items: [
+      { to: "/intel", label: "Threat intel", icon: Rss },
+      // Phase 1 #1.5: SIEM forwarders (admin-only).
+      { to: "/siem", label: "SIEM forwarders", icon: Share2, adminOnly: true },
+    ],
   },
   {
     heading: "Overview",

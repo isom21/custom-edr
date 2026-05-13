@@ -642,3 +642,33 @@ export interface TerminalSessionToken {
   /** Relative URL the frontend opens as a WebSocket. */
   ws_url: string;
 }
+
+// Phase 1 #1.5 — SIEM forwarders ----------------------------------
+
+export type SiemKind = "syslog_cef" | "splunk_hec" | "sentinel_hub";
+
+export interface SiemDestination {
+  id: string;
+  name: string;
+  kind: SiemKind;
+  enabled: boolean;
+  last_send_at: string | null;
+  lag_seconds: number;
+  error_count: number;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SiemDestinationCreate {
+  name: string;
+  kind: SiemKind;
+  enabled?: boolean;
+  config: Record<string, unknown>;
+}
+
+export interface SiemDestinationUpdate {
+  name?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}

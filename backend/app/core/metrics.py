@@ -100,6 +100,30 @@ sigma_realtime_index_failures_total: Final[Counter] = Counter(
     "Sigma realtime alert-doc OpenSearch indexing failures (Kafka offset NOT committed).",
 )
 
+# Phase 1 #1.5 — SIEM forwarders. Per-destination lag gauge + error
+# counter so operators can wire `edr_manager_siem_forwarder_lag_seconds`
+# alerts up to whichever Sentinel/Splunk/etc. their on-call cares
+# about. The label is the destination's UUID — cardinality is bounded
+# by the operator (single-digit destinations in practice), so the
+# label doesn't cause Prometheus storage to blow up. The worker emits
+# lag = (now - event.@timestamp) on each successful send.
+siem_forwarder_lag_seconds: Final[Gauge] = Gauge(
+    "edr_manager_siem_forwarder_lag_seconds",
+    "Seconds between an event's @timestamp and successful delivery to a SIEM destination.",
+    labelnames=("destination",),
+)
+siem_forwarder_send_errors_total: Final[Counter] = Counter(
+    "edr_manager_siem_forwarder_send_errors_total",
+    "Errors raised by SIEM destination senders (offset replay path).",
+    labelnames=("destination",),
+)
+siem_forwarder_sends_total: Final[Counter] = Counter(
+    "edr_manager_siem_forwarder_sends_total",
+    "Successful SIEM destination sends.",
+    labelnames=("destination",),
+)
+
+
 # Top-20 #17: dispatch watchdog. Commands flip to DISPATCHED when the
 # gRPC dispatcher hands them to the bidi stream; a healthy agent then
 # reports back with SUCCEEDED / FAILED. Commands stuck in DISPATCHED
