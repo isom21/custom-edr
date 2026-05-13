@@ -7,10 +7,16 @@ from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
 from app.models.command import Command, CommandKind, CommandStatus
+from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
-from app.models.incident import INCIDENT_STATUS_TRANSITIONS, Incident, IncidentStatus
+from app.models.incident import (
+    INCIDENT_STATUS_TRANSITIONS,
+    Incident,
+    IncidentGroupingReason,
+    IncidentStatus,
+)
 from app.models.intel_feed import IntelFeed, IntelFeedKind
 from app.models.job import (
     JOB_KIND_ADMIN_ONLY,
@@ -41,6 +47,7 @@ from app.models.rule import (
 from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.user import User, UserRole
+from app.models.vulnerability import HostSoftware, HostVulnerability, Vulnerability
 
 __all__ = [
     "ALERT_STATE_TRANSITIONS",
@@ -54,14 +61,19 @@ __all__ = [
     "Command",
     "CommandKind",
     "CommandStatus",
+    "DnsBlockAction",
+    "DnsBlockEntry",
     "EnrollmentToken",
     "Host",
     "HostGroup",
+    "HostSoftware",
     "HostStatus",
+    "HostVulnerability",
     "host_in_group",
     "user_host_group",
     "INCIDENT_STATUS_TRANSITIONS",
     "Incident",
+    "IncidentGroupingReason",
     "IncidentStatus",
     "IntelFeed",
     "IntelFeedKind",
@@ -99,5 +111,6 @@ __all__ = [
     "User",
     "UserRole",
     "UuidPkMixin",
+    "Vulnerability",
     "utcnow",
 ]

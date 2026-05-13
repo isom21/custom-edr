@@ -111,6 +111,29 @@ export function AlertDetail() {
             </div>
           ) : (
             <>
+              {/* Phase 2 #2.9: container attribution surfaces above the
+                  process tree so the analyst sees container context
+                  before drilling into the chain. Hidden when the
+                  triggering process is bare-metal. */}
+              {data.container ? (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">Container</span>
+                  {data.container.runtime ? (
+                    <span className="rounded-md border bg-background px-1.5 py-0.5 font-mono uppercase tracking-wide">
+                      {data.container.runtime}
+                    </span>
+                  ) : null}
+                  <span className="font-mono tabular-nums" title={data.container.id}>
+                    {data.container.id.slice(0, 12)}
+                  </span>
+                  {data.container.image ? (
+                    <>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="truncate font-mono">{data.container.image}</span>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               {/* Phase 2 #2.6: durable process graph from the Postgres
                   `process_chain` table. Renders above the existing
                   OpenSearch-derived chain so analysts see the

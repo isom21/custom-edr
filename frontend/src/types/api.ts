@@ -70,6 +70,20 @@ export interface Host {
   policy_id: string | null;
 }
 
+// Phase 2 #2.9 — container telemetry surfaces on host detail + alert detail.
+export interface ContainerInfo {
+  id: string;
+  image: string | null;
+  runtime: string | null;
+}
+
+export interface HostDetail extends Host {
+  /** 24h-rolling list of container runtimes that emitted process
+   * events on this host, sorted by count desc, capped at 5. Empty
+   * when no container telemetry was recorded. */
+  container_runtimes_seen: string[];
+}
+
 export interface IocEntry {
   id: string;
   kind: IocKind;
@@ -175,10 +189,17 @@ export interface Alert {
 
 export interface AlertDetail extends Alert {
   history: AlertHistory[];
+  /** Phase 2 #2.9: container attribution lifted from the alert's
+   * triggering process_started doc. Null on hosts without the
+   * container_v1-capable agent, or bare-metal processes. */
+  container?: ContainerInfo | null;
 }
 
 // Phase 1 #1.11 — incidents (alert grouping).
 export type IncidentStatus = "open" | "investigating" | "resolved" | "closed";
+
+// Phase 2 #2.13 — why the alerts ended up in this incident.
+export type IncidentGroupingReason = "window" | "process_tree" | "rule_cluster";
 
 export interface Incident {
   id: string;
@@ -192,6 +213,7 @@ export interface Incident {
   assignee_id: string | null;
   created_at: string;
   updated_at: string;
+  grouping_reason: IncidentGroupingReason;
   host_hostname?: string | null;
   alert_count: number;
 }
@@ -430,6 +452,35 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 2 #2.7 vulnerability assessment.
+export interface Vulnerability {
+  cve_id: string;
+  severity: string | null;
+  cvss_v3_score: string | null;
+  summary: string | null;
+  references_json: string[];
+  affected_cpe_json: string[];
+  published_at: string | null;
+  modified_at: string | null;
+  created_at: string;
+}
+
+export interface HostVulnerability {
+  id: string;
+  host_id: string;
+  cve_id: string;
+  cpe: string | null;
+  first_seen: string;
+  last_seen: string;
+  suppressed: boolean;
+  suppressed_at: string | null;
+  suppressed_by_user_id: string | null;
+  // Joined-in CVE fields the list view needs.
+  severity: string | null;
+  cvss_v3_score: string | null;
+  summary: string | null;
+}
+
 // Phase 2 #2.3 — sequence / behavioral rules.
 export interface SequenceRule {
   id: string;
@@ -613,6 +664,7 @@ export type JobKind =
   | "process_memory_dump"
   | "event_log_acquire"
   | "crash_dump_collect"
+  | "triage_collect"
   | "process_snapshot"
   | "network_snapshot"
   | "installed_software"
@@ -764,4 +816,38 @@ export interface SiemDestinationUpdate {
   name?: string;
   enabled?: boolean;
   config?: Record<string, unknown>;
+}
+
+// Phase 2 #2.12 — DNS sinkhole / domain block list -------------------
+
+export type DnsBlockAction = "block" | "sinkhole";
+
+export interface DnsBlockEntry {
+  id: string;
+  host_group_id: string | null;
+  domain: string;
+  action: DnsBlockAction;
+  created_by_user_id: string | null;
+  created_at: string;
+  expires_at: string | null;
+  hits: number;
+  last_hit_at: string | null;
+}
+
+export interface DnsBlockEntryCreate {
+  host_group_id?: string | null;
+  domain: string;
+  action?: DnsBlockAction;
+  expires_at?: string | null;
+}
+
+export interface DnsBlockBulkImport {
+  host_group_id?: string | null;
+  action?: DnsBlockAction;
+  domains: string[];
+}
+
+export interface DnsBlockBulkImportResult {
+  inserted: number;
+  skipped: number;
 }
