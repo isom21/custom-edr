@@ -11,7 +11,7 @@ permits `ALTER TYPE ... ADD VALUE` outside a transaction block. We use
 migration after a partial failure is idempotent.
 
 Revision ID: d1a2b3c4e5f6
-Revises: d8b9c0d1e2f3
+Revises: d7a8b9c0d1e2
 Create Date: 2026-05-13
 """
 
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d1a2b3c4e5f6"
-down_revision: str | None = "d8b9c0d1e2f3"
+down_revision: str | None = "d7a8b9c0d1e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
