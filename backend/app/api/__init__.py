@@ -22,6 +22,7 @@ from app.api import (
     mitre,
     notifications,
     policies,
+    process_chain,
     quarantine,
     routing,
     rule_groups,
@@ -59,6 +60,7 @@ for module in (
     routing,
     dns_block,
     hunt,
+    process_chain,
     sequence_rules,
 ):
     api_router.include_router(module.router)
