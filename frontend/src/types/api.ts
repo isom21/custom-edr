@@ -329,6 +329,30 @@ export interface ProcessDetail {
   truncated: boolean;
 }
 
+// Phase 2 #2.6: cross-process correlation graph store. Distinct from
+// the OpenSearch-shaped `ProcessChainNode` above — these come from the
+// Postgres `process_chain` table and only carry the durable fields the
+// graph store persists (no user_name/integrity/working_directory/
+// siblings/children).
+export interface ProcessChainNodePG {
+  id: string;
+  host_id: string;
+  pid: number;
+  parent_pid: number | null;
+  exec_path: string | null;
+  image_sha256: string | null;
+  command_line: string | null;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface ProcessChainResponse {
+  host_id: string;
+  pid: number;
+  ancestors: ProcessChainNodePG[];
+  descendants: ProcessChainNodePG[];
+}
+
 // M20.j live host telemetry feed.
 export interface LiveTelemetryEvent {
   event_id: string;
