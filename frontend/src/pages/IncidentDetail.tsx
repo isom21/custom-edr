@@ -50,10 +50,7 @@ function alertProcess(alert: Alert): { pid?: number; name?: string } {
   return {};
 }
 
-function groupingReasonLabel(
-  reason: IncidentGroupingReason,
-  alerts: readonly Alert[],
-): string {
+function groupingReasonLabel(reason: IncidentGroupingReason, alerts: readonly Alert[]): string {
   if (reason === "process_tree") {
     // Surface the process info from the first alert so the analyst
     // immediately sees what the grouper keyed on.
