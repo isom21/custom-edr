@@ -139,3 +139,55 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install --locked cargo-deny
       - run: cargo deny check
+
+  ebpf-verifier:
+    # Real verifier run against the bundled vigil.bpf.o. Catches changes
+    # that pass `cargo check` (which uses the stub from
+    # VIGIL_SKIP_EBPF_BUILD=1) but would fail at kernel program-load —
+    # the long-path block fix's 4 KB scratch buffer (Top-20 #5) is
+    # exactly the shape of change this gate protects against.
+    #
+    # The job builds the real eBPF object (clang -target bpf), then
+    # runs `examples/verifier_check.rs` as root. The example calls
+    # `.load()` on every program (which invokes the kernel verifier)
+    # without `.attach()` — so it works on the ubuntu-latest runner
+    # even though the runner kernel doesn't have `bpf` in
+    # `/sys/kernel/security/lsm`. Attaches are validated separately
+    # in the lab on real fleet kernels.
+    name: ebpf verifier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install eBPF toolchain
+        # GitHub-hosted runners use an Azure kernel (6.17.x at time of
+        # writing) that has no matching `linux-tools-$(uname -r)`. Worse,
+        # `bpftool` is a *virtual* package on noble — provided by the
+        # kernel-version-specific tools packages — so `apt install
+        # bpftool` fails outright. Install `linux-tools-generic` to get
+        # a kernel-specific bpftool binary on disk (under
+        # `/usr/lib/linux-tools/<kver>/bpftool`), then symlink it over
+        # the wrapper at `/usr/sbin/bpftool` so callers (including
+        # `agent-linux/ebpf/build.sh`) see a working binary regardless
+        # of `uname -r`.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev linux-tools-common linux-tools-generic
+          BPFTOOL=$(find /usr/lib -maxdepth 3 -name bpftool -type f | head -1)
+          test -n "$BPFTOOL" || {
+            echo "no real bpftool found under /usr/lib"; ls /usr/lib | grep -i tools; exit 1; }
+          echo "real bpftool: $BPFTOOL"
+          sudo ln -sf "$BPFTOOL" /usr/sbin/bpftool
+      - name: confirm BTF + bpftool
+        run: |
+          test -r /sys/kernel/btf/vmlinux || {
+            echo "/sys/kernel/btf/vmlinux missing or unreadable; CI runner kernel lacks BTF"; exit 1; }
+          bpftool version | head -1
+      - name: build vigil.bpf.o
+        run: bash agent-linux/ebpf/build.sh
+      - name: build verifier_check example
+        run: cargo build --release --example verifier_check -p agent-linux
+      - name: run verifier_check (sudo — needs CAP_BPF for prog_load)
+        run: sudo ./target/release/examples/verifier_check
