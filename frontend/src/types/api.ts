@@ -957,3 +957,39 @@ export interface DnsBlockBulkImportResult {
   inserted: number;
   skipped: number;
 }
+
+// Phase 3 #3.10 — device control / USB block policy --------------------
+
+export type DevicePolicyKind = "usb_block" | "usb_read_only" | "usb_allow_only";
+
+export interface DevicePolicy {
+  id: string;
+  host_group_id: string | null;
+  kind: DevicePolicyKind;
+  allowed_vendor_ids: string[];
+  allowed_product_ids: string[];
+  enabled: boolean;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DevicePolicyCreate {
+  host_group_id?: string | null;
+  kind: DevicePolicyKind;
+  name: string;
+  description?: string | null;
+  allowed_vendor_ids?: string[];
+  allowed_product_ids?: string[];
+  enabled?: boolean;
+}
+
+export interface DevicePolicyUpdate {
+  kind?: DevicePolicyKind;
+  name?: string;
+  description?: string | null;
+  allowed_vendor_ids?: string[];
+  allowed_product_ids?: string[];
+  enabled?: boolean;
+}

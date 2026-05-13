@@ -7,6 +7,7 @@ import { Allowlist } from "./pages/Allowlist";
 import { Audit } from "./pages/Audit";
 import { Commands } from "./pages/Commands";
 import { Dashboard } from "./pages/Dashboard";
+import { DeviceControl } from "./pages/DeviceControl";
 import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
@@ -66,6 +67,7 @@ export default function App() {
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
+                <Route path="/device-control" element={<DeviceControl />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
