@@ -10,7 +10,12 @@ from app.models.command import Command, CommandKind, CommandStatus
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
-from app.models.incident import INCIDENT_STATUS_TRANSITIONS, Incident, IncidentStatus
+from app.models.incident import (
+    INCIDENT_STATUS_TRANSITIONS,
+    Incident,
+    IncidentGroupingReason,
+    IncidentStatus,
+)
 from app.models.intel_feed import IntelFeed, IntelFeedKind
 from app.models.job import (
     JOB_KIND_ADMIN_ONLY,
@@ -37,6 +42,7 @@ from app.models.rule import (
     Severity,
     clamp_action,
 )
+from app.models.sequence_rule import SequenceRule
 from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.user import User, UserRole
 
@@ -60,6 +66,7 @@ __all__ = [
     "user_host_group",
     "INCIDENT_STATUS_TRANSITIONS",
     "Incident",
+    "IncidentGroupingReason",
     "IncidentStatus",
     "IntelFeed",
     "IntelFeedKind",
@@ -87,6 +94,7 @@ __all__ = [
     "RuleGroup",
     "RuleKind",
     "RoutingRule",
+    "SequenceRule",
     "SiemDestination",
     "SiemKind",
     "clamp_action",
