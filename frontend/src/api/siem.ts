@@ -1,9 +1,5 @@
 import { api } from "./client";
-import type {
-  SiemDestination,
-  SiemDestinationCreate,
-  SiemDestinationUpdate,
-} from "@/types/api";
+import type { SiemDestination, SiemDestinationCreate, SiemDestinationUpdate } from "@/types/api";
 
 export const siemApi = {
   list: () => api<SiemDestination[]>("/api/siem/destinations"),

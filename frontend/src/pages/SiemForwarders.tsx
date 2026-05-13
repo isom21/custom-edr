@@ -130,8 +130,7 @@ export function SiemForwarders() {
   );
 
   const toggleEnabled = useMutation({
-    mutationFn: (d: SiemDestination) =>
-      siemApi.update(d.id, { enabled: !d.enabled }),
+    mutationFn: (d: SiemDestination) => siemApi.update(d.id, { enabled: !d.enabled }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["siem-destinations"] }),
   });
 
@@ -144,9 +143,7 @@ export function SiemForwarders() {
     return (
       <>
         <PageHeader title="SIEM forwarders" />
-        <div className="p-8 text-sm text-muted-foreground">
-          SIEM destinations are admin-only.
-        </div>
+        <div className="p-8 text-sm text-muted-foreground">SIEM destinations are admin-only.</div>
       </>
     );
   }
@@ -174,7 +171,8 @@ export function SiemForwarders() {
             )}
             {!list.isLoading && (list.data?.length ?? 0) === 0 && (
               <p className="text-sm text-muted-foreground">
-                No destinations registered yet. Click <span className="font-mono">New destination</span> to add one.
+                No destinations registered yet. Click{" "}
+                <span className="font-mono">New destination</span> to add one.
               </p>
             )}
             <ul className="divide-y divide-border">
@@ -211,9 +209,7 @@ export function SiemForwarders() {
                     </div>
                     <div className="text-xs tabular-nums text-muted-foreground">
                       lag {d.lag_seconds.toFixed(1)}s · last send{" "}
-                      {d.last_send_at
-                        ? new Date(d.last_send_at).toLocaleString()
-                        : "—"}
+                      {d.last_send_at ? new Date(d.last_send_at).toLocaleString() : "—"}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -229,8 +225,8 @@ export function SiemForwarders() {
                       title="Delete destination?"
                       description={
                         <>
-                          <span className="font-mono">{d.name}</span> will be removed.
-                          The forwarder stops emitting to it within seconds.
+                          <span className="font-mono">{d.name}</span> will be removed. The forwarder
+                          stops emitting to it within seconds.
                         </>
                       }
                       confirmLabel="Yes, delete"
@@ -398,9 +394,7 @@ function DestinationDialog({
                 <Select
                   id={`dest-cfg-${spec.key}`}
                   value={config[spec.key] ?? spec.options?.[0] ?? ""}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, [spec.key]: e.target.value }))
-                  }
+                  onChange={(e) => setConfig((prev) => ({ ...prev, [spec.key]: e.target.value }))}
                 >
                   {spec.options?.map((opt) => (
                     <option key={opt} value={opt}>
@@ -415,14 +409,10 @@ function DestinationDialog({
                   required={spec.required && mode === "create"}
                   value={config[spec.key] ?? ""}
                   placeholder={spec.placeholder}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, [spec.key]: e.target.value }))
-                  }
+                  onChange={(e) => setConfig((prev) => ({ ...prev, [spec.key]: e.target.value }))}
                 />
               )}
-              {spec.hint && (
-                <p className="text-[11px] text-muted-foreground">{spec.hint}</p>
-              )}
+              {spec.hint && <p className="text-[11px] text-muted-foreground">{spec.hint}</p>}
             </div>
           ))}
 

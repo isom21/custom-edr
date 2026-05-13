@@ -154,9 +154,7 @@ class SiemForwarder:
             error_count=dest.error_count,
         )
 
-    async def _dispatch(
-        self, event: dict, *, event_kind: str
-    ) -> bool:
+    async def _dispatch(self, event: dict, *, event_kind: str) -> bool:
         """Fan out one event to every enabled destination.
 
         Returns True iff every send succeeded — the caller commits the
@@ -175,9 +173,7 @@ class SiemForwarder:
                 await self._record_error(dest, exc)
                 continue
             try:
-                await send_for_kind(
-                    dest.kind, config, event, event_kind=event_kind
-                )
+                await send_for_kind(dest.kind, config, event, event_kind=event_kind)
             except SendError as exc:
                 await self._record_error(dest, exc)
                 all_ok = False

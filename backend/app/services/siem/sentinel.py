@@ -57,10 +57,7 @@ def _sas_token(*, resource_uri: str, key_name: str, key: str, ttl_s: int) -> str
         hmac.new(key.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).digest()
     )
     encoded_sig = quote(signature.decode("ascii"), safe="")
-    return (
-        "SharedAccessSignature "
-        f"sr={encoded_uri}&sig={encoded_sig}&se={expiry}&skn={key_name}"
-    )
+    return f"SharedAccessSignature sr={encoded_uri}&sig={encoded_sig}&se={expiry}&skn={key_name}"
 
 
 async def send(
@@ -81,9 +78,7 @@ async def send(
     token = _sas_token(resource_uri=resource_uri, key_name=key_name, key=key, ttl_s=ttl)
 
     # The event_kind tags every record so Sentinel can split them.
-    payload = json.dumps(
-        {"vigil_event_kind": event_kind, **event}, separators=(",", ":")
-    )
+    payload = json.dumps({"vigil_event_kind": event_kind, **event}, separators=(",", ":"))
     url = f"{resource_uri}/messages?api-version=2014-01"
     headers = {
         "Authorization": token,
@@ -99,9 +94,7 @@ async def send(
     if resp.status_code in (201, 204):
         return
     if resp.status_code >= 500 or resp.status_code == 429:
-        raise SendError(
-            f"sentinel event hub transient error {resp.status_code}: {resp.text[:200]}"
-        )
+        raise SendError(f"sentinel event hub transient error {resp.status_code}: {resp.text[:200]}")
     log.warning(
         "siem.sentinel.permanent_error",
         status=resp.status_code,

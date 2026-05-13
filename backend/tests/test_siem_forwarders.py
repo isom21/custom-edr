@@ -147,9 +147,7 @@ async def test_splunk_hec_5xx_raises_send_error() -> None:
     config = {"url": "https://splunk.example.com:8088", "token": "T"}
     event = {"@timestamp": "2026-05-13T12:00:00Z"}
     with respx.mock(base_url="https://splunk.example.com:8088") as mock:
-        mock.post("/services/collector/event").mock(
-            return_value=httpx.Response(503, text="busy")
-        )
+        mock.post("/services/collector/event").mock(return_value=httpx.Response(503, text="busy"))
         with pytest.raises(SendError):
             await splunk.send(config, event, event_kind="telemetry")
 
@@ -172,9 +170,7 @@ async def test_splunk_hec_permanent_4xx_swallowed() -> None:
     with respx.mock(base_url="https://splunk.example.com:8088") as mock:
         mock.post("/services/collector/event").mock(return_value=httpx.Response(403))
         # Must not raise.
-        await splunk.send(
-            config, {"@timestamp": "2026-05-13T12:00:00Z"}, event_kind="telemetry"
-        )
+        await splunk.send(config, {"@timestamp": "2026-05-13T12:00:00Z"}, event_kind="telemetry")
 
 
 @pytest.mark.asyncio
@@ -258,9 +254,13 @@ async def test_syslog_udp_writes_one_datagram(mocker) -> None:
     # Patch the loop methods used by `_send_udp`.
     import app.services.siem.syslog as syslog_mod
 
-    mocker.patch.object(syslog_mod.asyncio, "get_running_loop", return_value=type(
-        "L", (), {"sock_connect": fake_sock_connect, "sock_sendall": fake_sock_sendall}
-    )())
+    mocker.patch.object(
+        syslog_mod.asyncio,
+        "get_running_loop",
+        return_value=type(
+            "L", (), {"sock_connect": fake_sock_connect, "sock_sendall": fake_sock_sendall}
+        )(),
+    )
 
     config = {"host": "1.2.3.4", "port": 514, "protocol": "udp"}
     event = {
@@ -463,9 +463,7 @@ async def test_forwarder_dispatch_replays_on_send_error(mocker) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_destination_api_round_trip(
-    http_client, admin_headers, db_session
-) -> None:
+async def test_create_destination_api_round_trip(http_client, admin_headers, db_session) -> None:
     body = {
         "name": "splunk-prod",
         "kind": "splunk_hec",
@@ -568,9 +566,7 @@ async def test_patch_and_delete_destination(http_client, admin_headers) -> None:
     assert patch.status_code == 200
     assert patch.json()["enabled"] is False
 
-    delete = await http_client.delete(
-        f"/api/siem/destinations/{dest_id}", headers=admin_headers
-    )
+    delete = await http_client.delete(f"/api/siem/destinations/{dest_id}", headers=admin_headers)
     assert delete.status_code == 204
 
     # PATCH against a never-existed id returns 404 — the not_found

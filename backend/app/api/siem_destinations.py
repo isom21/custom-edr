@@ -71,9 +71,7 @@ def _to_out(dest: SiemDestination) -> SiemDestinationOut:
 
 
 @router.get("", response_model=list[SiemDestinationOut])
-async def list_destinations(
-    db: DbSession, _actor: RequireAdmin
-) -> list[SiemDestinationOut]:
+async def list_destinations(db: DbSession, _actor: RequireAdmin) -> list[SiemDestinationOut]:
     rows = (
         (await db.execute(select(SiemDestination).order_by(SiemDestination.created_at.desc())))
         .scalars()

@@ -206,9 +206,7 @@ def assert_production_secrets(s: Settings | None = None) -> None:
         not s.notification_encryption_key
         or s.notification_encryption_key == NOTIFICATION_KEY_DEV_DEFAULT
     ):
-        problems.append(
-            "VIGIL_NOTIFICATION_ENCRYPTION_KEY is unset or still the dev default"
-        )
+        problems.append("VIGIL_NOTIFICATION_ENCRYPTION_KEY is unset or still the dev default")
     # M18 separated upload_token_key from jwt_secret so a leak of one
     # didn't compromise the other. The empty-string default silently
     # falls back to jwt_secret to keep older dev environments working;

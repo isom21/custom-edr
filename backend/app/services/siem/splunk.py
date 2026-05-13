@@ -100,9 +100,7 @@ async def send(
 
     if resp.status_code >= 500 or resp.status_code == 429:
         # 5xx + 429 are retryable: replay on the next worker poll.
-        raise SendError(
-            f"splunk hec transient error {resp.status_code}: {resp.text[:200]}"
-        )
+        raise SendError(f"splunk hec transient error {resp.status_code}: {resp.text[:200]}")
     if resp.status_code >= 400:
         # 4xx other than 429 means the request is malformed for this
         # destination — replay won't help; log and drop so the offset
