@@ -6,6 +6,7 @@ import { AlertStateBadge, SeverityBadge } from "@/components/badges";
 import { AlertDetailPanel } from "@/components/AlertDetailPanel";
 import { AlertInvestigation } from "@/components/AlertInvestigation";
 import { PageHeader } from "@/components/PageHeader";
+import { ProcessGraph } from "@/components/ProcessGraph";
 
 export function AlertDetail() {
   const { id } = useParams<{ id: string }>();
@@ -109,7 +110,17 @@ export function AlertDetail() {
               details panel for the break payload.
             </div>
           ) : (
-            <AlertInvestigation alertId={data.id} />
+            <>
+              {/* Phase 2 #2.6: durable process graph from the Postgres
+                  `process_chain` table. Renders above the existing
+                  OpenSearch-derived chain so analysts see the
+                  persisted lineage even when telemetry has rotated
+                  out of OpenSearch. */}
+              <ProcessGraph alertId={data.id} />
+              <div className="mt-4">
+                <AlertInvestigation alertId={data.id} />
+              </div>
+            </>
           )}
         </div>
         <aside className="lg:sticky lg:top-6 lg:self-start">
