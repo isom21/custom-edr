@@ -183,7 +183,7 @@ def _retention_days() -> int:
 async def _sweep_retention(db: AsyncSession) -> int:
     cutoff = datetime.now(UTC) - timedelta(days=_retention_days())
     result = await db.execute(delete(ProcessChain).where(ProcessChain.started_at < cutoff))
-    return result.rowcount or 0
+    return getattr(result, "rowcount", 0) or 0
 
 
 async def _retention_loop() -> None:

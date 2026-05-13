@@ -86,8 +86,7 @@ function layout(data: ProcessChainResponse): {
   });
 
   // Descendants live one row below the deepest ancestor (the seed pid).
-  const descRowY =
-    TOP_PADDING + ancestorRows * (NODE_HEIGHT + VERTICAL_GAP);
+  const descRowY = TOP_PADDING + ancestorRows * (NODE_HEIGHT + VERTICAL_GAP);
   descendants.forEach((n, i) => {
     const x = SIDE_PADDING + i * (NODE_WIDTH + HORIZONTAL_GAP);
     nodes.push({
@@ -113,12 +112,9 @@ function layout(data: ProcessChainResponse): {
       ? descendants.length * NODE_WIDTH + (descendants.length - 1) * HORIZONTAL_GAP
       : NODE_WIDTH;
   const width = SIDE_PADDING * 2 + Math.max(NODE_WIDTH, descendantsWidth);
-  const ancestorsHeight =
-    ancestorRows * NODE_HEIGHT + Math.max(0, ancestorRows - 1) * VERTICAL_GAP;
+  const ancestorsHeight = ancestorRows * NODE_HEIGHT + Math.max(0, ancestorRows - 1) * VERTICAL_GAP;
   const height =
-    TOP_PADDING * 2 +
-    ancestorsHeight +
-    (descendantsRow > 0 ? VERTICAL_GAP + NODE_HEIGHT : 0);
+    TOP_PADDING * 2 + ancestorsHeight + (descendantsRow > 0 ? VERTICAL_GAP + NODE_HEIGHT : 0);
   return { nodes, edges, width, height };
 }
 
@@ -199,24 +195,14 @@ export function ProcessGraph({ alertId }: Props) {
                 rx={6}
                 ry={6}
                 className={
-                  n.highlight
-                    ? "fill-sev-medium/10 stroke-sev-medium"
-                    : "fill-card stroke-border"
+                  n.highlight ? "fill-sev-medium/10 stroke-sev-medium" : "fill-card stroke-border"
                 }
                 strokeWidth={1}
               />
-              <text
-                x={10}
-                y={20}
-                className="fill-foreground font-mono text-[11px]"
-              >
+              <text x={10} y={20} className="fill-foreground font-mono text-[11px]">
                 pid {n.node.pid}
               </text>
-              <text
-                x={10}
-                y={38}
-                className="fill-muted-foreground font-mono text-[11px]"
-              >
+              <text x={10} y={38} className="fill-muted-foreground font-mono text-[11px]">
                 {exe ?? "(unknown)"}
               </text>
             </g>

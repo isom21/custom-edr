@@ -11,6 +11,5 @@ export const processChainApi = {
     api<ProcessChainResponse>(`/api/hosts/${hostId}/process_chain`, {
       query: { pid },
     }),
-  forAlert: (alertId: string) =>
-    api<ProcessChainResponse>(`/api/alerts/${alertId}/process_chain`),
+  forAlert: (alertId: string) => api<ProcessChainResponse>(`/api/alerts/${alertId}/process_chain`),
 };
