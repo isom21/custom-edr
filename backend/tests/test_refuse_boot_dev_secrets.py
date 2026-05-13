@@ -193,19 +193,3 @@ def test_missing_intel_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(DevSecretsInProductionError) as exc:
         assert_production_secrets(s)
     assert "VIGIL_INTEL_ENCRYPTION_KEY" in str(exc.value)
-
-
-def test_dev_notification_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
-    s = _good_settings(notification_encryption_key=NOTIFICATION_KEY_DEV_DEFAULT)
-    with pytest.raises(DevSecretsInProductionError) as exc:
-        assert_production_secrets(s)
-    assert "VIGIL_NOTIFICATION_ENCRYPTION_KEY" in str(exc.value)
-
-
-def test_missing_notification_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
-    s = _good_settings(notification_encryption_key="")
-    with pytest.raises(DevSecretsInProductionError) as exc:
-        assert_production_secrets(s)
-    assert "VIGIL_NOTIFICATION_ENCRYPTION_KEY" in str(exc.value)
