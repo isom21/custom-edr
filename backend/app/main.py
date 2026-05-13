@@ -170,6 +170,16 @@ async def lifespan(_app: FastAPI):
 
         process_chain_task = asyncio.create_task(_process_chain_loop())
 
+    # Phase 2 #2.3: sequence / behavioral rules detector.
+    sequence_detector_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_SEQUENCE_DETECTOR_ENABLED", "1") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.sequence_detector import run_forever as _sequence_loop
+
+        sequence_detector_task = asyncio.create_task(_sequence_loop())
+
     try:
         yield
     finally:
@@ -213,6 +223,12 @@ async def lifespan(_app: FastAPI):
             process_chain_task.cancel()
             try:
                 await process_chain_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if sequence_detector_task is not None:
+            sequence_detector_task.cancel()
+            try:
+                await sequence_detector_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()
