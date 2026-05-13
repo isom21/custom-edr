@@ -8,6 +8,7 @@
 //! 4. Start /proc poller, send ProcessEvents to the manager.
 //! 5. Heartbeat every 30s.
 
+mod allowlist;
 mod capdrop;
 mod command_worker;
 mod ebpf;
@@ -44,7 +45,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
 const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1";
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,allowlist_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -456,6 +457,15 @@ async fn main() -> Result<()> {
                             send_tx2,
                             job_dispatcher,
                             control_channel,
+                            // Phase 2 #2.8: AllowlistHandle threading.
+                            // Left None for now — wiring the map
+                            // extraction into Loader::take_block_lists
+                            // is deferred to a follow-up so this PR
+                            // can land without re-cutting the eBPF
+                            // object. The command_worker surfaces a
+                            // clear error if an ALLOWLIST_SYNC lands
+                            // while the handle is None.
+                            None,
                         )
                         .await;
                     });

@@ -8,6 +8,7 @@ import {
   Flame,
   KeyRound,
   LayoutDashboard,
+  ListChecks,
   Rss,
   Send,
   Server,
@@ -55,7 +56,13 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Detection",
-    items: [{ to: "/rules", label: "Rules", icon: Shield }],
+    items: [
+      { to: "/rules", label: "Rules", icon: Shield },
+      // Phase 2 #2.8 — application allowlist (admin-only writes; reads
+      // open to analyst+, but in practice operators don't need to read
+      // the per-group state unless they're managing it).
+      { to: "/allowlist", label: "Allowlist", icon: ListChecks, adminOnly: true },
+    ],
   },
   {
     heading: "Operations",

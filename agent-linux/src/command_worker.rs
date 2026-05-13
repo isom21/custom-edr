@@ -16,6 +16,7 @@
 
 #![cfg(target_os = "linux")]
 
+use crate::allowlist::AllowlistHandle;
 use crate::ebpf::BlockListHandle;
 use agent_core::event as ev;
 use agent_core::jobs::JobDispatcher;
@@ -106,6 +107,7 @@ pub async fn run(
     send_tx: mpsc::Sender<p::ClientMessage>,
     job_dispatcher: Arc<JobDispatcher>,
     control_channel: Channel,
+    allowlist: Option<AllowlistHandle>,
 ) {
     tracing::info!(
         kinds = ?job_dispatcher.supported_kinds(),
@@ -121,6 +123,7 @@ pub async fn run(
             &send_tx,
             &job_dispatcher,
             &control_channel,
+            allowlist.as_ref(),
         )
         .await;
         let (success, error) = match &result {
@@ -186,6 +189,7 @@ async fn dispatch(
     send_tx: &mpsc::Sender<p::ClientMessage>,
     job_dispatcher: &Arc<JobDispatcher>,
     control_channel: &Channel,
+    allowlist: Option<&AllowlistHandle>,
 ) -> Result<()> {
     use p::command::Body;
     let body = cmd
@@ -303,6 +307,20 @@ async fn dispatch(
         }
         Body::ScanFile(_) | Body::ScanMemory(_) | Body::Update(_) => {
             anyhow::bail!("command kind not implemented on linux yet");
+        }
+        Body::AllowlistSync(req) => {
+            // Phase 2 #2.8. AllowlistHandle is only constructed when
+            // eBPF self-protection loaded successfully; in the
+            // /proc-poll fallback or when LSM hooks were skipped we
+            // can't program the kernel maps, so surface a clear
+            // error rather than silently succeed.
+            let handle = allowlist.ok_or_else(|| {
+                anyhow!(
+                    "allowlist_sync: AllowlistHandle is unavailable on this agent \
+                     (eBPF allowlist hook not attached)"
+                )
+            })?;
+            handle.apply(req)?;
         }
         Body::RunJob(cmd) => {
             if !job_dispatcher.supports(&cmd.job_kind) {

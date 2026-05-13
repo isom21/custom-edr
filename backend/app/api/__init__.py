@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api import (
     alerts,
+    allowlist,
     api_tokens,
     audit,
     auth,
@@ -53,6 +54,7 @@ for module in (
     siem_destinations,
     notifications,
     routing,
+    allowlist,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
