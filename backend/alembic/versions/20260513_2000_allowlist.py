@@ -21,7 +21,7 @@ on a non-transactional connection and let the table creation run
 inside the migration's normal transaction.
 
 Revision ID: d5e6f7a8b9c0
-Revises: 2c91a4f08b5d
+Revises: d2b3c4d5e6f7
 Create Date: 2026-05-13
 """
 
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d5e6f7a8b9c0"
-down_revision: str | None = "2c91a4f08b5d"
+down_revision: str | None = "d2b3c4d5e6f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
