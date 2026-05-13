@@ -14,7 +14,6 @@ through `os.environ`.
 from __future__ import annotations
 
 import pytest
-from cryptography.fernet import Fernet
 
 from app.core.config import (
     CA_MASTER_KEY_DEV_PREFIX,
@@ -37,8 +36,8 @@ def _good_settings(**overrides: object) -> Settings:
         "upload_token_key": "prod-upload-token-key-32-bytes-hex-not-jwt-secret",
         # Phase 1 #1.9 — Fernet key for intel-feed auth.
         "intel_encryption_key": "prod-intel-key-44-chars-url-safe-base64-padded==",
-        # Phase 1 #1.5 + #1.7 — Fernet key for notification destinations.
-        "notification_encryption_key": Fernet.generate_key().decode(),
+        # Phase 1 #1.5 + #1.7 — Fernet key for notification destinations / SIEM forwarders.
+        "notification_encryption_key": "prod-notif-key-44-chars-url-safe-base64-padded==",
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
