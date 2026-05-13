@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Archive,
   Briefcase,
+  BugOff,
   FileLock,
   Flame,
   KeyRound,
@@ -55,7 +56,11 @@ const SECTIONS: NavSection[] = [
   },
   {
     heading: "Detection",
-    items: [{ to: "/rules", label: "Rules", icon: Shield }],
+    items: [
+      { to: "/rules", label: "Rules", icon: Shield },
+      // Phase 2 #2.7: vulnerability assessment.
+      { to: "/vulnerabilities", label: "Vulnerabilities", icon: BugOff },
+    ],
   },
   {
     heading: "Operations",

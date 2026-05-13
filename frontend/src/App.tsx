@@ -23,6 +23,7 @@ import { Rules } from "./pages/Rules";
 import { SecuritySettings } from "./pages/SecuritySettings";
 import { SiemForwarders } from "./pages/SiemForwarders";
 import { Users } from "./pages/Users";
+import { Vulnerabilities } from "./pages/Vulnerabilities";
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/users" element={<Users />} />
+                <Route path="/vulnerabilities" element={<Vulnerabilities />} />
                 <Route path="/settings/security" element={<SecuritySettings />} />
               </Routes>
             </Layout>
