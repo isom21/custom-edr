@@ -7,6 +7,12 @@ from app.models.api_token import ApiToken
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin, UuidPkMixin, utcnow
 from app.models.ca import CertificateAuthority
+from app.models.case_destination import (
+    CaseDestination,
+    CaseDestinationKind,
+    CaseLink,
+    CaseSyncState,
+)
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
@@ -62,6 +68,10 @@ __all__ = [
     "ApiToken",
     "AuditLog",
     "Base",
+    "CaseDestination",
+    "CaseDestinationKind",
+    "CaseLink",
+    "CaseSyncState",
     "CertificateAuthority",
     "Command",
     "CommandKind",

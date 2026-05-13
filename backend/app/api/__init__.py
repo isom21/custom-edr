@@ -8,6 +8,7 @@ from app.api import (
     api_tokens,
     audit,
     auth,
+    case_destinations,
     commands,
     dns_block,
     enrollment,
@@ -64,6 +65,7 @@ for module in (
     hunt,
     process_chain,
     sequence_rules,
+    case_destinations,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it
