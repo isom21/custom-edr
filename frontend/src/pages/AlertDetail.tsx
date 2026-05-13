@@ -89,7 +89,7 @@ export function AlertDetail() {
                 </span>
               </>
             ) : null}
-          </span>
+          </div>
         }
         actions={
           <div className="flex items-center gap-2">
