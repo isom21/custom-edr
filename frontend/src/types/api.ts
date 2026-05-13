@@ -18,6 +18,31 @@ export interface User {
   last_login_at: string | null;
   created_at: string;
   totp_enabled: boolean;
+  // Phase 3 #3.1: tenant + super-admin bit. Non-super-admins are
+  // pinned to their home tenant; super-admins can flip the active
+  // tenant via the `vigil_active_tenant_id` cookie the switcher sets.
+  tenant_id: string;
+  is_super_admin: boolean;
+}
+
+// Phase 3 #3.1: tenant payload mirrors app/schemas/tenant.py.
+export interface Tenant {
+  id: string;
+  slug: string;
+  name: string;
+  disabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TenantCreate {
+  slug: string;
+  name: string;
+}
+
+export interface TenantUpdate {
+  name?: string;
+  disabled?: boolean;
 }
 
 export interface TokenPair {
@@ -973,6 +998,10 @@ export interface CaseDestination {
   kind: CaseDestinationKind;
   name: string;
   enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Phase 3 #3.3 — agent rollout cohorts.
 export type RolloutStatus = "pending" | "in_flight" | "success" | "failed" | "rolled_back";
 
@@ -1140,6 +1169,8 @@ export interface CaseDestinationTestResult {
   external_id?: string | null;
   external_url?: string | null;
   error?: string | null;
+}
+
 export interface DashboardCreate {
   name: string;
   description?: string | null;
