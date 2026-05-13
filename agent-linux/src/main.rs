@@ -10,6 +10,7 @@
 
 mod capdrop;
 mod command_worker;
+mod dns_block;
 mod ebpf;
 mod hasher;
 mod proc_watcher;
@@ -44,7 +45,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated.
 const CAPABILITIES: &str =
-    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1";
+    "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,dns_block_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -402,6 +403,19 @@ async fn main() -> Result<()> {
         // — see `Loader::take_block_lists` for the why.
         let state_dir = cfg.resolved_state_dir();
         let pin_arg = self_protect_enabled.then_some(pin_dir.as_path());
+        // Phase 2 #2.12: pull the DNS-block map before we move
+        // `blocks` into the worker. Older kernels (or a BPF object
+        // built without the map) return None — the command worker
+        // logs and skips DNS sync commands in that case rather than
+        // refusing to start.
+        let dns_blocks = match loader.take_dns_block() {
+            Ok(opt) => opt,
+            Err(e) => {
+                tracing::warn!(error = %e, "ebpf.dns_block.unavailable");
+                None
+            }
+        };
+
         match loader.take_block_lists(pin_arg) {
             Ok(blocks) => {
                 let restored = command_worker::restore(&state_dir, &blocks).unwrap_or_default();
@@ -450,6 +464,7 @@ async fn main() -> Result<()> {
                         command_worker::run(
                             state_dir_for_worker,
                             blocks,
+                            dns_blocks,
                             restored,
                             worker_identity,
                             rx,
