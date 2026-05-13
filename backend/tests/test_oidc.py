@@ -290,9 +290,7 @@ async def test_oidc_callback_provisions_new_user(
         _mock_idp(
             respx_mock,
             jwks,
-            id_token=_sign_id_token(
-                private, _id_token_claims(sub=sub, email=email, nonce=nonce)
-            ),
+            id_token=_sign_id_token(private, _id_token_claims(sub=sub, email=email, nonce=nonce)),
         )
 
         resp = await client.get(
@@ -311,9 +309,7 @@ async def test_oidc_callback_provisions_new_user(
     async with AsyncSession(engine) as db:
         from app.models import AuditLog, User, UserRole
 
-        user = (
-            await db.execute(select(User).where(User.oidc_subject == sub))
-        ).scalar_one_or_none()
+        user = (await db.execute(select(User).where(User.oidc_subject == sub))).scalar_one_or_none()
         assert user is not None
         assert user.email == email
         assert user.oidc_issuer == _TEST_ISSUER
@@ -330,8 +326,7 @@ async def test_oidc_callback_provisions_new_user(
         actions = {(r.action, json.dumps(r.payload, sort_keys=True)) for r in rows}
         assert any(action == "user.provision" for action, _ in actions)
         assert any(
-            action == "user.login" and '"method": "oidc"' in payload
-            for action, payload in actions
+            action == "user.login" and '"method": "oidc"' in payload for action, payload in actions
         )
 
         # Cleanup so the row doesn't pollute later test runs.
@@ -421,15 +416,9 @@ async def test_oidc_callback_existing_user_matched_by_sub(
             assert rows == []
     finally:
         async with AsyncSession(engine) as db:
-            await db.execute(
-                select(AuditLog).where(AuditLog.resource_id == str(seeded_id))
-            )
+            await db.execute(select(AuditLog).where(AuditLog.resource_id == str(seeded_id)))
             for row in (
-                (
-                    await db.execute(
-                        select(AuditLog).where(AuditLog.resource_id == str(seeded_id))
-                    )
-                )
+                (await db.execute(select(AuditLog).where(AuditLog.resource_id == str(seeded_id))))
                 .scalars()
                 .all()
             ):
@@ -522,7 +511,5 @@ async def test_oidc_callback_rejects_nonce_mismatch(
     async with AsyncSession(engine) as db:
         from app.models import User
 
-        user = (
-            await db.execute(select(User).where(User.oidc_subject == sub))
-        ).scalar_one_or_none()
+        user = (await db.execute(select(User).where(User.oidc_subject == sub))).scalar_one_or_none()
         assert user is None

@@ -615,20 +615,18 @@ async def _provision_or_match_oidc_user(
 ) -> User:
     """Find-or-provision logic. Three branches:
 
-      1. ``oidc_subject`` already maps to a row — that's the user.
-      2. Email matches an existing password user but no subject yet —
-         link the row to the OIDC sub (audit-recorded as
-         ``user.oidc_link``).
-      3. Neither — provision a fresh row with the default role
-         (audit-recorded as ``user.provision``).
+    1. ``oidc_subject`` already maps to a row — that's the user.
+    2. Email matches an existing password user but no subject yet —
+       link the row to the OIDC sub (audit-recorded as
+       ``user.oidc_link``).
+    3. Neither — provision a fresh row with the default role
+       (audit-recorded as ``user.provision``).
     """
     sub = claims["sub"]
     issuer = claims.get("iss") or settings.oidc_issuer_url
     email = (claims.get("email") or "").lower()
 
-    user = (
-        await db.execute(select(User).where(User.oidc_subject == sub))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.oidc_subject == sub))).scalar_one_or_none()
     if user is not None:
         # Stale email in claims is informational; keep the canonical
         # column in sync so admin views show what the IdP last sent.
@@ -637,9 +635,7 @@ async def _provision_or_match_oidc_user(
         return user
 
     if email:
-        existing = (
-            await db.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if existing is not None:
             existing.oidc_subject = sub
             existing.oidc_issuer = issuer
@@ -707,9 +703,7 @@ async def oidc_callback(
         raise unauthorized("oidc state mismatch")
 
     try:
-        token_resp = await oidc_service.exchange_code(
-            code=code, code_verifier=code_verifier
-        )
+        token_resp = await oidc_service.exchange_code(code=code, code_verifier=code_verifier)
     except oidc_service.OidcError as exc:
         raise unauthorized("oidc code exchange failed") from exc
 
