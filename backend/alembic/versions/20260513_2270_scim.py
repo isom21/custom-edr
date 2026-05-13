@@ -15,7 +15,7 @@ Two surface changes:
     once at creation.
 
 Revision ID: e8b9c0d1e2f3
-Revises: d5e6f7a8b9c0
+Revises: e1a2b3c4d5e6
 Create Date: 2026-05-13
 """
 
@@ -27,7 +27,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e8b9c0d1e2f3"
-down_revision: str | None = "d5e6f7a8b9c0"
+down_revision: str | None = "e1a2b3c4d5e6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

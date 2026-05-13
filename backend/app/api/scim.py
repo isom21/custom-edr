@@ -157,7 +157,7 @@ async def list_users(
     if filter:
         m = _FILTER_RE.match(filter)
         if m is None:
-            return _scim_error("unsupported filter", status.HTTP_400_BAD_REQUEST)
+            return _scim_error("unsupported filter", status.HTTP_400_BAD_REQUEST)  # type: ignore[return-value]
         attr = m.group(1).lower()
         value = m.group(2)
         if attr in ("username", "emails", "emails.value"):
