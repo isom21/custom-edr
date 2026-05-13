@@ -14,7 +14,7 @@ Stored as `text` with a `CHECK` constraint rather than a PG ENUM so
 adding new reasons later is just a constraint swap, no `ALTER TYPE`.
 
 Revision ID: d8b9c0d1e2f3
-Revises: 2c91a4f08b5d
+Revises: d2b3c4d5e6f7
 Create Date: 2026-05-13
 """
 
@@ -27,7 +27,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d8b9c0d1e2f3"
-down_revision: str | None = "2c91a4f08b5d"
+down_revision: str | None = "d2b3c4d5e6f7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
