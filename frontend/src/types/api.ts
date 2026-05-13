@@ -589,6 +589,7 @@ export type JobKind =
   | "process_memory_dump"
   | "event_log_acquire"
   | "crash_dump_collect"
+  | "triage_collect"
   | "process_snapshot"
   | "network_snapshot"
   | "installed_software"
