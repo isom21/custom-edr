@@ -26,7 +26,7 @@ we run it on its own connection via `op.execute` after the CREATE
 TABLE completed.
 
 Revision ID: d7a8b9c0d1e2
-Revises: d8b9c0d1e2f3
+Revises: d4d5e6f7a8b9
 Create Date: 2026-05-13
 """
 
@@ -39,7 +39,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "d7a8b9c0d1e2"
-down_revision: str | None = "d8b9c0d1e2f3"
+down_revision: str | None = "d4d5e6f7a8b9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
