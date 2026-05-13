@@ -278,8 +278,8 @@ async def _run_once(
         # made above. For a daily scan this is fine; if the catalog
         # grows past a few hundred thousand rows we'll want a smarter
         # join in SQL.
-        vulns = (await db.execute(select(Vulnerability))).scalars().all()
-        installed = (await db.execute(select(HostSoftware))).scalars().all()
+        vulns = list((await db.execute(select(Vulnerability))).scalars().all())
+        installed = list((await db.execute(select(HostSoftware))).scalars().all())
         matches = _compute_matches(installed, vulns)
         match_count = await _upsert_host_vulnerabilities(db, matches, moment)
         await db.commit()
