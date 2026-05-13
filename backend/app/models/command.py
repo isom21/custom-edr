@@ -36,6 +36,10 @@ class CommandKind(str, enum.Enum):
     # allowlist + mode down to one agent. Payload carries
     # {"mode": "off|learn|enforce", "hashes": [hex...]}.
     ALLOWLIST_SYNC = "allowlist_sync"
+    # Phase 2 #2.12: whole-list DNS block resync. Payload carries
+    # `block_domains` + `sinkhole_domains` lists; the agent replaces
+    # its kernel-side map atomically on receipt.
+    DNS_BLOCK_SYNC = "dns_block_sync"
 
 
 class CommandStatus(str, enum.Enum):

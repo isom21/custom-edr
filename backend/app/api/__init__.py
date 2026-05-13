@@ -9,6 +9,7 @@ from app.api import (
     audit,
     auth,
     commands,
+    dns_block,
     enrollment,
     host_groups,
     host_terminal,
@@ -30,6 +31,7 @@ from app.api import (
     sigma,
     uploads,
     users,
+    vulnerabilities,
 )
 
 api_router = APIRouter()
@@ -56,6 +58,7 @@ for module in (
     notifications,
     routing,
     allowlist,
+    dns_block,
     sequence_rules,
 ):
     api_router.include_router(module.router)
@@ -78,5 +81,13 @@ api_router.include_router(uploads.download_router)
 # the REST `POST /api/hosts/{id}/terminal` (mint session) and the
 # `GET /api/hosts/{id}/terminal/ws` WebSocket relay.
 api_router.include_router(host_terminal.router)
+# Phase 2 #2.7: vulnerability assessment. Three prefixes — the
+# fleet-wide list at `/api/vulnerabilities`, the per-host list under
+# `/api/hosts/{id}/vulnerabilities` (mounted on the shared `hosts`
+# prefix router), and the admin suppress action under
+# `/api/host-vulnerabilities/{id}/suppress`.
+api_router.include_router(vulnerabilities.router)
+api_router.include_router(vulnerabilities.host_scoped_router)
+api_router.include_router(vulnerabilities.suppress_router)
 
 __all__ = ["api_router"]
