@@ -35,6 +35,7 @@ from app.models.rule import (
     Severity,
     clamp_action,
 )
+from app.models.siem_destination import SiemDestination, SiemKind
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -81,6 +82,8 @@ __all__ = [
     "RuleAction",
     "RuleGroup",
     "RuleKind",
+    "SiemDestination",
+    "SiemKind",
     "clamp_action",
     "Severity",
     "TimestampMixin",

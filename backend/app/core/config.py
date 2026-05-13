@@ -144,6 +144,12 @@ class Settings(BaseSettings):
     intel_ingest_interval_s: int = 60
     intel_encryption_key: str = ""
 
+    # Phase 1 #1.5 + #1.7: Fernet key used to encrypt destination /
+    # channel auth tokens (HEC tokens, Sentinel SAS keys, Slack webhook
+    # URLs, SMTP passwords) at rest. Shared across SIEM forwarders +
+    # alert routing.
+    notification_encryption_key: str = ""
+
 
 settings = Settings()
 
@@ -165,6 +171,12 @@ TOTP_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtdG90cC1rZXktMzJieXRlcyE="
 # Phase 1 #1.9: dev-default Fernet key for `intel_encryption_key`.
 # Generated once via base64.urlsafe_b64encode(b"dev-only-vigil-intel-key-32bytes").
 INTEL_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtaW50ZWwta2V5LTMyYnl0ZXM="
+# Phase 1 #1.5: deterministic Fernet key used when
+# `notification_encryption_key` is unset in a dev environment.
+# Production refuses to boot with this value. Same shape as the
+# TOTP one. Generated once via
+# `base64.urlsafe_b64encode(b"dev-only-vigil-notif-key-32bytes").decode()`.
+NOTIFICATION_KEY_DEV_DEFAULT = "ZGV2LW9ubHktdmlnaWwtbm90aWYta2V5LTMyYnl0ZXM="
 
 
 class DevSecretsInProductionError(RuntimeError):
@@ -190,6 +202,11 @@ def assert_production_secrets(s: Settings | None = None) -> None:
         problems.append("VIGIL_TOTP_ENCRYPTION_KEY is unset or still the dev default")
     if not s.intel_encryption_key or s.intel_encryption_key == INTEL_KEY_DEV_DEFAULT:
         problems.append("VIGIL_INTEL_ENCRYPTION_KEY is unset or still the dev default")
+    if (
+        not s.notification_encryption_key
+        or s.notification_encryption_key == NOTIFICATION_KEY_DEV_DEFAULT
+    ):
+        problems.append("VIGIL_NOTIFICATION_ENCRYPTION_KEY is unset or still the dev default")
     # M18 separated upload_token_key from jwt_secret so a leak of one
     # didn't compromise the other. The empty-string default silently
     # falls back to jwt_secret to keep older dev environments working;

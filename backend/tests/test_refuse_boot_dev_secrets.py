@@ -14,11 +14,13 @@ through `os.environ`.
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 
 from app.core.config import (
     CA_MASTER_KEY_DEV_PREFIX,
     INTEL_KEY_DEV_DEFAULT,
     JWT_SECRET_DEV_DEFAULT,
+    NOTIFICATION_KEY_DEV_DEFAULT,
     TOTP_KEY_DEV_DEFAULT,
     DevSecretsInProductionError,
     Settings,
@@ -33,8 +35,10 @@ def _good_settings(**overrides: object) -> Settings:
         "ca_master_key": "prod-ca-master-key-rotated-32-bytes-long",
         "totp_encryption_key": "prod-totp-key-44-chars-url-safe-base64-padded==",
         "upload_token_key": "prod-upload-token-key-32-bytes-hex-not-jwt-secret",
-        # Phase 1 #1.9 — Fernet key for intel-feed auth. Same shape as totp.
+        # Phase 1 #1.9 — Fernet key for intel-feed auth.
         "intel_encryption_key": "prod-intel-key-44-chars-url-safe-base64-padded==",
+        # Phase 1 #1.5 + #1.7 — Fernet key for notification destinations.
+        "notification_encryption_key": Fernet.generate_key().decode(),
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -95,6 +99,22 @@ def test_missing_totp_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(DevSecretsInProductionError) as exc:
         assert_production_secrets(s)
     assert "VIGIL_TOTP_ENCRYPTION_KEY" in str(exc.value)
+
+
+def test_dev_notification_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(notification_encryption_key=NOTIFICATION_KEY_DEV_DEFAULT)
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    assert "VIGIL_NOTIFICATION_ENCRYPTION_KEY" in str(exc.value)
+
+
+def test_missing_notification_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIGIL_AUDIT_HMAC_KEY", "0123456789abcdef" * 4)
+    s = _good_settings(notification_encryption_key="")
+    with pytest.raises(DevSecretsInProductionError) as exc:
+        assert_production_secrets(s)
+    assert "VIGIL_NOTIFICATION_ENCRYPTION_KEY" in str(exc.value)
 
 
 def test_missing_upload_token_key_refuses(monkeypatch: pytest.MonkeyPatch) -> None:

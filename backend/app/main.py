@@ -125,6 +125,28 @@ async def lifespan(_app: FastAPI):
 
         intel_ingest_task = asyncio.create_task(_intel_loop())
 
+    # Phase 1 #1.5: SIEM forwarder worker. Same opt-out shape — set
+    # `VIGIL_SIEM_FORWARDER_ENABLED=0` to disable in environments
+    # where Kafka isn't reachable; VIGIL_TEST_ENV=1 keeps it off under
+    # pytest so the test suite doesn't try to bind to a non-existent
+    # broker (we drive the worker directly in unit tests).
+    siem_forwarder_task: asyncio.Task | None = None
+    if (
+        _os.environ.get("VIGIL_SIEM_FORWARDER_ENABLED", "1") != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.siem_forwarder import SiemForwarder
+
+        async def _siem_forwarder_loop() -> None:
+            worker = SiemForwarder()
+            try:
+                await worker.start()
+                await worker.run()
+            finally:
+                await worker.stop()
+
+        siem_forwarder_task = asyncio.create_task(_siem_forwarder_loop())
+
     try:
         yield
     finally:
@@ -150,6 +172,12 @@ async def lifespan(_app: FastAPI):
             intel_ingest_task.cancel()
             try:
                 await intel_ingest_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if siem_forwarder_task is not None:
+            siem_forwarder_task.cancel()
+            try:
+                await siem_forwarder_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         await broker.stop()
