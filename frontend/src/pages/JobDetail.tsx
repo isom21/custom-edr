@@ -131,9 +131,9 @@ export function JobDetail() {
       />
       {job.kind === "triage_collect" && (
         <div className="border-b bg-amber-500/10 px-8 py-2 text-xs text-amber-700 dark:text-amber-300">
-          Triage bundle aggregates registry hives, browser history, event logs
-          and other secrets-bearing artifacts into a single ZIP. Handle the
-          downloaded archive on an isolated analyst workstation.
+          Triage bundle aggregates registry hives, browser history, event logs and other
+          secrets-bearing artifacts into a single ZIP. Handle the downloaded archive on an isolated
+          analyst workstation.
         </div>
       )}
       <div className="grid gap-4 px-8 py-6 lg:grid-cols-3">
