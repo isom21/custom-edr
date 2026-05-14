@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
+  Bomb,
   BookOpen,
   Briefcase,
   BugOff,
@@ -118,6 +119,8 @@ const SECTIONS: NavSection[] = [
         icon: ExternalLink,
         adminOnly: true,
       },
+      // Phase 4 #4.4: network sandbox / detonation (admin-only).
+      { to: "/detonation", label: "Detonation", icon: Bomb, adminOnly: true },
       // Phase 2 #2.12: DNS block list (admin-only).
       { to: "/dns-blocks", label: "DNS blocks", icon: Globe, adminOnly: true },
     ],

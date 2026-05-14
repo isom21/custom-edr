@@ -1453,6 +1453,51 @@ export interface WidgetData {
   error: string | null;
 }
 
+// Phase 4 #4.4 — network sandbox / detonation.
+
+export type DetonationProviderKind = "cuckoo" | "vmray" | "anyrun";
+export type DetonationJobStatus = "queued" | "running" | "verdict" | "failed";
+
+export interface DetonationProvider {
+  id: string;
+  kind: DetonationProviderKind;
+  name: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DetonationProviderCreate {
+  kind: DetonationProviderKind;
+  name: string;
+  /** Cuckoo requires `base_url` and accepts an optional `api_token`.
+   *  VMRay + ANY.RUN are stubs — config is stored but submits raise
+   *  NotImplementedError until an operator wires a real client. */
+  config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface DetonationProviderUpdate {
+  name?: string;
+  /** Replaces the entire stored blob; we don't store plaintext so
+   * partial merges aren't possible. */
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface DetonationJob {
+  id: string;
+  provider_id: string;
+  sha256: string;
+  status: DetonationJobStatus;
+  verdict_score: number | null;
+  verdict_label: string | null;
+  external_id: string | null;
+  error: string | null;
+  submitted_at: string;
+  finished_at: string | null;
+}
+
 // Phase 4 #4.1 — AI-assisted analyst surfaces ------------------------
 
 /** One suggested response action from the model. The widget renders
