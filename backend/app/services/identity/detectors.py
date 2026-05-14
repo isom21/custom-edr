@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -203,7 +203,7 @@ def brute_force(
     if len(failures) <= threshold:
         return None
     actor = next((e.get("actor_email") for e in failures if e.get("actor_email")), "unknown")
-    src_ips = sorted({e.get("src_ip") for e in failures if e.get("src_ip")})
+    src_ips = sorted({ip for e in failures if (ip := e.get("src_ip"))})
     return DetectorHit(
         rule_id=IDENTITY_BRUTE_FORCE_RULE_ID,
         severity=Severity.HIGH,
@@ -297,7 +297,7 @@ def mfa_bomb(
 
 
 def password_spray(
-    events_by_ip: dict[str, Sequence[IdentityEvent]],
+    events_by_ip: Mapping[str, Sequence[IdentityEvent]],
     *,
     window_s: int = 300,
     distinct_users: int = 8,

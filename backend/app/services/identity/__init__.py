@@ -53,10 +53,10 @@ def parse_iso_ts(raw: str) -> datetime:
     return dt.astimezone(UTC)
 
 
-class IdentityEvent(TypedDict, total=False):
-    """Normalised shape every fetcher returns. ``total=False`` because
-    optional providers (e.g. Okta when geo isn't resolvable) may omit
-    `src_geo` / `src_ip`."""
+class IdentityEvent(TypedDict):
+    """Normalised shape every fetcher returns. `src_ip` and `src_geo`
+    are `| None` for providers that don't resolve geo (e.g. Okta when
+    the IP isn't in the geo database); all keys are always present."""
 
     ts: object  # datetime (UTC). object-typed so the TypedDict stays import-cheap.
     actor_email: str
