@@ -52,7 +52,7 @@ const PROTOCOL_VERSION: u32 = 1;
 /// can surface fleet rollout state and tailor RuleSync to match. Stable
 /// short tokens, comma-separated. The base set is everything the agent
 /// always supports; `capabilities()` appends runtime-detected ones (TPM).
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1";
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 /// Phase 4 #4.10: append `tpm_attestation_v1` only when a TPM is
 /// actually exposed. Manager filters fleet rollout dashboards by
@@ -64,8 +64,6 @@ fn capabilities() -> String {
         CAPABILITIES_BASE.to_string()
     }
 }
-/// short tokens, comma-separated.
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,dns_block_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 #[tokio::main]
 async fn main() -> Result<()> {

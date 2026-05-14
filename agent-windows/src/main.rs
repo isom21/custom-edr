@@ -73,7 +73,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// M9.5: agent ↔ manager wire-protocol version.
 const PROTOCOL_VERSION: u32 = 1;
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1";
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 /// Phase 4 #4.10: append `tpm_attestation_v1` only when TBS surfaces a
 /// TPM. The manager filters fleet rollout dashboards by capability;
@@ -85,7 +85,6 @@ fn capabilities() -> String {
         CAPABILITIES_BASE.to_string()
     }
 }
-const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 fn main() -> Result<()> {
     init_tracing();
