@@ -38,6 +38,10 @@ REENROLLMENT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000005")
 # task (M-audit-and-auth #6).
 AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000006")
 
+# Phase 4 #4.10 — TPM attestation diverged from the promoted golden
+# baseline. MITRE T1542 (Pre-OS Boot).
+ATTESTATION_FAILED_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000007")
+
 
 # Convenience iterable for tests / migration sanity checks: every
 # synthetic rule UUID this module knows about. Adding a new one above
@@ -45,4 +49,5 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
+    ATTESTATION_FAILED_RULE_ID,
 )

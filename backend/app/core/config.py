@@ -242,6 +242,14 @@ class Settings(BaseSettings):
     rollout_monitor_interval_s: int = 30
     rollout_cohort_seed: str = "vigil-cohort-v1"
 
+    # Phase 4 #4.10: hardware-backed TPM attestation. PEM bundle the
+    # manager trusts as the root of every endpoint's AK certificate
+    # chain. Empty (dev / fresh install) accepts self-signed AK
+    # certs so swtpm fixtures + first-boot bootstrap work without
+    # operator intervention; production should set the operator's own
+    # AK CA so a forged AK can't masquerade as a real host.
+    attestation_trust_anchor_pem: str = ""
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.

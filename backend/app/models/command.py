@@ -48,6 +48,10 @@ class CommandKind(str, enum.Enum):
     # matching udev rule (Linux) or DeviceInstall registry value
     # (Windows). One command = one effective policy.
     DEVICE_CONTROL_SYNC = "device_control_sync"
+    # Phase 4 #4.10: hardware-backed TPM attestation. Payload carries a
+    # fresh nonce; the agent quotes its PCRs against the nonce and
+    # ships a `TpmAttestation` back on the bidi stream.
+    REQUEST_ATTESTATION = "request_attestation"
 
 
 class CommandStatus(str, enum.Enum):
