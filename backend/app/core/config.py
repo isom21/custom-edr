@@ -252,6 +252,20 @@ class Settings(BaseSettings):
     vuln_scan_interval_s: int = 86400
     nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
 
+    # Phase 4 #4.1: AI-assisted analyst. Empty `anthropic_api_key`
+    # short-circuits the wrapper in `app/services/ai_client.py` to a
+    # dev stub — no HTTP call, no SDK initialisation — so the manager
+    # boots cleanly on environments that haven't provisioned a key.
+    # `ai_summariser_enabled` opts the Kafka consumer worker out the
+    # same way the other workers do ("0" = dormant). `ai_model_id`
+    # pins the model we send each call against; rotating it is a
+    # config-only operation. `ai_max_tokens` caps the model's reply
+    # so a runaway response can't blow per-call costs.
+    anthropic_api_key: str = ""
+    ai_summariser_enabled: str = "1"
+    ai_model_id: str = "claude-haiku-4-5-20251001"
+    ai_max_tokens: int = 1024
+
 
 settings = Settings()
 
