@@ -52,6 +52,12 @@ class CommandKind(str, enum.Enum):
     # fresh nonce; the agent quotes its PCRs against the nonce and
     # ships a `TpmAttestation` back on the bidi stream.
     REQUEST_ATTESTATION = "request_attestation"
+    # Phase 4 #4.5: deploy a batch of honeytokens to the agent. Payload
+    # carries `{"specs": [{"id", "kind", "name", "target_path",
+    # "payload_b64"}, ...]}`. The agent dispatches by `kind` per spec
+    # (file write + xattr / NTFS ADS for `fake_file`; HKLM regkey for
+    # `fake_regkey`; placeholder file for `creds_in_lsass`).
+    DEPLOY_HONEYTOKEN = "deploy_honeytoken"
 
 
 class CommandStatus(str, enum.Enum):

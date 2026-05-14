@@ -249,6 +249,16 @@ class Settings(BaseSettings):
     # operator intervention; production should set the operator's own
     # AK CA so a forged AK can't masquerade as a real host.
     attestation_trust_anchor_pem: str = ""
+    # Phase 4 #4.4: network sandbox / detonation. The poller worker
+    # ticks every `detonation_poller_interval_s` seconds (floor 5)
+    # and drives ``DetonationJob`` rows from running → verdict/failed.
+    # `detonation_auto_submit_severity_floor` is the minimum alert
+    # severity that triggers an auto-submission of the offending
+    # process's hash; operators dial this down once they've sized
+    # their sandbox throughput.
+    detonation_poller_interval_s: int = 30
+    detonation_poller_enabled: str = "1"
+    detonation_auto_submit_severity_floor: str = "high"
     # Phase 4 #4.3: identity threat detection (Okta + Azure AD).
     # `identity_monitor_interval_s` gates the outer worker tick (floor
     # 30 s — both upstream APIs rate-limit below 5/min). The detectors

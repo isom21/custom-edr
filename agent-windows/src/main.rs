@@ -21,6 +21,10 @@ mod allowlist;
 // so the constant + probe helpers compile on Linux CI; the actual
 // TBS calls are `#[cfg(windows)]`.
 mod tpm;
+// Phase 4 #4.5: deception / honeytoken primitives. Wire-format helpers
+// (`apply_changes` builder) are cross-platform so the unit tests run on
+// Linux CI; the actual HKLM / NTFS calls are Windows-gated.
+mod deception;
 // Phase 3 #3.10: device control wire helpers (RegChange list builder)
 // are cross-platform so the unit tests run on Linux CI. The actual
 // HKLM `RegSetValueEx` call lives behind `#[cfg(windows)]` inside the
@@ -81,6 +85,7 @@ fn capabilities() -> String {
         CAPABILITIES_BASE.to_string()
     }
 }
+const CAPABILITIES: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,terminal_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
 
 fn main() -> Result<()> {
     init_tracing();
