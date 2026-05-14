@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Iterable
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -127,9 +128,9 @@ def _check_trust_anchor(ak_cert) -> bool:
     except ValueError:
         log.error("attestation.verify.bad_trust_anchor_pem")
         return False
-    anchor_pub = anchor.public_key()
+    anchor_pub: Any = anchor.public_key()
     try:
-        anchor_pub.verify(  # pyright: ignore[reportAttributeAccessIssue]
+        anchor_pub.verify(
             ak_cert.signature,
             ak_cert.tbs_certificate_bytes,
             padding.PKCS1v15(),
@@ -152,8 +153,7 @@ def compare_to_golden(
     ``unverified`` status (every value is "divergent" from nothing).
     """
     if golden is None or not golden.pcr_values_json:
-        diverged = sorted({int(p["index"]) for p in current_pcrs})
-        return False, diverged
+        return False, sorted({int(p["index"]) for p in current_pcrs})
 
     golden_map = {(p["bank"], int(p["index"])): p["digest_hex"] for p in golden.pcr_values_json}
     current_map = {(p["bank"], int(p["index"])): p["digest_hex"] for p in current_pcrs}
