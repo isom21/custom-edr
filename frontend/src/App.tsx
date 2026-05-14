@@ -14,6 +14,7 @@ import { DashboardEdit } from "./pages/DashboardEdit";
 import { Dashboards } from "./pages/Dashboards";
 import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
+import { Honeytokens } from "./pages/Honeytokens";
 import { HostDetail } from "./pages/HostDetail";
 import { Hosts } from "./pages/Hosts";
 import { HostTerminal } from "./pages/HostTerminal";
@@ -86,6 +87,7 @@ export default function App() {
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/device-control" element={<DeviceControl />} />
+                <Route path="/honeytokens" element={<Honeytokens />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/scim-tokens" element={<ScimTokens />} />
                 {/* Phase 3 #3.1: tenant CRUD. The page itself returns a

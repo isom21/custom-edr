@@ -15,6 +15,7 @@ from app.api import (
     device_policies,
     dns_block,
     enrollment,
+    honeytokens,
     host_groups,
     host_terminal,
     hosts,
@@ -83,6 +84,7 @@ for module in (
     scim_tokens,
     archive,
     tenants,
+    honeytokens,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

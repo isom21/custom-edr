@@ -38,6 +38,11 @@ REENROLLMENT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000005")
 # task (M-audit-and-auth #6).
 AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000006")
 
+# Phase 4 #4.5 — agent observed a touch on a deployed honeytoken
+# (fake file / fake regkey / fake creds). Anything that interacts with
+# the decoy is high-signal; the alert is CRITICAL by default.
+HONEYTOKEN_HIT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000013")
+
 
 # Convenience iterable for tests / migration sanity checks: every
 # synthetic rule UUID this module knows about. Adding a new one above
@@ -45,4 +50,5 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
+    HONEYTOKEN_HIT_RULE_ID,
 )
