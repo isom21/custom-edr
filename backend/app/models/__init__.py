@@ -22,6 +22,7 @@ from app.models.dns_block import DnsBlockAction, DnsBlockEntry
 from app.models.enrollment import EnrollmentToken
 from app.models.host import Host, HostStatus, OsFamily
 from app.models.host_group import HostGroup, host_in_group, user_host_group
+from app.models.identity_source import IdentitySource, IdentitySourceKind
 from app.models.incident import (
     INCIDENT_STATUS_TRANSITIONS,
     Incident,
@@ -107,6 +108,8 @@ __all__ = [
     "HostVulnerability",
     "host_in_group",
     "user_host_group",
+    "IdentitySource",
+    "IdentitySourceKind",
     "INCIDENT_STATUS_TRANSITIONS",
     "Incident",
     "IncidentGroupingReason",
