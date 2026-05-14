@@ -48,7 +48,7 @@ def _host_kwargs() -> dict[str, object]:
     }
 
 
-async def _make_alert(db_session) -> tuple[object, object, object]:
+async def _make_alert(db_session):
     """Insert a host + rule + alert and return them."""
     from app.models import (
         Alert,
@@ -156,6 +156,7 @@ async def test_summarise_and_persist_writes_row(db_session) -> None:
 
     mock_client.summarise_alert.assert_awaited_once()
     mock_pub.assert_awaited_once()
+    assert mock_pub.await_args is not None
     args, _ = mock_pub.await_args
     assert args[0] == "alert.summary_ready"
     assert args[1]["alert_id"] == str(alert.id)
