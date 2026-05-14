@@ -12,6 +12,7 @@ from app.api import (
     audit,
     auth,
     case_destinations,
+    cloud_sources,
     commands,
     dashboards,
     detonation,
@@ -91,6 +92,7 @@ for module in (
     archive,
     tenants,
     attestation,
+    cloud_sources,
     honeytokens,
     ai,
 ):

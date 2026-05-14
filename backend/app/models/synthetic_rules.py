@@ -41,6 +41,10 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 # Phase 4 #4.10 — TPM attestation diverged from the promoted golden
 # baseline. MITRE T1542 (Pre-OS Boot).
 ATTESTATION_FAILED_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000007")
+# Phase 4 #4.2 — AWS CloudTrail IAM-role anomaly detector (new principal,
+# new action for principal, new region for principal, or unexpected root
+# console login).
+CLOUD_IAM_ANOMALY_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000011")
 # Phase 4 #4.5 — agent observed a touch on a deployed honeytoken
 # (fake file / fake regkey / fake creds). Anything that interacts with
 # the decoy is high-signal; the alert is CRITICAL by default.
@@ -64,6 +68,7 @@ ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
     ATTESTATION_FAILED_RULE_ID,
+    CLOUD_IAM_ANOMALY_RULE_ID,
     HONEYTOKEN_HIT_RULE_ID,
     IDENTITY_IMPOSSIBLE_TRAVEL_RULE_ID,
     IDENTITY_BRUTE_FORCE_RULE_ID,
