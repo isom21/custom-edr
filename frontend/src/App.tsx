@@ -12,6 +12,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { DeviceControl } from "./pages/DeviceControl";
 import { DashboardEdit } from "./pages/DashboardEdit";
 import { Dashboards } from "./pages/Dashboards";
+import { Detonation } from "./pages/Detonation";
 import { DnsBlock } from "./pages/DnsBlock";
 import { Enrollment } from "./pages/Enrollment";
 import { HostDetail } from "./pages/HostDetail";
@@ -83,6 +84,7 @@ export default function App() {
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/siem" element={<SiemForwarders />} />
                 <Route path="/case-destinations" element={<CaseDestinations />} />
+                <Route path="/detonation" element={<Detonation />} />
                 <Route path="/allowlist" element={<Allowlist />} />
                 <Route path="/dns-blocks" element={<DnsBlock />} />
                 <Route path="/device-control" element={<DeviceControl />} />
