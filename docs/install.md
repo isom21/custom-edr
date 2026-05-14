@@ -175,6 +175,18 @@ VIGIL_AUDIT_HMAC_KEY=<openssl rand -hex 32>
 VIGIL_CA_MASTER_KEY=<openssl rand -hex 32>
 VIGIL_UPLOAD_TOKEN_KEY=<openssl rand -hex 32>
 VIGIL_TOTP_ENCRYPTION_KEY=<python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+VIGIL_INTEL_ENCRYPTION_KEY=<python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+VIGIL_NOTIFICATION_ENCRYPTION_KEY=<python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+```
+
+Optional, only when OIDC SSO is enabled (`./install.sh --with-oidc`
+sets these for you; see "OIDC SSO" below):
+
+```
+VIGIL_OIDC_ENABLED=true
+VIGIL_OIDC_ISSUER_URL=https://keycloak.example/realms/vigil
+VIGIL_OIDC_CLIENT_ID=vigil-manager
+VIGIL_OIDC_CLIENT_SECRET=<value from the IdP>
 ```
 
 `VIGIL_JWT_SECRET` signs JWTs. `VIGIL_AUDIT_HMAC_KEY` activates the
@@ -208,19 +220,67 @@ every 2FA-enabled user locks them out; if you must rotate, plan a
 maintenance window where admins force-disable then re-enroll each
 user via `/api/users/{id}/2fa/disable` + the standard setup flow.
 
+`VIGIL_INTEL_ENCRYPTION_KEY` (Fernet) encrypts the TAXII /
+abuse.ch / custom-JSON IntelFeed credentials at rest. Same shape
+and rotation cost as TOTP — rotating without re-saving each feed's
+credentials locks the puller out of every feed.
+
+`VIGIL_NOTIFICATION_ENCRYPTION_KEY` (Fernet) encrypts
+NotificationChannel credentials at rest — Slack webhook URLs,
+PagerDuty integration keys, SMTP passwords. Same shape and
+rotation cost; rotating without re-saving each channel breaks
+every alert route until the channels are reset.
+
 <a name="crypto-secrets"></a>**Refuse-to-boot guard.** When `VIGIL_DEBUG`
-is unset (production default), the manager refuses to start if any of
-the five crypto secrets is missing or still at its dev default:
+is unset (production default), the manager refuses to start if any
+of the seven crypto secrets (plus three OIDC fields when SSO is
+enabled) is missing or still at its dev default:
 
 - `VIGIL_JWT_SECRET == "dev-only-change-me"`
 - `VIGIL_CA_MASTER_KEY` starts with `"dev-only-"`
 - `VIGIL_AUDIT_HMAC_KEY` is unset or empty
 - `VIGIL_TOTP_ENCRYPTION_KEY` is unset or still the dev default
+- `VIGIL_INTEL_ENCRYPTION_KEY` is unset or still the dev default
+- `VIGIL_NOTIFICATION_ENCRYPTION_KEY` is unset or still the dev default
 - `VIGIL_UPLOAD_TOKEN_KEY` is unset (silently falls back to `VIGIL_JWT_SECRET`, defeating M18's auth-path separation)
 
-`install.sh` rotates all five; operators building from compose alone
-must set them in `.env` (or the manager's process environment) before
-starting. The startup error message names which secret is missing.
+Plus, when `VIGIL_OIDC_ENABLED=true`:
+
+- `VIGIL_OIDC_ISSUER_URL` non-empty
+- `VIGIL_OIDC_CLIENT_ID` non-empty
+- `VIGIL_OIDC_CLIENT_SECRET` non-empty
+
+`install.sh` rotates all seven; operators building from compose
+alone must set them in `.env` (or the manager's process environment)
+before starting. The startup error message names which secret is
+missing. For OIDC, the cleanest path is `./install.sh --with-oidc`
+which prompts for the three IdP-side identifiers and writes them
+into `backend/.env`.
+
+### OIDC SSO
+
+Phase 1 #1.6 added OIDC sign-in via the standard authorization-code
+flow with PKCE. By default OIDC is off and the install.sh-printed
+password path is the only way in. To enable:
+
+```bash
+./install.sh --with-oidc
+# (prompts for VIGIL_OIDC_ISSUER_URL, VIGIL_OIDC_CLIENT_ID,
+# VIGIL_OIDC_CLIENT_SECRET; writes them into backend/.env at mode 600.)
+```
+
+The four `VIGIL_OIDC_*` env vars are checked by the same
+refuse-to-boot guard described above — a half-configured OIDC
+(say, issuer URL set but client secret blank) refuses to start
+rather than silently letting the password fallback mask the
+misconfiguration. To turn OIDC back off without rotating any
+secret, set `VIGIL_OIDC_ENABLED=false` in `backend/.env` and
+restart the manager; the three identifier values can remain.
+
+Known limitation: today an OIDC sign-in for a user with TOTP
+enabled bypasses the TOTP step (tracked as CODE-30). Until that
+ships, disable 2FA on accounts that authenticate via OIDC, or
+require 2FA inside the IdP itself.
 
 `VIGIL_PG_DSN_AUDIT` + `VIGIL_AUDIT_OWNER_PASSWORD` are new in M16.a
 (fixed). The first time you apply migrations after upgrading,
@@ -360,6 +420,13 @@ The expected public key fingerprint is:
 ```
 <TO_BE_FILLED_BY_MAINTAINER>
 ```
+
+> **TODO (DOC-9):** the maintainer GPG fingerprint above is a
+> placeholder. Until the maintainer publishes one, treat the
+> verify-before-install step below as advisory and pin to a
+> known-good commit SHA via `git clone --depth=1 --branch=v1.0.0`
+> instead of trusting the release tarball. Tracking issue:
+> <https://github.com/isom21/vigil-edr/issues>.
 
 Import the key and verify before installing:
 

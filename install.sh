@@ -23,8 +23,27 @@
 # Skip steps via env:
 #   VIGIL_INSTALL_SKIP_INFRA=1     # don't touch docker compose
 #   VIGIL_INSTALL_SKIP_FRONTEND=1  # don't npm install
+#
+# Optional OIDC SSO (Phase 1 #1.6): pass --with-oidc (or set
+# VIGIL_INSTALL_WITH_OIDC=1) and the script will write
+# VIGIL_OIDC_ENABLED=true into backend/.env and prompt for the three
+# IdP-side identifiers. The refuse-to-boot guard refuses to start
+# when oidc_enabled but any of issuer/client_id/client_secret is empty.
 
 set -euo pipefail
+
+# ---------- arg parsing ----------
+INSTALL_WITH_OIDC="${VIGIL_INSTALL_WITH_OIDC:-}"
+for arg in "$@"; do
+    case "$arg" in
+        --with-oidc) INSTALL_WITH_OIDC=1 ;;
+        --help|-h)
+            sed -n '1,30p' "$0"
+            exit 0
+            ;;
+        *) printf 'install.sh: unrecognised flag: %s\n' "$arg" >&2; exit 2 ;;
+    esac
+done
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_ROOT"
@@ -118,6 +137,12 @@ if [ ! -f "$ENV_FILE" ]; then
     HMAC_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     UPLOAD_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
     TOTP_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+    # Fernet (32-byte url-safe base64) — encrypts IntelFeed and
+    # NotificationChannel credentials at rest. Both are checked by
+    # assert_production_secrets; missing either keeps the manager
+    # from booting in production.
+    INTEL_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+    NOTIFICATION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
     # M16.a (fixed): vigil_audit_writer is a separate PG role that owns
     # audit_log. The manager's runtime role `vigil_manager` keeps only SELECT +
     # INSERT. The migration creates/rotates this role with the password
@@ -141,7 +166,34 @@ VIGIL_CA_MASTER_KEY=$CA_KEY
 VIGIL_AUDIT_HMAC_KEY=$HMAC_KEY
 VIGIL_UPLOAD_TOKEN_KEY=$UPLOAD_KEY
 VIGIL_TOTP_ENCRYPTION_KEY=$TOTP_KEY
+VIGIL_INTEL_ENCRYPTION_KEY=$INTEL_KEY
+VIGIL_NOTIFICATION_ENCRYPTION_KEY=$NOTIFICATION_KEY
 EOF
+    if [ -n "$INSTALL_WITH_OIDC" ]; then
+        log "OIDC SSO requested (--with-oidc); prompting for IdP-side identifiers"
+        # Read from /dev/tty so this works even when install.sh stdin
+        # has been redirected (e.g. piped through `bash -`).
+        printf 'OIDC issuer URL (e.g. https://keycloak.example/realms/vigil): '
+        IFS= read -r OIDC_ISSUER_URL < /dev/tty
+        printf 'OIDC client ID: '
+        IFS= read -r OIDC_CLIENT_ID < /dev/tty
+        printf 'OIDC client secret: '
+        # No -s: we already wrote the .env at mode 600 so this stays
+        # local. Echoing keeps the value verifiable on first paste.
+        IFS= read -r OIDC_CLIENT_SECRET < /dev/tty
+        if [ -z "$OIDC_ISSUER_URL" ] || [ -z "$OIDC_CLIENT_ID" ] || [ -z "$OIDC_CLIENT_SECRET" ]; then
+            fatal "OIDC fields are required when --with-oidc is set; refusing to write a half-configured .env"
+        fi
+        cat >> "$ENV_FILE" <<EOF
+# Phase 1 #1.6 — OIDC SSO. Manager refuses to boot if enabled but
+# any of issuer/client_id/client_secret is empty.
+VIGIL_OIDC_ENABLED=true
+VIGIL_OIDC_ISSUER_URL=$OIDC_ISSUER_URL
+VIGIL_OIDC_CLIENT_ID=$OIDC_CLIENT_ID
+VIGIL_OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET
+EOF
+        ok "OIDC SSO configured"
+    fi
     chmod 600 "$ENV_FILE"
     ok "wrote $ENV_FILE (mode 600)"
 else
