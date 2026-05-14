@@ -555,6 +555,33 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 4 #4.3 identity threat detection sources.
+export type IdentitySourceKind = "okta" | "azure_ad";
+
+export interface IdentitySource {
+  id: string;
+  kind: IdentitySourceKind;
+  name: string;
+  enabled: boolean;
+  last_polled_at: string | null;
+  last_event_ts: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdentitySourceCreate {
+  kind: IdentitySourceKind;
+  name: string;
+  config: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface IdentitySourceUpdate {
+  name?: string;
+  config?: Record<string, string>;
+  enabled?: boolean;
+}
+
 // Phase 2 #2.7 vulnerability assessment.
 export interface Vulnerability {
   cve_id: string;
@@ -1095,6 +1122,8 @@ export interface DnsBlockBulkImportResult {
 export type WebhookEventType =
   | "alert.opened"
   | "alert.state_changed"
+  // Phase 4 #4.1 — emitted when the AI summariser persists a row.
+  | "alert.summary_ready"
   | "incident.opened"
   | "incident.resolved"
   | "job.completed"
@@ -1105,6 +1134,7 @@ export type WebhookEventType =
 export const WEBHOOK_EVENT_TYPES: WebhookEventType[] = [
   "alert.opened",
   "alert.state_changed",
+  "alert.summary_ready",
   "incident.opened",
   "incident.resolved",
   "job.completed",
@@ -1219,7 +1249,11 @@ export type WidgetType =
   | "top_rules"
   | "timeline_24h"
   | "hosts_table"
-  | "incidents_table";
+  | "incidents_table"
+  // Phase 4 #4.1 — AI summary card on the alert detail page. Not a
+  // dashboard tile; reuses the widget switch so the renderer stays
+  // single-source.
+  | "ai_summary";
 
 export interface WidgetPosition {
   x: number;
@@ -1270,6 +1304,15 @@ export interface IncidentsTableWidget extends WidgetBase {
   limit: number;
 }
 
+// Phase 4 #4.1 — AI summary card. Not a dashboard tile; the
+// AlertDetail page constructs one inline with the alert id pinned
+// via `options.alert_id` so the WidgetRenderer can dispatch to the
+// same surface the dashboards machinery uses.
+export interface AiSummaryWidget extends WidgetBase {
+  type: "ai_summary";
+  options?: { alert_id?: string } & Record<string, unknown>;
+}
+
 export type Widget =
   | KpiWidget
   | SeverityDonutWidget
@@ -1278,7 +1321,8 @@ export type Widget =
   | TopRulesWidget
   | Timeline24hWidget
   | HostsTableWidget
-  | IncidentsTableWidget;
+  | IncidentsTableWidget
+  | AiSummaryWidget;
 
 export interface Dashboard {
   id: string;
@@ -1452,4 +1496,40 @@ export interface DetonationJob {
   error: string | null;
   submitted_at: string;
   finished_at: string | null;
+}
+
+// Phase 4 #4.1 — AI-assisted analyst surfaces ------------------------
+
+/** One suggested response action from the model. The widget renders
+ * entries with a known `kind` and ignores anything else, so the
+ * vocabulary can grow without a schema change. */
+export interface AiSuggestedResponse {
+  kind: string;
+  label: string;
+  rationale?: string | null;
+}
+
+export interface AlertSummary {
+  id: string;
+  alert_id: string;
+  tenant_id: string;
+  summary: string;
+  suggested_response_json: AiSuggestedResponse[] | null;
+  model_id: string;
+  cached_input_tokens: number;
+  output_tokens: number;
+  created_at: string;
+}
+
+export interface NlQueryRequest {
+  prompt: string;
+  language: "kql" | "lucene";
+}
+
+export interface NlQueryResponse {
+  query: string;
+  language: "kql" | "lucene";
+  cached_input_tokens: number;
+  output_tokens: number;
+  model_id: string;
 }
