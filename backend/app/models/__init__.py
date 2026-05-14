@@ -14,6 +14,7 @@ from app.models.case_destination import (
     CaseLink,
     CaseSyncState,
 )
+from app.models.cloud_source import CloudBaseline, CloudSource, CloudSourceKind
 from app.models.command import Command, CommandKind, CommandStatus
 from app.models.dashboard import Dashboard
 from app.models.device_policy import DevicePolicy, DevicePolicyKind
@@ -88,6 +89,9 @@ __all__ = [
     "CaseLink",
     "CaseSyncState",
     "CertificateAuthority",
+    "CloudBaseline",
+    "CloudSource",
+    "CloudSourceKind",
     "Command",
     "CommandKind",
     "CommandStatus",

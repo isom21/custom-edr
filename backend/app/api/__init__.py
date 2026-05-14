@@ -10,6 +10,7 @@ from app.api import (
     audit,
     auth,
     case_destinations,
+    cloud_sources,
     commands,
     dashboards,
     device_policies,
@@ -83,6 +84,7 @@ for module in (
     scim_tokens,
     archive,
     tenants,
+    cloud_sources,
 ):
     api_router.include_router(module.router)
 # Cross-host commands listing (M7.6) lives on a separate router so it

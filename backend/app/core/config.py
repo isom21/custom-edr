@@ -252,6 +252,13 @@ class Settings(BaseSettings):
     vuln_scan_interval_s: int = 86400
     nvd_base_url: str = "https://services.nvd.nist.gov/rest/json"
 
+    # Phase 4 #4.2: AWS CloudTrail IAM-anomaly monitor. Outer tick gates
+    # the worker loop (floor 30 s); per-source watermarks live on the
+    # `cloud_source` row. Set `cloud_iam_monitor_enabled` to "0" to keep
+    # the worker dormant on this instance.
+    cloud_iam_monitor_interval_s: int = 300
+    cloud_iam_monitor_enabled: str = "1"
+
 
 settings = Settings()
 

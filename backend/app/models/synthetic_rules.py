@@ -38,6 +38,11 @@ REENROLLMENT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000005")
 # task (M-audit-and-auth #6).
 AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000006")
 
+# Phase 4 #4.2 — AWS CloudTrail IAM-role anomaly detector (new principal,
+# new action for principal, new region for principal, or unexpected root
+# console login).
+CLOUD_IAM_ANOMALY_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000011")
+
 
 # Convenience iterable for tests / migration sanity checks: every
 # synthetic rule UUID this module knows about. Adding a new one above
@@ -45,4 +50,5 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
+    CLOUD_IAM_ANOMALY_RULE_ID,
 )
