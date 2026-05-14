@@ -242,6 +242,16 @@ class Settings(BaseSettings):
     rollout_monitor_interval_s: int = 30
     rollout_cohort_seed: str = "vigil-cohort-v1"
 
+    # Phase 4 #4.3: identity threat detection (Okta + Azure AD).
+    # `identity_monitor_interval_s` gates the outer worker tick (floor
+    # 30 s — both upstream APIs rate-limit below 5/min). The detectors
+    # are configured per-source on the row; the only fleet-wide tunable
+    # the worker reads from settings is the impossible-travel kmph
+    # threshold (default 800, commercial-jet ceiling).
+    identity_monitor_interval_s: int = 300
+    identity_monitor_enabled: str = "1"
+    identity_impossible_travel_kmph: int = 800
+
     # Phase 2 #2.7: NVD-driven vulnerability assessment. `nvd_api_key`
     # is optional — empty string keeps the worker on the 6s public
     # rate-limit floor; setting a key drops that to 0.6s per request.

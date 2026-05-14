@@ -38,6 +38,17 @@ REENROLLMENT_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000005")
 # task (M-audit-and-auth #6).
 AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000006")
 
+# Phase 4 #4.3 — identity threat detectors. One synthetic Rule per
+# detector class so the alerts UI groups them sensibly (filter by
+# rule_id) without exploding into per-tenant or per-source rows. All
+# four are bootstrapped on first detection via the worker's lazy
+# `_ensure_rule` helper — same pattern as `anomaly.py`'s
+# ANOMALY_RULE_ID.
+IDENTITY_IMPOSSIBLE_TRAVEL_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000011")
+IDENTITY_BRUTE_FORCE_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000012")
+IDENTITY_MFA_BOMB_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000013")
+IDENTITY_PASSWORD_SPRAY_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000014")
+
 
 # Convenience iterable for tests / migration sanity checks: every
 # synthetic rule UUID this module knows about. Adding a new one above
@@ -45,4 +56,8 @@ AUDIT_CHAIN_BREAK_RULE_ID: Final[UUID] = UUID("a0a0a0a0-0000-0000-0000-000000000
 ALL_SYNTHETIC_RULE_IDS: Final[tuple[UUID, ...]] = (
     REENROLLMENT_RULE_ID,
     AUDIT_CHAIN_BREAK_RULE_ID,
+    IDENTITY_IMPOSSIBLE_TRAVEL_RULE_ID,
+    IDENTITY_BRUTE_FORCE_RULE_ID,
+    IDENTITY_MFA_BOMB_RULE_ID,
+    IDENTITY_PASSWORD_SPRAY_RULE_ID,
 )

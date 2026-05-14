@@ -555,6 +555,33 @@ export interface IntelFeedUpdate {
   enabled?: boolean;
 }
 
+// Phase 4 #4.3 identity threat detection sources.
+export type IdentitySourceKind = "okta" | "azure_ad";
+
+export interface IdentitySource {
+  id: string;
+  kind: IdentitySourceKind;
+  name: string;
+  enabled: boolean;
+  last_polled_at: string | null;
+  last_event_ts: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdentitySourceCreate {
+  kind: IdentitySourceKind;
+  name: string;
+  config: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface IdentitySourceUpdate {
+  name?: string;
+  config?: Record<string, string>;
+  enabled?: boolean;
+}
+
 // Phase 2 #2.7 vulnerability assessment.
 export interface Vulnerability {
   cve_id: string;

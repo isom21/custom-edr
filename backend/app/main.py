@@ -118,6 +118,20 @@ async def lifespan(_app: FastAPI):
 
         intel_ingest_task = asyncio.create_task(_intel_loop())
 
+    # Phase 4 #4.3: identity threat detection (Okta + Azure AD).
+    identity_monitor_task: asyncio.Task | None = None
+    if (
+        _os.environ.get(
+            "VIGIL_IDENTITY_MONITOR_ENABLED",
+            "1" if settings.identity_monitor_enabled != "0" else "0",
+        )
+        != "0"
+        and _os.environ.get("VIGIL_TEST_ENV") != "1"
+    ):
+        from app.workers.identity_monitor import run_forever as _identity_loop
+
+        identity_monitor_task = asyncio.create_task(_identity_loop())
+
     # Phase 3 #3.7: webhook dispatcher worker — consumes
     # `webhook.events` and fans matching subscriptions out.
     webhook_dispatcher_task: asyncio.Task | None = None
@@ -296,6 +310,12 @@ async def lifespan(_app: FastAPI):
             intel_ingest_task.cancel()
             try:
                 await intel_ingest_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        if identity_monitor_task is not None:
+            identity_monitor_task.cancel()
+            try:
+                await identity_monitor_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         if webhook_dispatcher_task is not None:
