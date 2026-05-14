@@ -16,6 +16,7 @@ broker/notifier paths can pick it up via the usual stream.
 from __future__ import annotations
 
 import base64
+import binascii
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -80,7 +81,7 @@ def _payload_bytes(token: Honeytoken) -> bytes:
         # `body` is base64 of the raw bytes the operator wants written.
         try:
             return base64.b64decode(body, validate=True)
-        except (ValueError, base64.binascii.Error):
+        except (ValueError, binascii.Error):
             pass
     import json
 

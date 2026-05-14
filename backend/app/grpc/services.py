@@ -296,6 +296,7 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
         # target_path, payload_b64}, ...]`; decode the b64 payload
         # back into raw bytes for the wire.
         import base64 as _b64
+        import binascii as _binascii
 
         specs = payload.get("specs") or []
         for spec in specs:
@@ -314,7 +315,7 @@ def _command_to_pb(cmd: Command) -> control_pb2.Command | None:
             if isinstance(raw_b64, str) and raw_b64:
                 try:
                     pb_spec.payload = _b64.b64decode(raw_b64, validate=True)
-                except (ValueError, _b64.binascii.Error):
+                except (ValueError, _binascii.Error):
                     # Skip a malformed entry rather than fail the
                     # whole batch.
                     continue
