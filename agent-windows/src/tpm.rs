@@ -27,7 +27,9 @@ pub struct PcrValue {
     pub digest: Vec<u8>,
 }
 
+#[allow(dead_code)] // referenced by the cross-platform unit tests + the v2 Tbsi path
 pub const REPORTED_INDICES: &[u32] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+#[allow(dead_code)] // surfaced via primary_bank(); v1 builds don't read it directly
 const PRIMARY_BANK: &str = "sha256";
 
 /// Read the current PCR set via TBS. Returns an error on hosts that
@@ -90,6 +92,7 @@ pub fn detect() -> Option<()> {
 
 /// Constants kept compiled even on Linux CI so the cross-platform unit
 /// tests (which run on Linux) can reference them.
+#[allow(dead_code)] // helper for the v2 Tbsi PCR-read path; the v1 stub returns Err
 pub fn primary_bank() -> &'static str {
     PRIMARY_BANK
 }
