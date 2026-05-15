@@ -189,6 +189,11 @@ async def delete_quarantined_record(
     row = await db.get(QuarantinedFile, quarantine_id)
     if row is None:
         raise not_found("quarantined_file", str(quarantine_id))
+    # CODE-17: gate on host_visible_to so a tenant-A admin can't scrub
+    # a tenant-B host's quarantine ledger. Mirrors the release path
+    # (api/quarantine.py:144).
+    if not await host_visible_to(actor, row.host_id, db):
+        raise not_found("quarantined_file", str(quarantine_id))
     row.status = QuarantineStatus.DELETED
     await audit.record(
         db,

@@ -228,7 +228,21 @@ async def update_host(
     host = await db.get(Host, host_id)
     if host is None:
         raise not_found("host", str(host_id))
+    # CODE-18: gate on host_visible_to (tenant-scoped). Pre-PR, a
+    # tenant-A admin could mutate tenant B's host status or rebind its
+    # policy_id.
+    if not await host_visible_to(actor, host_id, db):
+        raise not_found("host", str(host_id))
     if payload.policy_id is not None:
+        # Cross-validate that the new policy belongs to the same
+        # tenant as the host. Otherwise tenant A could rebind tenant B's
+        # host to a tenant-A policy (or, more dangerously, the seed
+        # tenant's default policy).
+        from app.models import Policy
+
+        policy = await db.get(Policy, payload.policy_id)
+        if policy is None or policy.tenant_id != host.tenant_id:
+            raise not_found("policy", str(payload.policy_id))
         host.policy_id = payload.policy_id
     if payload.status is not None:
         host.status = payload.status
@@ -376,6 +390,9 @@ def _map_live_event(h: dict, src: dict, ts: datetime) -> LiveTelemetryEvent:
 async def delete_host(host_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
     host = await db.get(Host, host_id)
     if host is None:
+        raise not_found("host", str(host_id))
+    # CODE-18: same gate as update_host.
+    if not await host_visible_to(actor, host_id, db):
         raise not_found("host", str(host_id))
     await db.delete(host)
     await audit.record(
