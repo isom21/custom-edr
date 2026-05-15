@@ -207,8 +207,14 @@ async def get_job(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> JobDetail:
+    # CODE-15: scope by Job.tenant_id so cross-tenant ids 404 even
+    # before the host-visibility intersection check below.
     job = (
-        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+        await db.execute(
+            select(Job)
+            .options(selectinload(Job.runs))
+            .where(Job.id == job_id, Job.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))
@@ -245,8 +251,13 @@ async def list_job_runs(
     limit: int = 200,
     offset: int = 0,
 ) -> Page[JobRunOut]:
+    # CODE-15: scope by Job.tenant_id (same as get_job above).
     job = (
-        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+        await db.execute(
+            select(Job)
+            .options(selectinload(Job.runs))
+            .where(Job.id == job_id, Job.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))
@@ -322,8 +333,13 @@ async def cancel_job(
     db: DbSession,
     actor: RequireAnalyst,
 ) -> JobDetail:
+    # CODE-15: scope by Job.tenant_id before the host-visibility check.
     job = (
-        await db.execute(select(Job).options(selectinload(Job.runs)).where(Job.id == job_id))
+        await db.execute(
+            select(Job)
+            .options(selectinload(Job.runs))
+            .where(Job.id == job_id, Job.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if job is None:
         raise not_found("job", str(job_id))

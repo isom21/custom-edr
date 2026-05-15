@@ -186,6 +186,12 @@ async def suppress_host_vulnerability(
     if row is None:
         raise not_found("host_vulnerability", str(host_vuln_id))
 
+    # CODE-16: gate the suppression flip on host visibility (which is
+    # itself tenant-scoped). Without this, a tenant-A admin could
+    # toggle suppression on a tenant-B host's vulnerabilities.
+    if not await host_visible_to(actor, row.host_id, db):
+        raise not_found("host_vulnerability", str(host_vuln_id))
+
     new_state = not row.suppressed
     if new_state:
         row.suppressed = True
