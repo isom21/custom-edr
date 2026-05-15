@@ -160,21 +160,54 @@ compromise can rewrite history *and* recompute the chain. Externalize
 `VIGIL_AUDIT_HMAC_KEY` (HSM / KMS / vault) for deployments where the
 threat model includes a manager-host attacker.
 
-What's logged today:
+What's logged today (regenerated from the `audit.record(`
+call sites in `backend/app/api/`):
 
-| Action | Source |
+| Action family | Source |
 |---|---|
-| `user.create`, `user.update`, `user.delete` | `/api/users` |
-| `host.update`, `host.delete` | `/api/hosts` |
-| `host_group.create`, `host_group.update`, `host_group.delete`, `host_group.members.replace` | `/api/host-groups` |
-| `rule.*` | `/api/rules` |
-| `enrollment_token.create`, `enrollment_token.revoke` | `/api/enrollment` |
-| `api_token.create`, `api_token.revoke` | `/api/tokens` |
+| `user.create`, `user.update`, `user.delete`, `user.groups.replace`, `user.provision`, `user.oidc_link` | `/api/users` + OIDC callback |
+| `user.login`, `user.login.failed`, `user.login.throttled`, `user.login.password_ok_mfa_required`, `user.login.oidc_ok_mfa_required`, `user.login.2fa_failed` | `/api/auth/login`, `/login/2fa`, `/oidc/callback` |
+| `user.2fa.setup_started`, `user.2fa.enabled`, `user.2fa.disabled`, `user.2fa.admin_disabled`, `user.2fa.recovery_used` | `/api/auth/totp/*`, `/api/users/{id}/2fa/disable` |
+| `host.update`, `host.delete`, `host.enroll` | `/api/hosts` + enrollment |
+| `host_group.create / .update / .delete / .members.replace` | `/api/host-groups` |
+| `rule.create / .update / .delete` | `/api/rules` |
+| `rule_group.create / .update / .delete` | `/api/rule-groups` |
+| `sequence_rule.create / .update / .delete` | `/api/sequence-rules` |
+| `playbook.create / .update / .delete` | `/api/playbooks` |
+| `tenant.create / .update / .delete` | `/api/tenants` (super-admin) |
+| `policy.create / .update / .delete` | `/api/policies` |
+| `command.queue`, `host.terminal.open / .io / .close` | `/api/hosts/{id}/commands`, `/api/hosts/{id}/terminal` |
 | `alert.state_change`, `alert.assign` | `/api/alerts` |
-| `command.queue` | `/api/hosts/{id}/commands` |
+| `incident.state_change`, `incident.assign` | `/api/incidents` |
+| `notification_channel.create / .update / .delete` | `/api/notifications/channels` |
+| `routing_rule.create / .update / .delete` | `/api/notifications/rules` |
+| `intel_feed.create / .update / .delete / .pull_triggered` | `/api/intel/feeds` |
+| `allowlist.mode.set`, `allowlist.entry.create / .delete` | `/api/host-groups/{id}/allowlist` |
+| `dns_block.create / .delete / .import` | `/api/dns-blocks` |
+| `device_policy.create / .update / .delete` | `/api/device-policies` |
+| `quarantine.release / .delete` | `/api/quarantine` |
+| `job.create / .cancel`, `artifact.download` | `/api/jobs` |
+| `hunt.create / .update / .delete / .run_adhoc / .run_saved` | `/api/hunt/*` |
+| `webhook.create / .update / .delete / .rotate / .test` | `/api/webhooks` |
+| `case_destination.create / .update / .delete / .test` | `/api/cases/destinations` |
+| `cloud_source.create / .update / .delete` | `/api/cloud-sources` |
+| `identity_source.create / .update / .delete` | `/api/identity-sources` |
+| `detonation_provider.create / .update / .delete`, `detonation.submit` | `/api/detonation/*` |
+| `honeytoken.create / .update / .delete` | `/api/honeytokens` |
+| `siem_destination.create / .update / .delete` | `/api/siem-forwarders` |
+| `attestation.promote`, `attestation.request` | `/api/attestation` |
+| `dashboard.create / .update / .delete` | `/api/dashboards` |
+| `archive.rehydrate` | `/api/archive` |
+| `rollout.advance` | `/api/rollouts` |
+| `api_token.create / .revoke` | `/api/tokens` |
+| `enrollment_token.create / .revoke` | `/api/enrollment` |
+| `scim.user.create / .update / .delete` | `/scim/v2/Users` (SCIM IdP-driven) |
 
-Reads are NOT logged; if you need that, add a FastAPI middleware that
-wraps every successful 2xx response.
+Reads are NOT logged; if you need that, add a FastAPI middleware
+that wraps every successful 2xx response. Per-tenant chains: a
+tenant-A admin's `GET /api/audit` only returns rows where
+`audit_log.tenant_id == actor.tenant_id` (super-admins switch
+tenants via the active-tenant cookie).
 
 ## Query examples
 

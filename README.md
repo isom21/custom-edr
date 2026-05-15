@@ -12,22 +12,83 @@ analog Roman society had to what an EDR does.
 
 ## What it does
 
-* **Telemetry** — process / file / network / image / registry / DNS
-  events from kernel-mode collectors. Linux uses eBPF + LSM hooks;
-  Windows uses a KMDF minifilter + WFP + ETW.
-* **Detection** — Sigma rules via OpenSearch percolator (~1s p95
-  end-to-end), IOC matching, first-time-process anomaly detection,
-  agent self-protection tamper detection.
-* **Response** — kill / block process / block file / quarantine file
-  via response-action commands queued from the UI or REST API.
-  Actions are kernel-enforced (BPF maps on Linux, IOCTL to the
-  driver on Windows).
-* **Self-protection** — BPF LSM (Linux) and ObRegisterCallbacks
-  (Windows) reject same-box-root attempts to kill, ptrace, debug,
-  unlink, or hijack the agent's `agent_self` map. Tamper-evident
-  audit log on the manager (HMAC chain + INSERT-only DB role).
-* **RBAC** — admin / analyst / viewer roles, host-group scoping,
-  per-user API tokens, full audit trail with HMAC chain.
+Phase-grouped feature index. Each line links to the operator runbook
+section that covers day-to-day use.
+
+**Telemetry + detection (Phase 0 / M-series)**
+
+* **Kernel-mode telemetry** — process / file / network / image /
+  registry / DNS events. Linux: eBPF + LSM hooks. Windows: KMDF
+  minifilter + WFP + ETW.
+* **Sigma realtime detection** — OpenSearch percolator, ~1s p95
+  end-to-end ([operator-guide → Detection workflow](docs/operator-guide.md#detection-workflow)).
+  ADR 0005 documents the move from scheduled to realtime.
+* **Sigma rule packs** — 25-rule starter pack + 51-rule curated v2 +
+  identity-attack pack shipped in `backend/rule_packs/`.
+* **IOC matching, first-time-process anomaly, agent tamper detection**.
+* **Response actions** — `alert` / `block` / `quarantine` (kernel-
+  enforced via BPF maps on Linux, IOCTL to the driver on Windows).
+* **MITRE ATT&CK + Navigator JSON** export for fleet coverage.
+* **RBAC** — admin / analyst / viewer + host-group scoping. Tamper-
+  evident audit log (HMAC chain + INSERT-only DB role).
+
+**Phase 1 — alerts + identity (#1.x)**
+
+* **Alert dedup sliding-window** + **incidents** (cross-rule grouping,
+  process-tree-aware).
+* **Alert routing** to Slack, PagerDuty, SMTP ([operator-guide → Notifications](docs/operator-guide.md#notifications)).
+* **OIDC SSO** + **TOTP 2FA** (TOTP takes precedence — see
+  [install.md → OIDC SSO](docs/install.md#oidc-sso)).
+* **Live response terminal** (TerminalStream + xterm.js).
+* **Network isolation** — BPF allowlist + Windows WFP.
+* **Redis HA** — rate-limit / alert broker / login throttle.
+* **SIEM forwarders** — syslog/CEF, Splunk HEC, Microsoft Sentinel.
+* **Threat intel** — TAXII 2.1 + abuse.ch CSV + custom JSON.
+
+**Phase 2 — detection breadth + jobs engine (#2.x)**
+
+* **In-memory YARA scanner** (`memory_yara_v1`).
+* **Sequence / behavioural rules** — multi-step YAML detections.
+* **Auth-event capture** — ETW + auditd.
+* **Process correlation graph** + **vulnerability assessment** (NVD).
+* **Application allowlist** — per-host-group SHA-256 enforce mode.
+* **Container enrichment** + **triage forensic acquisition jobs**.
+* **Hunt workbench** + saved hunts (scheduler + alert-on-hit).
+* **DNS sinkhole** ([operator-guide → DNS block](docs/operator-guide.md#dns-block-list)).
+
+**Phase 3 — multi-tenancy + automation (#3.x)**
+
+* **Multi-tenancy** — every tenant-scoped resource has a `tenant_id`
+  column + RBAC gate ([operator-guide → Multi-tenancy](docs/operator-guide.md#multi-tenancy)).
+* **Archive ILM + S3 cold tier**.
+* **Agent rollout cohorts** + auto-rollback.
+* **Dashboards** — operator-authored widget grids.
+* **Playbooks** — YAML response chains ([operator-guide → Playbooks](docs/operator-guide.md#playbooks)).
+* **Case sync** — Jira + ServiceNow.
+* **Webhooks** — HMAC-signed outbound delivery.
+* **SCIM 2.0** — IdP-provisioned users.
+* **USB device control**.
+
+**Phase 4 — AI / cloud / honeytokens (#4.x)**
+
+* **AI LLM summary + NL→query** (Ollama by default).
+* **IAM CloudTrail anomaly detection**.
+* **Okta + Azure AD identity-source telemetry**.
+* **Cuckoo detonation** with auto-IOC feedback.
+* **Honeytoken decoys** (credential + file + registry).
+* **TPM-backed boot-state attestation** (Linux active; Windows pending
+  Tbsi — see [the "What's not included" section](#whats-not-included)).
+
+**Self-protection + audit trail**
+
+* **BPF LSM self-protection (Linux)** — kill, ptrace, /proc/<pid>/mem,
+  bpffs unlink, agent_self hijack all blocked from non-self callers.
+* **ObRegisterCallbacks self-protection (Windows)** — taskkill,
+  Stop-Process, raw `TerminateProcess` all rejected; non-self processes
+  unaffected.
+* **Tamper-evident audit log** — HMAC chain + INSERT-only DB role
+  (`vigil_audit_writer`); per-tenant chain verifier exposes a
+  fingerprint of the active key.
 
 ## Stack
 
@@ -83,6 +144,14 @@ under one supervisor.
 
 After `make up` you can sign in at <http://localhost:5173> with the
 credentials `install.sh` printed.
+
+**OIDC SSO**: bootstrap with `./install.sh --with-oidc` (or set
+`VIGIL_INSTALL_WITH_OIDC=1`) to prompt for the IdP issuer + client
+credentials. The sign-in page renders an SSO button when
+`/api/auth/oidc/discovery` reports `enabled=true`. See
+[install.md → OIDC SSO](docs/install.md#oidc-sso) for the full setup
+including the Keycloak / Okta example and the TOTP-still-required
+post-OIDC flow.
 
 [`docs/install.md`](docs/install.md) covers the manual flow,
 production deployment, and Linux + Windows agent enrollment. Day-to-day
