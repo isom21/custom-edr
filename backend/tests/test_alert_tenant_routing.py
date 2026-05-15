@@ -283,11 +283,28 @@ async def test_silence_alert_stamps_host_tenant_id(
     Host row (no host_cache hop). Locks in the cheap path."""
     from datetime import timedelta
 
-    from app.models import Alert
+    from app.models import Alert, Rule, RuleAction, RuleKind, Severity
     from app.workers import silence as silence_mod
     from app.workers.silence import SILENCE_RULE_ID
 
     h_a, h_b = _two_tenant_hosts
+    # The synthetic SILENCE_RULE_ID row is normally created by the
+    # worker's _ensure_pseudo_rule on first start. The test bypasses the
+    # constructor so seed it manually — without this the alert insert
+    # trips the rules FK on a clean DB.
+    if await db_session.get(Rule, SILENCE_RULE_ID) is None:
+        db_session.add(
+            Rule(
+                id=SILENCE_RULE_ID,
+                name="M12 self-protection: agent silence (test)",
+                kind=RuleKind.IOC,
+                action=RuleAction.ALERT,
+                severity=Severity.HIGH,
+                enabled=True,
+            )
+        )
+        await db_session.flush()
+
     worker = silence_mod.SilenceWorker.__new__(silence_mod.SilenceWorker)
     worker._threshold = timedelta(seconds=60)
     await worker._fire_alert(db_session, h_a, silence_seconds=120)
