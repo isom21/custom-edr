@@ -328,24 +328,50 @@ VIGIL_CA_DIR=/var/lib/vigil-ca
 ### 6. Start the manager processes
 
 `make up` runs honcho with the top-level `Procfile` (preferred). To
-start individual processes by hand for debugging:
+start individual processes by hand for debugging, the Procfile is
+the source of truth; the table below summarises every worker so
+operators don't have to dig through `backend/app/workers/`:
 
-```bash
-make backend-dev          # FastAPI REST API (:8000)
-make backend-grpc         # gRPC ingest for agents (:50051)
-make backend-normalizer   # telemetry.raw -> telemetry.normalized
-make backend-indexer      # telemetry.normalized -> OpenSearch
-make backend-detector     # IOC detector
-make backend-sigma        # realtime Sigma percolator
-make backend-anomaly      # first-time-process anomaly detector
-make backend-tamper       # agent self-protection tamper alerter
-make backend-silence      # agent-silence alerter
-make frontend-dev         # React UI (:5173)
-```
+| Worker | Module | What it does |
+|---|---|---|
+| API + UI | `uvicorn app.main:app` + `npm run dev` | REST API (:8000) + React UI (:5173). |
+| gRPC ingest | `app.grpc.server` | mTLS ingest from agents (:50051). |
+| normalizer | `app.workers.normalizer` | `telemetry.raw` → `telemetry.normalized` (ECS + tenant/hostname enrichment). |
+| indexer | `app.workers.indexer` | `telemetry.normalized` → OpenSearch. |
+| detector | `app.workers.detector` | IOC detector. |
+| sigma (realtime) | `app.workers.sigma_realtime` | OpenSearch percolator. |
+| sigma (scheduled) | `app.workers.sigma_scheduler` | 30 s-tick legacy engine (ADR 0004; aggregation use cases only). |
+| anomaly | `app.workers.anomaly` | First-time-process baseline. |
+| sequence_detector | `app.workers.sequence_detector` | Multi-step behavioural rules (Phase 2 #2.3). |
+| tamper | `app.workers.tamper` | Agent self-protection tamper alerts. |
+| silence | `app.workers.silence` | Agent-silence detector. |
+| incident_grouper | `app.workers.incident_grouper` | Folds alerts into incidents (Phase 1 #1.11 / #1.12). |
+| alert_router | `app.workers.alert_router` | Fans alerts out to Slack / PagerDuty / SMTP. |
+| webhook_dispatcher | `app.workers.webhook_dispatcher` | Outbound HMAC-signed webhook fanout. |
+| siem_forwarder | `app.workers.siem_forwarder` | syslog/CEF + Splunk HEC + Sentinel. |
+| intel_ingest | `app.workers.intel_ingest` | TAXII + abuse.ch + custom JSON pullers. |
+| process_chain_indexer | `app.workers.process_chain_indexer` | Builds the process-tree graph store. |
+| ai_summariser | `app.workers.ai_summariser` | On alert open, asks the LLM for a 3-line summary. |
+| identity_monitor | `app.workers.identity_monitor` | Okta + Azure AD anomaly detection (Phase 4 #4.3). |
+| cloud_iam_monitor | `app.workers.cloud_iam_monitor` | CloudTrail role-event anomaly (Phase 4 #4.2). |
+| detonation_poller | `app.workers.detonation_poller` | Cuckoo result poll → IOC backfill (Phase 4 #4.4). |
+| quarantine | `app.workers.quarantine` | Quarantine + release pipeline. |
+| allowlist_learner | `app.workers.allowlist_learner` | Per-host-group SHA-256 collection. |
+| vuln_scanner | `app.workers.vuln_scanner` | NVD CPE matching. |
+| hunt_scheduler | `app.workers.hunt_scheduler` | Cron-fires saved hunts. |
+| archive_worker | `app.workers.archive_worker` | ILM rollover + S3 cold tier. |
+| rollout_monitor | `app.workers.rollout_monitor` | Cohort failure rate → auto-rollback. |
+| case_sync | `app.workers.case_sync` | Jira + ServiceNow bidirectional. |
+| sweep_scheduler | `app.workers.sweep_scheduler` | Cron-fires recurring jobs. |
+| dispatch_watchdog | `app.workers.dispatch_watchdog` | Expires stuck Commands past their deadline. |
+| audit_verifier_loop | `app.workers.audit_verifier_loop` | Walks the audit_log HMAC chain on a tick. |
+| playbook_executor | `app.workers.playbook_executor` | Drains `kafka.alerts.opened`, runs matching playbooks. |
 
 For long-running production deployments, use a systemd unit per
 process or a process supervisor (supervisord, k8s deployment).
-Reference systemd units live under `deploy/systemd/`.
+Reference systemd units live under `deploy/systemd/`. See
+[`operator-guide.md → Production deployment`](operator-guide.md#production-deployment)
+for the externally-managed-Postgres / OpenSearch / Kafka shape.
 
 ## Generating an enrollment token
 
