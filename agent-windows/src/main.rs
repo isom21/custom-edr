@@ -79,7 +79,17 @@ const PROTOCOL_VERSION: u32 = 1;
 // so advertising the capability would surface a non-functional
 // live-terminal UI button on every Windows host. Re-advertise when
 // the dispatcher is wired.
-const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1,honeytoken_v1";
+//
+// CODE-205: `honeytoken_v1` is stripped on Windows. The agent still
+// plants the decoys (deception.rs writes the NTFS ADS sentinels and
+// `vigil_honeytoken` registry values), but no code reads them back —
+// there's no ETW path watching `RegSetValueEx` / file-open touches,
+// so `HoneytokenHit` events never fire. Advertising the capability
+// would tell the manager every Windows host is honeytoken-capable
+// when nothing on that host can actually report a touch.
+// Re-advertise once a registry-write ETW path (or driver hook) is
+// wired through `event::honeytoken_hit`.
+const CAPABILITIES_BASE: &str = "self_protect_v1,spool_v1,host_groups_v1,sigma_realtime_v1,driver_v1,net_isolation_v1,auth_events_v1,container_v1,memory_yara_v1,allowlist_v1,device_control_v1";
 
 /// Phase 4 #4.10 (CODE-202, CODE-217, CODE-218): we no longer
 /// advertise `tpm_attestation_v1`. `tpm::read_pcrs()` is a stub
@@ -494,6 +504,18 @@ mod capability_tests {
         assert!(
             !caps.split(',').any(|c| c.trim() == "terminal_v1"),
             "terminal_v1 leaked back into the capability advertisement: {caps}"
+        );
+    }
+
+    /// Regression for CODE-205: keep `honeytoken_v1` off the wire
+    /// on Windows until the registry-write / file-open ETW path
+    /// reads back the planted sentinels.
+    #[test]
+    fn honeytoken_capability_is_not_advertised_on_windows() {
+        let caps = capabilities();
+        assert!(
+            !caps.split(',').any(|c| c.trim() == "honeytoken_v1"),
+            "honeytoken_v1 leaked back into the capability advertisement: {caps}"
         );
     }
 }
