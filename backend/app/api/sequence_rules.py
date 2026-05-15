@@ -27,6 +27,7 @@ from app.schemas.sequence_rule import (
     SequenceRuleUpdate,
 )
 from app.services import audit
+from app.services.scoping import apply_tenant_scope
 from app.services.sequence import SequenceParseError, parse_yaml
 
 log = structlog.get_logger()
@@ -45,6 +46,15 @@ def _validate_or_400(yaml_body: str, window_s: int) -> None:
         raise bad_request(f"sequence rule yaml invalid: {exc}") from exc
 
 
+async def _load_in_tenant(db, srule_id: UUID, actor) -> SequenceRule:
+    """Fetch a SequenceRule, enforcing tenant scope. 404 (not 403) on
+    cross-tenant id (CODE-9)."""
+    srule = await db.get(SequenceRule, srule_id)
+    if srule is None or srule.tenant_id != actor.tenant_id:
+        raise not_found("sequence_rule", str(srule_id))
+    return srule
+
+
 @router.get("", response_model=Page[SequenceRuleOut])
 async def list_sequence_rules(
     db: DbSession,
@@ -53,8 +63,15 @@ async def list_sequence_rules(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[SequenceRuleOut]:
-    stmt = select(SequenceRule).order_by(SequenceRule.name)
-    count_stmt = select(func.count(SequenceRule.id))
+    # CODE-9: scope to the actor's tenant. SequenceRule.tenant_id was
+    # never being filtered, so any admin saw + mutated every tenant's
+    # behavioural detections.
+    stmt = apply_tenant_scope(select(SequenceRule), actor, SequenceRule.tenant_id).order_by(
+        SequenceRule.name
+    )
+    count_stmt = apply_tenant_scope(
+        select(func.count(SequenceRule.id)), actor, SequenceRule.tenant_id
+    )
     if enabled is not None:
         stmt = stmt.where(SequenceRule.enabled == enabled)
         count_stmt = count_stmt.where(SequenceRule.enabled == enabled)
@@ -71,9 +88,7 @@ async def list_sequence_rules(
 
 @router.get("/{srule_id}", response_model=SequenceRuleOut)
 async def get_sequence_rule(srule_id: UUID, db: DbSession, actor: RequireViewer) -> SequenceRuleOut:
-    srule = await db.get(SequenceRule, srule_id)
-    if srule is None:
-        raise not_found("sequence_rule", str(srule_id))
+    srule = await _load_in_tenant(db, srule_id, actor)
     return _to_out(srule)
 
 
@@ -83,13 +98,20 @@ async def create_sequence_rule(
     db: DbSession,
     actor: RequireAdmin,
 ) -> SequenceRuleOut:
+    # Name uniqueness is per-tenant — two tenants can each have a
+    # "powershell-encoded-command" sequence rule.
     dup = (
-        await db.execute(select(SequenceRule).where(SequenceRule.name == payload.name))
+        await db.execute(
+            select(SequenceRule)
+            .where(SequenceRule.name == payload.name)
+            .where(SequenceRule.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if dup is not None:
         raise bad_request(f"sequence rule '{payload.name}' already exists")
     _validate_or_400(payload.yaml_body, payload.window_s)
     srule = SequenceRule(
+        tenant_id=actor.tenant_id,
         name=payload.name,
         description=payload.description,
         yaml_body=payload.yaml_body,
@@ -126,12 +148,14 @@ async def update_sequence_rule(
     db: DbSession,
     actor: RequireAdmin,
 ) -> SequenceRuleOut:
-    srule = await db.get(SequenceRule, srule_id)
-    if srule is None:
-        raise not_found("sequence_rule", str(srule_id))
+    srule = await _load_in_tenant(db, srule_id, actor)
     if payload.name is not None and payload.name != srule.name:
         dup = (
-            await db.execute(select(SequenceRule).where(SequenceRule.name == payload.name))
+            await db.execute(
+                select(SequenceRule)
+                .where(SequenceRule.name == payload.name)
+                .where(SequenceRule.tenant_id == actor.tenant_id)
+            )
         ).scalar_one_or_none()
         if dup is not None:
             raise bad_request(f"sequence rule '{payload.name}' already exists")
@@ -164,9 +188,7 @@ async def update_sequence_rule(
 
 @router.delete("/{srule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_sequence_rule(srule_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
-    srule = await db.get(SequenceRule, srule_id)
-    if srule is None:
-        raise not_found("sequence_rule", str(srule_id))
+    srule = await _load_in_tenant(db, srule_id, actor)
     # Don't cascade-delete the managed Rule — old Alert rows reference
     # it (Alert.rule_id is ondelete=RESTRICT). The Rule sticks around
     # as the carrier for historical alerts. SET NULL on the FK means
