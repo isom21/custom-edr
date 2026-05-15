@@ -27,6 +27,7 @@ from app.schemas.playbook import (
 )
 from app.services import audit
 from app.services.playbooks import PlaybookParseError, parse_yaml
+from app.services.scoping import apply_tenant_scope
 
 log = structlog.get_logger()
 
@@ -57,6 +58,15 @@ def _validate_yaml_or_422(body: str) -> None:
 # --------- Playbook CRUD ---------
 
 
+async def _load_in_tenant(db, playbook_id: UUID, actor) -> Playbook:
+    """Fetch a playbook, enforcing tenant scope. 404 (not 403) on
+    cross-tenant id, per the project convention (CODE-8)."""
+    pb = await db.get(Playbook, playbook_id)
+    if pb is None or pb.tenant_id != actor.tenant_id:
+        raise not_found("playbook", str(playbook_id))
+    return pb
+
+
 @router.get("", response_model=Page[PlaybookOut])
 async def list_playbooks(
     db: DbSession,
@@ -65,8 +75,11 @@ async def list_playbooks(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[PlaybookOut]:
-    stmt = select(Playbook).order_by(Playbook.name)
-    count_stmt = select(func.count(Playbook.id))
+    # CODE-8: scope to the actor's tenant. Pre-PR, Playbook CRUD +
+    # run history ran without any tenant filter, so a tenant-A admin
+    # could enumerate, edit, and delete every tenant's playbooks.
+    stmt = apply_tenant_scope(select(Playbook), actor, Playbook.tenant_id).order_by(Playbook.name)
+    count_stmt = apply_tenant_scope(select(func.count(Playbook.id)), actor, Playbook.tenant_id)
     if enabled is not None:
         stmt = stmt.where(Playbook.enabled == enabled)
         count_stmt = count_stmt.where(Playbook.enabled == enabled)
@@ -83,9 +96,7 @@ async def list_playbooks(
 
 @router.get("/{playbook_id}", response_model=PlaybookOut)
 async def get_playbook(playbook_id: UUID, db: DbSession, actor: RequireViewer) -> PlaybookOut:
-    pb = await db.get(Playbook, playbook_id)
-    if pb is None:
-        raise not_found("playbook", str(playbook_id))
+    pb = await _load_in_tenant(db, playbook_id, actor)
     return _to_out(pb)
 
 
@@ -95,13 +106,19 @@ async def create_playbook(
     db: DbSession,
     actor: RequireAdmin,
 ) -> PlaybookOut:
+    # Name uniqueness is per-tenant after migration 20260515_1000.
     dup = (
-        await db.execute(select(Playbook).where(Playbook.name == payload.name))
+        await db.execute(
+            select(Playbook)
+            .where(Playbook.name == payload.name)
+            .where(Playbook.tenant_id == actor.tenant_id)
+        )
     ).scalar_one_or_none()
     if dup is not None:
         raise bad_request(f"playbook '{payload.name}' already exists")
     _validate_yaml_or_422(payload.yaml_body)
     pb = Playbook(
+        tenant_id=actor.tenant_id,
         name=payload.name,
         description=payload.description,
         yaml_body=payload.yaml_body,
@@ -138,12 +155,14 @@ async def update_playbook(
     db: DbSession,
     actor: RequireAdmin,
 ) -> PlaybookOut:
-    pb = await db.get(Playbook, playbook_id)
-    if pb is None:
-        raise not_found("playbook", str(playbook_id))
+    pb = await _load_in_tenant(db, playbook_id, actor)
     if payload.name is not None and payload.name != pb.name:
         dup = (
-            await db.execute(select(Playbook).where(Playbook.name == payload.name))
+            await db.execute(
+                select(Playbook)
+                .where(Playbook.name == payload.name)
+                .where(Playbook.tenant_id == actor.tenant_id)
+            )
         ).scalar_one_or_none()
         if dup is not None:
             raise bad_request(f"playbook '{payload.name}' already exists")
@@ -176,9 +195,7 @@ async def update_playbook(
 
 @router.delete("/{playbook_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_playbook(playbook_id: UUID, db: DbSession, actor: RequireAdmin) -> None:
-    pb = await db.get(Playbook, playbook_id)
-    if pb is None:
-        raise not_found("playbook", str(playbook_id))
+    pb = await _load_in_tenant(db, playbook_id, actor)
     name = pb.name
     await db.delete(pb)
     await audit.record(
@@ -203,12 +220,15 @@ async def list_playbook_runs(
     limit: int = 50,
     offset: int = 0,
 ) -> Page[PlaybookRunOut]:
-    pb = await db.get(Playbook, playbook_id)
-    if pb is None:
-        raise not_found("playbook", str(playbook_id))
+    # The _load_in_tenant gate ensures cross-tenant playbook ids 404
+    # rather than spilling the run history for that playbook.
+    await _load_in_tenant(db, playbook_id, actor)
     stmt = (
         select(PlaybookRun)
-        .where(PlaybookRun.playbook_id == playbook_id)
+        .where(
+            PlaybookRun.playbook_id == playbook_id,
+            PlaybookRun.tenant_id == actor.tenant_id,
+        )
         .order_by(desc(PlaybookRun.started_at))
         .limit(limit)
         .offset(offset)
@@ -216,7 +236,10 @@ async def list_playbook_runs(
     rows = (await db.execute(stmt)).scalars().all()
     total = (
         await db.execute(
-            select(func.count(PlaybookRun.id)).where(PlaybookRun.playbook_id == playbook_id)
+            select(func.count(PlaybookRun.id)).where(
+                PlaybookRun.playbook_id == playbook_id,
+                PlaybookRun.tenant_id == actor.tenant_id,
+            )
         )
     ).scalar_one()
     return Page(
@@ -230,6 +253,7 @@ async def list_playbook_runs(
 @router.get("/runs/{run_id}", response_model=PlaybookRunOut)
 async def get_playbook_run(run_id: UUID, db: DbSession, actor: RequireViewer) -> PlaybookRunOut:
     run = await db.get(PlaybookRun, run_id)
-    if run is None:
+    # CODE-8: 404 on cross-tenant run id.
+    if run is None or run.tenant_id != actor.tenant_id:
         raise not_found("playbook_run", str(run_id))
     return _to_run_out(run)

@@ -743,6 +743,10 @@ async def execute_playbook(
     alert = await db.get(Alert, alert_id)
     if alert is None:
         run = PlaybookRun(
+            # CODE-8: copy tenant_id from the parent playbook so the
+            # run row lands on the right tenant even when we never
+            # got far enough to load the alert.
+            tenant_id=playbook.tenant_id,
             playbook_id=playbook.id,
             alert_id=alert_id,
             status=PlaybookRunStatus.FAILED.value,
@@ -756,6 +760,7 @@ async def execute_playbook(
 
     ctx = await _context_from_alert(db, alert)
     run = PlaybookRun(
+        tenant_id=playbook.tenant_id,
         playbook_id=playbook.id,
         alert_id=alert.id,
         status=PlaybookRunStatus.RUNNING.value,

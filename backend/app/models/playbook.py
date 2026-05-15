@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UuidPkMixin
+from app.models.tenant import DEFAULT_TENANT_ID
 
 
 class PlaybookRunStatus(str, enum.Enum):
@@ -51,7 +52,19 @@ class PlaybookRunStatus(str, enum.Enum):
 class Playbook(UuidPkMixin, TimestampMixin, Base):
     __tablename__ = "playbook"
 
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # Phase 3 #3.1 (CODE-8): playbooks live per-tenant. Migration
+    # 20260515_1000_playbook_tenant_id added the column with a server
+    # default of DEFAULT_TENANT_ID so existing rows backfill against
+    # the seed tenant. New playbooks must be stamped by the router
+    # (api/playbooks.py) — the default is a backfill aid, not a
+    # silent fallback that mis-routes new rows.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        default=DEFAULT_TENANT_ID,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     # Full YAML source. The engine parses on each trigger; the parsed
     # form isn't cached because playbook fires are rare relative to
@@ -74,6 +87,16 @@ class Playbook(UuidPkMixin, TimestampMixin, Base):
 class PlaybookRun(UuidPkMixin, Base):
     __tablename__ = "playbook_run"
 
+    # Phase 3 #3.1 (CODE-8): denormalised tenant_id so list/history
+    # queries don't need a join through playbook every time. Mirrors
+    # the parent Playbook's tenant_id and is set by the executor when
+    # it inserts the row.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenant.id", ondelete="RESTRICT"),
+        nullable=False,
+        default=DEFAULT_TENANT_ID,
+        index=True,
+    )
     playbook_id: Mapped[UUID] = mapped_column(
         ForeignKey("playbook.id", ondelete="CASCADE"), nullable=False
     )
